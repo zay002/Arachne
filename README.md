@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/demo/model.gif" alt="Arachne model preview" width="800">
+</p>
+
 # Arachne
 
 Arachne is a Linux-native ROS2 framework for a Scout 2.0 + Aubo i5 mobile manipulator. The current visualization model uses a DH Robotics AG95 gripper while the final end-effector choice is being refined.
