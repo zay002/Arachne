@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/demo/model.gif" alt="Arachne model preview" width="800">
+  <img src="docs/demo/model.gif" alt="Arachne model" width="750">
 </p>
 
 # Arachne
