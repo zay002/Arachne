@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<robot name="arachne" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="arm_mount_xyz" default="0.22 0.0 0.155"/>
+  <xacro:arg name="arm_mount_rpy" default="0.0 0.0 1.57079632679"/>
+  <xacro:arg name="tool_adapter_xyz" default="0.0 0.0 0.0"/>
+  <xacro:arg name="tool_adapter_rpy" default="0.0 0.0 0.0"/>
+  <xacro:arg name="with_lidar" default="true"/>
+  <xacro:arg name="with_ee_camera" default="false"/>
+  <xacro:arg name="with_ros2_control" default="false"/>
+
+  <xacro:include filename="materials.xacro"/>
+  <xacro:include filename="common_inertials.xacro"/>
+  <xacro:include filename="scout/scout_2_vendor.xacro"/>
+  <xacro:include filename="aubo/aubo_i5_vendor.xacro"/>
+  <xacro:include filename="aubo/aubo_i5_ros2_control.xacro"/>
+  <xacro:include filename="gripper/ag95.urdf.xacro"/>
+  <xacro:include filename="mounts/scout_aubo_mount.xacro"/>
+  <xacro:include filename="mounts/aubo_ms42dc_adapter.xacro"/>
+  <xacro:include filename="sensors/lidar.xacro"/>
+  <xacro:include filename="sensors/ee_camera.xacro"/>
+
+  <xacro:arachne_scout_2_vendor/>
+  <xacro:arachne_scout_aubo_mount parent="base_link" xyz="$(arg arm_mount_xyz)" rpy="$(arg arm_mount_rpy)"/>
+  <xacro:arachne_aubo_i5_vendor parent="arm_mount_link"/>
+  <xacro:arachne_aubo_ms42dc_adapter parent="tool0" xyz="$(arg tool_adapter_xyz)" rpy="$(arg tool_adapter_rpy)"/>
+  <xacro:arachne_ag95 parent="gripper_adapter_link"/>
+
+  <xacro:if value="$(arg with_lidar)">
+    <xacro:arachne_lidar parent="base_link"/>
+  </xacro:if>
+
+  <xacro:if value="$(arg with_ee_camera)">
+    <xacro:arachne_ee_camera parent="ag95_body"/>
+  </xacro:if>
+
+  <xacro:if value="$(arg with_ros2_control)">
+    <xacro:arachne_aubo_i5_ros2_control prefix="aubo_"/>
+  </xacro:if>
+</robot>

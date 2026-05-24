@@ -1,0 +1,9 @@
+build/
+install/
+log/
+.colcon/
+*.pyc
+__pycache__/
+.ros/
+third_party/*
+!third_party/README.md

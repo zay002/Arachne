@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="arachne_ee_camera" params="parent xyz:='0.04 0 0.035' rpy:='0 0 0'">
+    <link name="ee_camera_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.035 0.035 0.025"/>
+        </geometry>
+        <material name="arachne_sensor"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.035 0.035 0.025"/>
+        </geometry>
+      </collision>
+      <xacro:box_inertial mass="0.08" x="0.035" y="0.035" z="0.025"/>
+    </link>
+    <joint name="ee_camera_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="ee_camera_link"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+    </joint>
+  </xacro:macro>
+</robot>
