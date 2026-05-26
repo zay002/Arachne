@@ -9,7 +9,7 @@ Primary references named by the development plan:
 - ROS2 control: https://github.com/ros-controls/ros2_control
 - ROS2 controllers: https://github.com/ros-controls/ros2_controllers
 - MoveIt2: https://github.com/moveit/moveit2
-- MS42DC product information: https://www.youyeetoo.com/blog/detail/youyeetoo-soft-flexible-robot-gripper-claw-whdpakmg0020-whdpakmg0026-206
+- MS42DC product information: http://www.yizhuarobot.com/
 - Optional AG95 ROS2 description and driver: https://github.com/ian-chuang/dh_ag95_gripper_ros2
 
 Third-party model assets are stored under `third_party/` and exposed to the ROS workspace through `src/vendor/` symlinks when they are ROS packages. Add future CAD, STL, SDK, or manual files only after checking their licenses.
