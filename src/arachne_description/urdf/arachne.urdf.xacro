@@ -13,7 +13,7 @@
   <xacro:include filename="scout/scout_2_vendor.xacro"/>
   <xacro:include filename="aubo/aubo_i5_vendor.xacro"/>
   <xacro:include filename="aubo/aubo_i5_ros2_control.xacro"/>
-  <xacro:include filename="gripper/ag95.urdf.xacro"/>
+  <xacro:include filename="gripper/ms42dc.urdf.xacro"/>
   <xacro:include filename="mounts/scout_aubo_mount.xacro"/>
   <xacro:include filename="mounts/aubo_ms42dc_adapter.xacro"/>
   <xacro:include filename="sensors/lidar.xacro"/>
@@ -23,14 +23,14 @@
   <xacro:arachne_scout_aubo_mount parent="base_link" xyz="$(arg arm_mount_xyz)" rpy="$(arg arm_mount_rpy)"/>
   <xacro:arachne_aubo_i5_vendor parent="arm_mount_link"/>
   <xacro:arachne_aubo_ms42dc_adapter parent="tool0" xyz="$(arg tool_adapter_xyz)" rpy="$(arg tool_adapter_rpy)"/>
-  <xacro:arachne_ag95 parent="gripper_adapter_link"/>
+  <xacro:arachne_ms42dc parent="gripper_adapter_link"/>
 
   <xacro:if value="$(arg with_lidar)">
     <xacro:arachne_lidar parent="base_link"/>
   </xacro:if>
 
   <xacro:if value="$(arg with_ee_camera)">
-    <xacro:arachne_ee_camera parent="ag95_body"/>
+    <xacro:arachne_ee_camera parent="ms42dc_body_link"/>
   </xacro:if>
 
   <xacro:if value="$(arg with_ros2_control)">

@@ -1,116 +1,35 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:include filename="ms42dc_simple_collision.xacro"/>
-
   <xacro:macro name="arachne_ms42dc" params="prefix:='ms42dc_' parent">
-    <link name="${prefix}base_link">
+    <link name="${prefix}body_link">
       <visual>
-        <origin xyz="0 0 0.025" rpy="0 0 0"/>
+        <origin xyz="-0.049334103 0.049874070 0.016816675" rpy="1.570796327 0 0"/>
         <geometry>
-          <box size="0.11 0.08 0.05"/>
+          <mesh filename="package://arachne_description/meshes/gripper/ms42dc/MS42DC.stl" scale="0.001 0.001 0.001"/>
         </geometry>
         <material name="arachne_gripper"/>
       </visual>
       <collision>
-        <origin xyz="0 0 0.025" rpy="0 0 0"/>
+        <origin xyz="0 0 0.082318" rpy="0 0 0"/>
         <geometry>
-          <box size="0.11 0.08 0.05"/>
+          <box size="0.118 0.063 0.165"/>
         </geometry>
       </collision>
-      <xacro:box_inertial mass="0.6" x="0.11" y="0.08" z="0.05"/>
+      <xacro:box_inertial mass="0.6" x="0.118" y="0.063" z="0.165"/>
     </link>
 
     <joint name="${prefix}base_fixed_joint" type="fixed">
       <parent link="${parent}"/>
-      <child link="${prefix}base_link"/>
+      <child link="${prefix}body_link"/>
       <origin xyz="0 0 0" rpy="0 0 0"/>
     </joint>
 
-    <link name="${prefix}left_finger_base_link">
-      <xacro:ms42dc_finger_geometry material="arachne_gripper"/>
-      <xacro:box_inertial mass="0.08" x="0.022" y="0.026" z="0.11"/>
-    </link>
-    <link name="${prefix}right_finger_base_link">
-      <xacro:ms42dc_finger_geometry material="arachne_gripper"/>
-      <xacro:box_inertial mass="0.08" x="0.022" y="0.026" z="0.11"/>
-    </link>
-
-    <link name="${prefix}left_finger_tip_link">
-      <visual>
-        <origin xyz="0 0 0.025" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.026 0.030 0.05"/>
-        </geometry>
-        <material name="arachne_dark"/>
-      </visual>
-      <collision>
-        <origin xyz="0 0 0.025" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.026 0.030 0.05"/>
-        </geometry>
-      </collision>
-      <xacro:box_inertial mass="0.03" x="0.026" y="0.030" z="0.05"/>
-    </link>
-
-    <link name="${prefix}right_finger_tip_link">
-      <visual>
-        <origin xyz="0 0 0.025" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.026 0.030 0.05"/>
-        </geometry>
-        <material name="arachne_dark"/>
-      </visual>
-      <collision>
-        <origin xyz="0 0 0.025" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.026 0.030 0.05"/>
-        </geometry>
-      </collision>
-      <xacro:box_inertial mass="0.03" x="0.026" y="0.030" z="0.05"/>
-    </link>
-
-    <link name="${prefix}center_frame"/>
     <link name="grasp_frame"/>
 
-    <joint name="${prefix}left_finger_joint" type="prismatic">
-      <parent link="${prefix}base_link"/>
-      <child link="${prefix}left_finger_base_link"/>
-      <origin xyz="0 0.025 0.045" rpy="0 0 0"/>
-      <axis xyz="0 1 0"/>
-      <limit lower="0.0" upper="0.035" effort="30" velocity="0.04"/>
-    </joint>
-
-    <joint name="${prefix}right_finger_joint" type="prismatic">
-      <parent link="${prefix}base_link"/>
-      <child link="${prefix}right_finger_base_link"/>
-      <origin xyz="0 -0.025 0.045" rpy="0 0 0"/>
-      <axis xyz="0 -1 0"/>
-      <limit lower="0.0" upper="0.035" effort="30" velocity="0.04"/>
-      <mimic joint="${prefix}left_finger_joint" multiplier="1.0" offset="0.0"/>
-    </joint>
-
-    <joint name="${prefix}left_tip_joint" type="fixed">
-      <parent link="${prefix}left_finger_base_link"/>
-      <child link="${prefix}left_finger_tip_link"/>
-      <origin xyz="0 0 0.11" rpy="0 0 0"/>
-    </joint>
-
-    <joint name="${prefix}right_tip_joint" type="fixed">
-      <parent link="${prefix}right_finger_base_link"/>
-      <child link="${prefix}right_finger_tip_link"/>
-      <origin xyz="0 0 0.11" rpy="0 0 0"/>
-    </joint>
-
-    <joint name="${prefix}center_frame_joint" type="fixed">
-      <parent link="${prefix}base_link"/>
-      <child link="${prefix}center_frame"/>
-      <origin xyz="0 0 0.10" rpy="0 0 0"/>
-    </joint>
-
     <joint name="${prefix}grasp_frame_joint" type="fixed">
-      <parent link="${prefix}center_frame"/>
+      <parent link="${prefix}body_link"/>
       <child link="grasp_frame"/>
-      <origin xyz="0 0 0.085" rpy="0 0 0"/>
+      <origin xyz="0 0 0.165" rpy="0 0 0"/>
     </joint>
   </xacro:macro>
 </robot>

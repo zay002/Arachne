@@ -1,15 +1,6 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="arachne_ms42dc_ros2_control" params="prefix:='ms42dc_'">
-    <ros2_control name="${prefix}gripper_system" type="system">
-      <hardware>
-        <plugin>mock_components/GenericSystem</plugin>
-      </hardware>
-      <joint name="${prefix}left_finger_joint">
-        <command_interface name="position"/>
-        <state_interface name="position"/>
-        <state_interface name="velocity"/>
-      </joint>
-    </ros2_control>
+    <!-- Control integration will be added after the MS42DC ROS examples and protocol are wrapped. -->
   </xacro:macro>
 </robot>

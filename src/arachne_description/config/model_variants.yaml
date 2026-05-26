@@ -1,5 +1,5 @@
 default:
-  description: "Scout 2.0 + Aubo i5 vendor models with a DH Robotics AG95 gripper."
+  description: "Scout 2.0 + Aubo i5 vendor models with the MS42DC flexible gripper mesh."
   xacro_args:
     arm_mount_xyz: "0.22 0.0 0.155"
     arm_mount_rpy: "0.0 0.0 1.57079632679"

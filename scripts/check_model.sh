@@ -6,11 +6,15 @@ URDF_OUT="${URDF_OUT:-/tmp/arachne.urdf}"
 
 if [[ -f "/opt/ros/${ROS_DISTRO:-humble}/setup.bash" ]]; then
   # shellcheck disable=SC1090
+  set +u
   source "/opt/ros/${ROS_DISTRO:-humble}/setup.bash"
+  set -u
 fi
 if [[ -f "${ROOT_DIR}/install/setup.bash" ]]; then
   # shellcheck disable=SC1091
+  set +u
   source "${ROOT_DIR}/install/setup.bash"
+  set -u
 fi
 
 if ! command -v xacro >/dev/null; then

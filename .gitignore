@@ -7,3 +7,4 @@ __pycache__/
 .ros/
 third_party/*
 !third_party/README.md
+!third_party/MS42DC.step

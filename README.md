@@ -4,7 +4,7 @@
 
 # Arachne
 
-Arachne is a Linux-native ROS2 framework for a Scout 2.0 + Aubo i5 mobile manipulator. The current visualization model uses a DH Robotics AG95 gripper while the final end-effector choice is being refined.
+Arachne is a Linux-native ROS2 framework for a Scout 2.0 + Aubo i5 mobile manipulator with an MS42DC flexible gripper.
 
 The first milestone is the robot model: one inspectable `robot_description`, one connected TF tree, and launch files that show the full robot in RViz. Control, MoveIt2, simulation, and Web UI will build on top of this model after the frames and dimensions are stable.
 
@@ -13,16 +13,16 @@ The first milestone is the robot model: one inspectable `robot_description`, one
 Implemented:
 
 - `arachne_description` ROS2 package.
-- Unified Xacro model using the AgileX Scout v2 description, the AuboRobot Aubo i5 description, a DH Robotics AG95 gripper, mounts, lidar, and optional end-effector camera.
+- Unified Xacro model using the AgileX Scout v2 description, the AuboRobot Aubo i5 description, the MS42DC STEP-derived mesh, mounts, lidar, and optional end-effector camera.
 - RViz display launch with `joint_state_publisher`.
 - Reproducible Ubuntu setup and model-check scripts.
 - Stage reports in `docs/reports/`.
 
 Still pending:
 
-- The previous MS42DC placeholder has been replaced by the open-source DH Robotics AG95 description.
+- The previous placeholder gripper has been replaced by the real MS42DC visual mesh converted from `third_party/MS42DC.step`.
 - Mount transforms reflect the current intended hardware layout and should be rechecked if the physical mount changes.
-- No real hardware control, MoveIt2 config, simulation backend, or Web dashboard yet.
+- MS42DC motion/control integration, MoveIt2 config, simulation backend, and Web dashboard are not implemented yet.
 
 ## Repository Layout
 
@@ -60,7 +60,6 @@ The setup script selects Humble on Ubuntu 22.04 and Jazzy on Ubuntu 24.04. You c
 The required upstream model packages are included under `third_party/` in this working tree:
 
 - `AuboRobot/aubo_description`
-- `ian-chuang/dh_ag95_gripper_ros2/dh_ag95_description`
 - `agilexrobotics/scout_ros2/scout_description`
 
 If they are missing, run:
@@ -77,7 +76,7 @@ Build the description packages and launch RViz:
 cd Arachne
 source /opt/ros/jazzy/setup.bash
 colcon build --base-paths src --packages-select \
-  aubo_description scout_description dh_ag95_description arachne_description
+  aubo_description scout_description arachne_description
 source install/setup.bash
 ros2 launch arachne_description display.launch.py
 ```
@@ -122,7 +121,7 @@ base_link
 │   └── aubo_base_link
 │       └── ... └── tool0
 │                   └── gripper_adapter_link
-│                       └── ag95_base_link
+│                       └── ms42dc_body_link
 │                           └── grasp_frame
 ├── lidar_link
 ├── inertial_link
@@ -149,6 +148,25 @@ Why this value is used:
 - `z=0.155` places the Aubo mount at the configured top-deck height.
 - `x=0.22` places the arm forward on the Scout top deck.
 - `yaw=90 deg` sets the Aubo base orientation relative to the Scout base.
+
+## Gripper Model
+
+The MS42DC source CAD is kept as `third_party/MS42DC.step` in the local workspace. RViz cannot load STEP directly, so the committed runtime mesh is:
+
+```text
+src/arachne_description/meshes/gripper/ms42dc/MS42DC.stl
+```
+
+It was generated with:
+
+```bash
+sudo apt-get install -y gmsh
+./scripts/convert_ms42dc_step.sh
+```
+
+The STL uses millimeters from the original CAD and is scaled to meters in `urdf/gripper/ms42dc.urdf.xacro`.
+
+For open-source users who do not have access to the MS42DC CAD, DH Robotics AG95 is a practical alternative gripper to evaluate. Its ROS2 description has been tested in earlier Arachne model iterations through `ian-chuang/dh_ag95_gripper_ros2`; the current default model remains MS42DC because it matches this hardware.
 
 If the physical mounting plate changes, test a different pose without editing files:
 
