@@ -19,6 +19,7 @@ def launch_setup(context, *args, **kwargs):
         "arm_mount_rpy": LaunchConfiguration("arm_mount_rpy").perform(context),
         "tool_adapter_xyz": LaunchConfiguration("tool_adapter_xyz").perform(context),
         "tool_adapter_rpy": LaunchConfiguration("tool_adapter_rpy").perform(context),
+        "gripper_type": LaunchConfiguration("gripper_type").perform(context),
         "with_lidar": LaunchConfiguration("with_lidar").perform(context),
         "with_ee_camera": LaunchConfiguration("with_ee_camera").perform(context),
     }
@@ -55,6 +56,7 @@ def generate_launch_description():
             DeclareLaunchArgument("arm_mount_rpy", default_value="0.0 0.0 1.57079632679"),
             DeclareLaunchArgument("tool_adapter_xyz", default_value="0.0 0.0 0.0"),
             DeclareLaunchArgument("tool_adapter_rpy", default_value="0.0 0.0 0.0"),
+            DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
             DeclareLaunchArgument("with_lidar", default_value="true"),
             DeclareLaunchArgument("with_ee_camera", default_value="false"),
             OpaqueFunction(function=launch_setup),

@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 URDF_OUT="${URDF_OUT:-/tmp/arachne.urdf}"
+GRIPPER_TYPE="${GRIPPER_TYPE:-ms42dc}"
 
 if [[ -f "/opt/ros/${ROS_DISTRO:-humble}/setup.bash" ]]; then
   # shellcheck disable=SC1090
@@ -22,7 +23,7 @@ if ! command -v xacro >/dev/null; then
   exit 1
 fi
 
-xacro "${ROOT_DIR}/src/arachne_description/urdf/arachne.urdf.xacro" > "${URDF_OUT}"
+xacro "${ROOT_DIR}/src/arachne_description/urdf/arachne.urdf.xacro" gripper_type:="${GRIPPER_TYPE}" > "${URDF_OUT}"
 echo "Generated ${URDF_OUT}"
 
 if command -v check_urdf >/dev/null; then

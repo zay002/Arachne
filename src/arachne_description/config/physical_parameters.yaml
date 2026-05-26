@@ -14,4 +14,5 @@ mounts:
 model_notes:
   scout: AgileX Scout v2 mesh and dimensions adapted from scout_ros2
   aubo_i5: AuboRobot aubo_i5 URDF and meshes adapted into a mobile-manipulator tree
-  gripper: MS42DC flexible gripper mesh converted from the local STEP model
+  gripper_default: MS42DC flexible gripper mesh converted from the local STEP model
+  gripper_optional: DH Robotics AG95 model from dh_ag95_gripper_ros2

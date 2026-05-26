@@ -8,7 +8,7 @@ Arachne targets a Scout 2.0 mobile base, an Aubo i5 arm, and a Youyeetoo MS42DC 
 
 - Scout 2.0: modeled from the AgileX Scout v2 description in `scout_ros2`.
 - Aubo i5: modeled from the official `AuboRobot/aubo_description` `aubo_i5.urdf`.
-- End effector: modeled from the local `third_party/MS42DC.step` CAD, converted to STL for RViz.
+- End effector: default model is MS42DC from local `third_party/MS42DC.step`; AG95 is retained as an optional open-source gripper variant.
 
 ## Missing Measurements
 

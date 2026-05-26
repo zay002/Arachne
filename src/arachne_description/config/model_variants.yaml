@@ -5,8 +5,13 @@ default:
     arm_mount_rpy: "0.0 0.0 1.57079632679"
     tool_adapter_xyz: "0.0 0.0 0.0"
     tool_adapter_rpy: "0.0 0.0 0.0"
+    gripper_type: "ms42dc"
     with_lidar: "true"
     with_ee_camera: "false"
+ag95:
+  description: "Scout 2.0 + Aubo i5 vendor models with the DH Robotics AG95 gripper."
+  xacro_args:
+    gripper_type: "ag95"
 display_with_ee_camera:
   description: "Default model plus an end-effector camera placeholder."
   xacro_args:

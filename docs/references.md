@@ -18,6 +18,7 @@ Third-party model assets are stored under `third_party/` and exposed to the ROS 
 
 - `third_party/aubo_description`: cloned from `AuboRobot/aubo_description`, package license declares BSD.
 - `third_party/scout_ros2`: cloned from `agilexrobotics/scout_ros2`, root license is Apache-2.0 and `scout_description/package.xml` declares BSD.
+- `third_party/dh_ag95_gripper_ros2`: cloned from `ian-chuang/dh_ag95_gripper_ros2`; `dh_ag95_description/package.xml` declares Apache-2.0.
 - `third_party/MS42DC.step`: local source CAD for the active flexible gripper model; converted to `src/arachne_description/meshes/gripper/ms42dc/MS42DC.stl`.
 
 The Arachne wrapper files in `src/arachne_description/urdf/` adapt these models into one mobile-manipulator tree.
