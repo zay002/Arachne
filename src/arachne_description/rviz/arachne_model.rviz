@@ -10,7 +10,9 @@ Visualization Manager:
       Plane: XY
       Reference Frame: base_link
     - Class: rviz_default_plugins/RobotModel
-      Description Source: Topic
+      Alpha: 1
+      Description File: /tmp/arachne_display.urdf
+      Description Source: File
       Description Topic:
         Depth: 5
         Durability Policy: Transient Local
@@ -39,12 +41,12 @@ Visualization Manager:
 Views:
   Current:
     Class: rviz_default_plugins/Orbit
-    Distance: 2.5
+    Distance: 1.45
     Focal Point:
-      X: 0.1
+      X: 0.25
       Y: 0.0
-      Z: 0.35
+      Z: 0.45
     Name: Current View
-    Pitch: 0.55
+    Pitch: 0.65
     Target Frame: base_link
-    Yaw: 0.85
+    Yaw: 0.78

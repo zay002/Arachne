@@ -5,10 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 URDF_OUT="${URDF_OUT:-/tmp/arachne.urdf}"
 GRIPPER_TYPE="${GRIPPER_TYPE:-ms42dc}"
 
-if [[ -f "/opt/ros/${ROS_DISTRO:-humble}/setup.bash" ]]; then
+if [[ -f "/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash" ]]; then
   # shellcheck disable=SC1090
   set +u
-  source "/opt/ros/${ROS_DISTRO:-humble}/setup.bash"
+  source "/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash"
   set -u
 fi
 if [[ -f "${ROOT_DIR}/install/setup.bash" ]]; then

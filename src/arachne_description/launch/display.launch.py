@@ -4,8 +4,10 @@ import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def launch_setup(context, *args, **kwargs):
@@ -37,7 +39,52 @@ def launch_setup(context, *args, **kwargs):
         Node(
             package="joint_state_publisher",
             executable="joint_state_publisher",
+            name="default_joint_state_publisher",
             arguments=[str(generated_urdf)],
+            remappings=[("joint_states", "/arachne/default_joint_states")],
+            output="screen",
+        ),
+        Node(
+            package="joint_state_publisher_gui",
+            executable="joint_state_publisher_gui",
+            name="joint_state_publisher_gui",
+            arguments=[str(generated_urdf)],
+            remappings=[("joint_states", "/arachne/gui_joint_states")],
+            condition=IfCondition(LaunchConfiguration("use_gui")),
+            output="screen",
+        ),
+        Node(
+            package="arachne_gripper",
+            executable="joint_state_mux",
+            name="joint_state_mux",
+            output="screen",
+        ),
+        Node(
+            package="arachne_gripper",
+            executable="gripper_sim_controller",
+            name="gripper_sim_controller",
+            parameters=[
+                {
+                    "profile": LaunchConfiguration("gripper_sim_profile"),
+                    "open_position": ParameterValue(
+                        LaunchConfiguration("gripper_open_position"), value_type=float
+                    ),
+                    "closed_position": ParameterValue(
+                        LaunchConfiguration("gripper_closed_position"), value_type=float
+                    ),
+                    "max_velocity": ParameterValue(
+                        LaunchConfiguration("gripper_max_velocity"), value_type=float
+                    ),
+                }
+            ],
+            condition=IfCondition(LaunchConfiguration("with_gripper_sim")),
+            output="screen",
+        ),
+        Node(
+            package="arachne_gripper",
+            executable="gripper_state_gui",
+            name="gripper_state_gui",
+            condition=IfCondition(LaunchConfiguration("with_gripper_gui")),
             output="screen",
         ),
         Node(
@@ -57,6 +104,13 @@ def generate_launch_description():
             DeclareLaunchArgument("tool_adapter_xyz", default_value="0.0 0.0 0.0"),
             DeclareLaunchArgument("tool_adapter_rpy", default_value="0.0 0.0 0.0"),
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
+            DeclareLaunchArgument("with_gripper_sim", default_value="false"),
+            DeclareLaunchArgument("with_gripper_gui", default_value="false"),
+            DeclareLaunchArgument("gripper_sim_profile", default_value="ms42dc"),
+            DeclareLaunchArgument("gripper_open_position", default_value="-1.0"),
+            DeclareLaunchArgument("gripper_closed_position", default_value="-1.0"),
+            DeclareLaunchArgument("gripper_max_velocity", default_value="-1.0"),
+            DeclareLaunchArgument("use_gui", default_value="false"),
             DeclareLaunchArgument("with_lidar", default_value="true"),
             DeclareLaunchArgument("with_ee_camera", default_value="false"),
             OpaqueFunction(function=launch_setup),

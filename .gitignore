@@ -1,10 +1,24 @@
+# ROS/colcon generated files
 build/
 install/
 log/
 .colcon/
+.ros/
+
+# Python generated files
 *.pyc
 __pycache__/
-.ros/
+.pytest_cache/
+
+# Local planning notes are not part of the public repository.
+plan.md
+PLAN.md
+
+# Downloaded upstream repositories and bulky local reference material stay out of git.
 third_party/*
+
+# Keep the small source assets needed to reproduce the active MS42DC model.
 !third_party/README.md
 !third_party/MS42DC.step
+!third_party/MS42DC_SPLIT/
+!third_party/MS42DC_SPLIT/*.stl

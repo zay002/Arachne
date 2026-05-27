@@ -4,25 +4,50 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "${ROOT_DIR}/third_party" "${ROOT_DIR}/src/vendor"
 
-if [[ ! -d "${ROOT_DIR}/third_party/aubo_description/.git" ]]; then
-  git clone --depth 1 https://github.com/AuboRobot/aubo_description.git \
-    "${ROOT_DIR}/third_party/aubo_description"
-fi
+fetch_repo() {
+  local name="$1"
+  local url="$2"
+  local ref="$3"
+  local dest="${ROOT_DIR}/third_party/${name}"
 
-if [[ ! -d "${ROOT_DIR}/third_party/scout_ros2/.git" ]]; then
-  git clone --depth 1 https://github.com/agilexrobotics/scout_ros2.git \
-    "${ROOT_DIR}/third_party/scout_ros2"
-fi
+  if [[ ! -d "${dest}/.git" ]]; then
+    rm -rf "${dest}"
+    git init "${dest}"
+    git -C "${dest}" remote add origin "${url}"
+  fi
 
-if [[ ! -d "${ROOT_DIR}/third_party/dh_ag95_gripper_ros2/.git" ]]; then
-  git clone --depth 1 -b humble https://github.com/ian-chuang/dh_ag95_gripper_ros2.git \
-    "${ROOT_DIR}/third_party/dh_ag95_gripper_ros2" \
-    || git clone --depth 1 https://github.com/ian-chuang/dh_ag95_gripper_ros2.git \
-      "${ROOT_DIR}/third_party/dh_ag95_gripper_ros2"
-fi
+  git -C "${dest}" remote set-url origin "${url}"
+
+  local current_ref=""
+  current_ref="$(git -C "${dest}" rev-parse HEAD 2>/dev/null || true)"
+  if [[ "${current_ref}" == "${ref}" ]]; then
+    return
+  fi
+
+  if [[ -n "$(git -C "${dest}" status --porcelain)" ]]; then
+    echo "Refusing to overwrite dirty third-party repo: ${dest}" >&2
+    echo "Commit/stash local changes there, or remove the directory and rerun this script." >&2
+    exit 1
+  fi
+
+  git -C "${dest}" fetch --depth 1 origin "${ref}"
+  git -C "${dest}" checkout --detach FETCH_HEAD
+}
+
+fetch_repo aubo_description \
+  https://github.com/AuboRobot/aubo_description.git \
+  47fa5e02fa873f27f7e812d31f31e3f4cf5e56b1
+
+fetch_repo scout_ros2 \
+  https://github.com/agilexrobotics/scout_ros2.git \
+  bdbb90471613831fb0b2ec01fecac043445313c4
+
+fetch_repo dh_ag95_gripper_ros2 \
+  https://github.com/ian-chuang/dh_ag95_gripper_ros2.git \
+  fc4f80fdfb3acae5626df4359aec1401cb71a9a3
 
 ln -sfn ../../third_party/aubo_description "${ROOT_DIR}/src/vendor/aubo_description"
 ln -sfn ../../third_party/dh_ag95_gripper_ros2/dh_ag95_description "${ROOT_DIR}/src/vendor/dh_ag95_description"
 ln -sfn ../../third_party/scout_ros2/scout_description "${ROOT_DIR}/src/vendor/scout_description"
 
-echo "Third-party model packages are ready."
+echo "Third-party model packages are ready at pinned revisions."

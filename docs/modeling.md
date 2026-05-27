@@ -2,16 +2,16 @@
 
 ## Principle
 
-Arachne exposes one unified `robot_description`: Scout base, Aubo arm, a selectable gripper, mounts, and optional sensors are one URDF tree.
+Arachne exposes one unified `robot_description`: Scout base, Aubo arm, a selectable gripper, mounts, and optional sensors are one URDF tree. The MS42DC and AG95 variants differ only by the gripper attached under `gripper_adapter_link`.
 
 ## Current Files
 
 - `src/arachne_description/urdf/arachne.urdf.xacro`: top-level model composition.
 - `urdf/scout/scout_2_vendor.xacro`: Scout v2 model adapted from `agilexrobotics/scout_ros2`.
 - `urdf/aubo/aubo_i5_vendor.xacro`: Aubo i5 model adapted from `AuboRobot/aubo_description`.
-- `urdf/gripper/ms42dc.urdf.xacro`: default MS42DC mesh wrapper and shared `grasp_frame`.
+- `urdf/gripper/ms42dc.urdf.xacro`: user-created movable split model for the Yizhua Robot MS42DC two-finger flexible servo gripper, with revolute left/right finger assemblies, mimic motion, and shared `grasp_frame`.
 - `urdf/gripper/ag95.urdf.xacro`: optional DH Robotics AG95 wrapper and shared `grasp_frame`.
-- `meshes/gripper/ms42dc/MS42DC.stl`: RViz mesh converted from `third_party/MS42DC.step`.
+- `meshes/gripper/ms42dc/split/*.stl`: RViz meshes copied from `third_party/MS42DC_SPLIT`.
 - `urdf/mounts/*`: Scout-to-arm and tool-to-gripper fixed adapters.
 - `urdf/sensors/*`: optional lidar and end-effector camera placeholders.
 
@@ -25,4 +25,4 @@ AG95 variant: `base_link -> arm_mount_link -> aubo_base_link -> ... -> tool0 -> 
 
 ## Model Policy
 
-Scout, Aubo, and AG95 use vendor-derived meshes and kinematic parameters. MS42DC uses the real source CAD as a fixed visual mesh for Stage 1; finger actuation will be modeled after the control protocol and moving subassemblies are confirmed.
+Scout, Aubo, and AG95 use vendor-derived meshes and kinematic parameters. MS42DC uses user-created split CAD parts with a revolute left finger and right-finger mimic. The hinge direction has been checked in RViz, and the current default close target is `0.6 rad`.

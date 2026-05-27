@@ -4,231 +4,132 @@
 
 # Arachne
 
-Arachne is a Linux-native ROS2 framework for a Scout 2.0 + Aubo i5 mobile manipulator with selectable MS42DC and AG95 gripper models.
+[中文文档](README.zh-CN.md)
 
-The first milestone is the robot model: one inspectable `robot_description`, one connected TF tree, and launch files that show the full robot in RViz. Control, MoveIt2, simulation, and Web UI will build on top of this model after the frames and dimensions are stable.
+Arachne is a ROS2 workspace for a Scout 2.0 mobile base carrying an Aubo i5 arm and a selectable gripper. The two model variants share the same base, arm, mount, sensor frames, launch flow, and gripper interface; the only model difference is the gripper.
 
-## Current Status
+The default hardware model is Scout 2.0 + Aubo i5 + Yizhua Robot MS42DC two-finger flexible servo gripper. AG95 is kept as an open-source gripper variant for comparison and demos. Both grippers are exposed through the same `Open` / `Close` GUI and service interface.
 
-Implemented:
+The current milestone is a reliable robot description and RViz demo: one connected TF tree, real upstream Scout/Aubo/AG95 descriptions, a user-created movable MS42DC split mesh model, and lightweight gripper open/close simulation.
 
-- `arachne_description` ROS2 package.
-- Unified Xacro model using the AgileX Scout v2 description, the AuboRobot Aubo i5 description, selectable MS42DC or AG95 grippers, mounts, lidar, and optional end-effector camera.
-- RViz display launch with `joint_state_publisher`.
-- Reproducible Ubuntu setup and model-check scripts.
-- Stage reports in `docs/reports/`.
+## What Is Included
 
-Still pending:
+- `src/arachne_description`: unified Xacro/URDF, RViz config, model variants, mount frames, sensor frames, and MS42DC/AG95 gripper adapters.
+- `src/arachne_gripper`: simulated gripper controller, joint-state mux, and a small `Open` / `Close` GUI.
+- `scripts`: setup, third-party fetch, model visualization, URDF check, and gripper smoke-test helpers.
+- `docs`: hardware/modeling/control/calibration notes and stage reports.
+- `docs/demo/model_compare.png`: current MS42DC and AG95 model showcase.
+- `third_party/MS42DC.step` and `third_party/MS42DC_SPLIT/*.stl`: source CAD and user-created movable split parts for the MS42DC gripper.
 
-- MS42DC is the default gripper because it matches the current hardware; AG95 is retained as an open-source alternative model.
-- Mount transforms reflect the current intended hardware layout and should be rechecked if the physical mount changes.
-- MS42DC motion/control integration, MoveIt2 config, simulation backend, and Web dashboard are not implemented yet.
+Large upstream repositories under `third_party/` are intentionally ignored by git. They are restored with `scripts/fetch_third_party.sh` and pinned in that script for reproducible setup. Generated `build/`, `install/`, `log/`, and local planning notes such as `plan.md` are also ignored.
 
-## Repository Layout
+## Current State
 
-```text
-Arachne/
-├── src/arachne_description/   # ROS2 description package
-├── src/vendor/                 # symlinks to vendored model packages
-├── docs/                      # hardware, modeling, calibration, control notes
-├── docs/reports/              # short reports after each completed stage
-├── scripts/                   # setup and validation helpers
-├── third_party/               # downloaded upstream model packages
-├── plan.md                    # development plan
-└── README.md
-```
+- Scout 2.0, Aubo i5, MS42DC, AG95, lidar, and optional end-effector camera are composed into one robot model.
+- The MS42DC and AG95 variants differ only at the gripper under `gripper_adapter_link`.
+- Aubo is mounted at the current intended Scout top-deck pose.
+- MS42DC uses user-created split CAD meshes with revolute left/right finger links.
+- MS42DC close target is calibrated to `0.6 rad` by default.
+- RViz starts through `scripts/view_model.sh`, which cleans stale visualization nodes and launches the arm joint sliders, gripper simulator, and gripper Open/Close GUI for either gripper.
 
-## Environment
+## Roadmap
 
-Recommended:
+1. Finalize physical calibration: tool adapter pose, sensor poses, and collision simplification for planning.
+2. Add MoveIt2 configuration for the Aubo arm with interchangeable MS42DC and AG95 end-effectors.
+3. Add `ros2_control` controllers and hardware-facing bridges for Aubo, Scout, and MS42DC.
+4. Add simulation backend support for planning and task rehearsal.
+5. Build the operator Web UI after the model, controllers, and launch contracts are stable.
 
-- Ubuntu 22.04 + ROS2 Humble
+## Quick Start
+
+Recommended environments:
+
 - Ubuntu 24.04 + ROS2 Jazzy
-
-Install dependencies:
+- Ubuntu 22.04 + ROS2 Humble
 
 ```bash
 cd Arachne
 ./scripts/setup_ubuntu.sh
-source /opt/ros/humble/setup.bash  # use /opt/ros/jazzy/setup.bash on Ubuntu 24.04
-colcon build --symlink-install
-source install/setup.bash
-```
-
-The setup script selects Humble on Ubuntu 22.04 and Jazzy on Ubuntu 24.04. You can override it with `ROS_DISTRO=humble` or `ROS_DISTRO=jazzy`; source the matching `/opt/ros/<distro>/setup.bash`.
-
-The required upstream model packages are included under `third_party/` in this working tree:
-
-- `AuboRobot/aubo_description`
-- `ian-chuang/dh_ag95_gripper_ros2/dh_ag95_description`
-- `agilexrobotics/scout_ros2/scout_description`
-
-If they are missing, run:
-
-```bash
-./scripts/fetch_third_party.sh
-```
-
-## Run The Model
-
-Build the description packages and launch the default MS42DC model in RViz:
-
-```bash
-cd Arachne
 ./scripts/fetch_third_party.sh
 
 # If Conda is active, deactivate it before building ROS packages.
 conda deactivate 2>/dev/null || true
-source /opt/ros/jazzy/setup.bash
-
-# Recommended when switching model variants or after pulling updates.
-rm -rf build/aubo_description build/scout_description build/dh_ag95_description build/arachne_description \
-       install/aubo_description install/scout_description install/dh_ag95_description install/arachne_description
+source /opt/ros/jazzy/setup.bash  # use /opt/ros/humble/setup.bash on Ubuntu 22.04
 
 colcon build --base-paths src --packages-select \
-  aubo_description scout_description dh_ag95_description arachne_description \
+  aubo_description scout_description dh_ag95_description arachne_gripper arachne_description \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 
 source install/setup.bash
-ros2 launch arachne_description display.launch.py gripper_type:=ms42dc
+./scripts/view_model.sh
 ```
 
-For Ubuntu 22.04, source `/opt/ros/humble/setup.bash` instead.
+`view_model.sh` launches the normal development view: MS42DC model, Aubo joint sliders, gripper open/close simulator, and the `Arachne Gripper` Open/Close window.
 
-If the RViz window opens before the robot appears, wait a few seconds. The model is loaded from `/robot_description`, and the first render may lag while mesh resources are loaded.
-
-Quick relaunch after a previous build:
+To view AG95 with the same Open/Close controls:
 
 ```bash
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-ros2 launch arachne_description display.launch.py
+GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
 ```
 
-Useful launch arguments:
+To manually tune the MS42DC close angle with sliders:
 
 ```bash
-ros2 launch arachne_description display.launch.py \
-  arm_mount_xyz:="0.22 0.0 0.155" \
-  arm_mount_rpy:="0.0 0.0 1.57079632679" \
-  gripper_type:=ms42dc \
-  with_lidar:=true \
-  with_ee_camera:=false
+WITH_GRIPPER_SIM=false WITH_GRIPPER_GUI=false ./scripts/view_model.sh
 ```
 
-To visualize the AG95 variant, build the optional AG95 description package once and launch with `gripper_type:=ag95`:
+Drag `ms42dc_left_finger_joint`; the right finger follows through the URDF mimic joint. The normal default is already `0.6 rad`, but a one-off launch override is available:
 
 ```bash
-source /opt/ros/jazzy/setup.bash
-colcon build --base-paths src --packages-select \
-  dh_ag95_description arachne_description \
-  --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
-source install/setup.bash
-ros2 launch arachne_description display.launch.py gripper_type:=ag95
+GRIPPER_CLOSED_POSITION=0.58 ./scripts/view_model.sh
 ```
 
-If Conda is active and `dh_ag95_description` fails to find `catkin_pkg`, deactivate Conda or build with the system Python as shown above.
+## Useful Commands
 
-## RViz Troubleshooting
-
-If RViz opens but the model is blank, first close stale visualization nodes and relaunch:
-
-```bash
-pkill -x rviz2 2>/dev/null || true
-pkill -x robot_state_publisher 2>/dev/null || true
-pkill -x joint_state_publisher 2>/dev/null || true
-
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-ros2 launch arachne_description display.launch.py gripper_type:=ms42dc
-```
-
-In RViz, check that `Global Status` is `Ok`, `RobotModel` is enabled, and `Fixed Frame` is `base_link`. Click `Reset` in the lower-left corner or zoom out if the camera is looking at empty space.
-
-To confirm the model is being published:
-
-```bash
-ros2 topic echo /robot_description --once --qos-durability transient_local
-ros2 topic echo /joint_states --once
-ros2 run tf2_ros tf2_echo base_link ms42dc_body_link
-```
-
-## Validate
+Validate the generated URDF:
 
 ```bash
 ./scripts/check_model.sh
-ros2 run tf2_tools view_frames
 ```
 
-`check_model.sh` writes `/tmp/arachne.urdf` and runs `check_urdf` when that tool is installed.
-
-## Model Structure
-
-The intended frame chain is:
-
-```text
-base_link
-├── base_footprint
-├── arm_mount_link
-│   └── aubo_base_link
-│       └── ... └── tool0
-│                   └── gripper_adapter_link
-│                       └── ms42dc_body_link  # or ag95_base_link when gripper_type:=ag95
-│                           └── grasp_frame
-├── lidar_link
-├── inertial_link
-└── wheel links
-```
-
-`map -> odom -> base_link` is not part of the URDF. It will come from localization and odometry later.
-
-## Mount Pose
-
-The current Aubo-on-Scout pose is the intended mounting pose for this hardware configuration.
-
-Default:
-
-```text
-base_link -> arm_mount_link:
-  xyz = 0.22 0.0 0.155
-  rpy = 0.0 0.0 1.57079632679
-```
-
-Why this value is used:
-
-- `base_link` is the Scout v2 root frame from `agilexrobotics/scout_ros2`.
-- `z=0.155` places the Aubo mount at the configured top-deck height.
-- `x=0.22` places the arm forward on the Scout top deck.
-- `yaw=90 deg` sets the Aubo base orientation relative to the Scout base.
-
-## Gripper Model
-
-The default MS42DC source CAD is kept as `third_party/MS42DC.step` in the local workspace. RViz cannot load STEP directly, so the committed runtime mesh is:
-
-```text
-src/arachne_description/meshes/gripper/ms42dc/MS42DC.stl
-```
-
-It was generated with:
+Smoke-test both gripper simulation profiles:
 
 ```bash
-sudo apt-get install -y gmsh
-./scripts/convert_ms42dc_step.sh
+./scripts/test_gripper_sim.sh
 ```
 
-The STL uses millimeters from the original CAD and is scaled to meters in `urdf/gripper/ms42dc.urdf.xacro`.
-
-The AG95 variant uses `ian-chuang/dh_ag95_gripper_ros2` through `src/vendor/dh_ag95_description`.
-
-If the physical mounting plate changes, test a different pose without editing files:
+Direct launch equivalent:
 
 ```bash
 ros2 launch arachne_description display.launch.py \
-  arm_mount_xyz:="0.20 0.00 0.16" \
-  arm_mount_rpy:="0.0 0.0 1.57079632679"
+  gripper_type:=ms42dc \
+  use_gui:=true \
+  with_gripper_sim:=true \
+  with_gripper_gui:=true \
+  gripper_sim_profile:=ms42dc
 ```
 
-## Stage Reports
+If RViz opens with only a grid, use `./scripts/view_model.sh` rather than a bare launch command; it clears stale ROS visualization nodes before starting. Wait a few seconds for meshes to load, then check that RViz `Fixed Frame` is `base_link`.
+
+## Key Frames
+
+```text
+base_link
+└── arm_mount_link
+    └── aubo_base_link
+        └── ... └── tool0
+            └── gripper_adapter_link
+                └── ms42dc_body_link  # or ag95_base_link
+                    ├── ms42dc_base_link
+                    ├── ms42dc_left_finger_link
+                    ├── ms42dc_right_finger_link
+                    └── grasp_frame
+```
+
+`map -> odom -> base_link` is not part of this URDF; it will come from localization and odometry later.
+
+## Reports
 
 - `docs/reports/stage_0_repository_foundation.md`
 - `docs/reports/stage_1_unified_robot_model.md`
+- `docs/reports/stage_2_gripper_sim_control.md`

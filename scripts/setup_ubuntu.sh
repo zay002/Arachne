@@ -34,10 +34,12 @@ sudo apt-get update
 sudo apt-get install -y \
   "ros-${ROS_DISTRO}-desktop" \
   "ros-${ROS_DISTRO}-xacro" \
+  "ros-${ROS_DISTRO}-joint-state-publisher" \
   "ros-${ROS_DISTRO}-joint-state-publisher-gui" \
   "ros-${ROS_DISTRO}-robot-state-publisher" \
   "ros-${ROS_DISTRO}-tf2-tools" \
   python3-colcon-common-extensions \
+  python3-tk \
   ros-dev-tools
 
 echo "source /opt/ros/${ROS_DISTRO}/setup.bash"

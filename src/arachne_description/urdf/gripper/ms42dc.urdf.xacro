@@ -1,26 +1,86 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:macro name="arachne_ms42dc" params="prefix:='ms42dc_' parent">
-    <link name="${prefix}body_link">
-      <visual>
-        <origin xyz="-0.049334103 0.049874070 0.016816675" rpy="1.570796327 0 0"/>
-        <geometry>
-          <mesh filename="package://arachne_description/meshes/gripper/ms42dc/MS42DC.stl" scale="0.001 0.001 0.001"/>
-        </geometry>
-        <material name="arachne_gripper"/>
-      </visual>
-      <collision>
-        <origin xyz="0 0 0.082318" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.118 0.063 0.165"/>
-        </geometry>
-      </collision>
-      <xacro:box_inertial mass="0.6" x="0.118" y="0.063" z="0.165"/>
-    </link>
+  <xacro:property name="ms42dc_mesh_scale" value="0.001"/>
 
-    <joint name="${prefix}base_fixed_joint" type="fixed">
+  <xacro:property name="ms42dc_cad_xyz" value="-0.049334103 0.049874070 0.016816675"/>
+  <xacro:property name="ms42dc_cad_rpy" value="1.570796327 0 0"/>
+
+  <xacro:property name="ms42dc_left_pivot_xyz" value="0.0133341030359 0.0576833250744 0.0610740704713"/>
+  <xacro:property name="ms42dc_left_visual_xyz" value="-0.0133341030359 -0.0576833250744 -0.0610740704713"/>
+  <xacro:property name="ms42dc_right_pivot_xyz" value="0.0853341030359 0.0576833250744 0.0610740704713"/>
+  <xacro:property name="ms42dc_right_visual_xyz" value="-0.0853341030359 -0.0576833250744 -0.0610740704713"/>
+
+  <xacro:macro name="arachne_ms42dc_mesh" params="name origin_xyz:='0 0 0'">
+    <visual>
+      <origin xyz="${origin_xyz}" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://arachne_description/meshes/gripper/ms42dc/split/${name}.stl" scale="${ms42dc_mesh_scale} ${ms42dc_mesh_scale} ${ms42dc_mesh_scale}"/>
+      </geometry>
+      <material name="arachne_gripper"/>
+    </visual>
+    <collision>
+      <origin xyz="${origin_xyz}" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://arachne_description/meshes/gripper/ms42dc/split/${name}.stl" scale="${ms42dc_mesh_scale} ${ms42dc_mesh_scale} ${ms42dc_mesh_scale}"/>
+      </geometry>
+    </collision>
+  </xacro:macro>
+
+  <xacro:macro name="arachne_ms42dc" params="prefix:='ms42dc_' parent">
+    <link name="${prefix}body_link"/>
+
+    <joint name="${prefix}body_fixed_joint" type="fixed">
       <parent link="${parent}"/>
       <child link="${prefix}body_link"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <link name="${prefix}base_link">
+      <xacro:arachne_ms42dc_mesh name="ms42dc_base"/>
+      <xacro:box_inertial mass="0.52" x="0.080" y="0.070" z="0.064"/>
+    </link>
+
+    <joint name="${prefix}base_frame_joint" type="fixed">
+      <parent link="${prefix}body_link"/>
+      <child link="${prefix}base_link"/>
+      <origin xyz="${ms42dc_cad_xyz}" rpy="${ms42dc_cad_rpy}"/>
+    </joint>
+
+    <link name="${prefix}left_finger_link">
+      <xacro:arachne_ms42dc_mesh name="ms42dc_left_finger" origin_xyz="${ms42dc_left_visual_xyz}"/>
+      <xacro:box_inertial mass="0.04" x="0.040" y="0.090" z="0.022"/>
+    </link>
+
+    <joint name="${prefix}left_finger_joint" type="revolute">
+      <parent link="${prefix}base_link"/>
+      <child link="${prefix}left_finger_link"/>
+      <origin xyz="${ms42dc_left_pivot_xyz}" rpy="0 0 0"/>
+      <axis xyz="0 0 -1"/>
+      <limit lower="0.0" upper="1.0" effort="30.0" velocity="1.0"/>
+    </joint>
+
+    <link name="${prefix}right_finger_link">
+      <xacro:arachne_ms42dc_mesh name="ms42dc_right_finger" origin_xyz="${ms42dc_right_visual_xyz}"/>
+      <xacro:box_inertial mass="0.04" x="0.040" y="0.090" z="0.022"/>
+    </link>
+
+    <joint name="${prefix}right_finger_joint" type="revolute">
+      <parent link="${prefix}base_link"/>
+      <child link="${prefix}right_finger_link"/>
+      <origin xyz="${ms42dc_right_pivot_xyz}" rpy="0 0 0"/>
+      <axis xyz="0 0 -1"/>
+      <limit lower="-1.0" upper="0.0" effort="30.0" velocity="1.0"/>
+      <mimic joint="${prefix}left_finger_joint" multiplier="-1.0" offset="0.0"/>
+    </joint>
+
+    <link name="${prefix}mid_link">
+      <xacro:arachne_ms42dc_mesh name="ms42dc_mid"/>
+      <xacro:box_inertial mass="0.02" x="0.030" y="0.030" z="0.030"/>
+    </link>
+
+    <joint name="${prefix}mid_fixed_joint" type="fixed">
+      <parent link="${prefix}base_link"/>
+      <child link="${prefix}mid_link"/>
       <origin xyz="0 0 0" rpy="0 0 0"/>
     </joint>
 

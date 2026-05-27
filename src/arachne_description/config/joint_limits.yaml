@@ -6,6 +6,16 @@ aubo_arm:
     aubo_wrist1_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 3.1105}
     aubo_wrist2_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 3.1105}
     aubo_wrist3_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 3.1105}
-gripper:
+ag95_gripper:
   joints:
     left_outer_knuckle_joint: {min_position: 0.0, max_position: 0.93, max_velocity: 2.1}
+    right_outer_knuckle_joint: {min_position: 0.0, max_position: 0.93, max_velocity: 2.1}
+    left_finger_joint: {min_position: 0.0, max_position: 0.93, max_velocity: 2.1}
+    right_finger_joint: {min_position: 0.0, max_position: 0.93, max_velocity: 2.1}
+    left_inner_knuckle_joint: {min_position: 0.0, max_position: 0.93, max_velocity: 2.1}
+    right_inner_knuckle_joint: {min_position: 0.0, max_position: 0.93, max_velocity: 2.1}
+ms42dc_gripper:
+  note: "User-created movable split mesh from third_party/MS42DC_SPLIT; right finger mimics the left finger with multiplier -1.0."
+  joints:
+    ms42dc_left_finger_joint: {min_position: 0.0, max_position: 1.0, max_velocity: 1.0}
+    ms42dc_right_finger_joint: {min_position: -1.0, max_position: 0.0, max_velocity: 1.0}

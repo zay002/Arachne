@@ -1,5 +1,5 @@
 default:
-  description: "Scout 2.0 + Aubo i5 vendor models with the MS42DC flexible gripper mesh."
+  description: "Scout 2.0 + Aubo i5 with the Yizhua Robot MS42DC two-finger flexible servo gripper."
   xacro_args:
     arm_mount_xyz: "0.22 0.0 0.155"
     arm_mount_rpy: "0.0 0.0 1.57079632679"
@@ -9,7 +9,7 @@ default:
     with_lidar: "true"
     with_ee_camera: "false"
 ag95:
-  description: "Scout 2.0 + Aubo i5 vendor models with the DH Robotics AG95 gripper."
+  description: "Same Scout 2.0 + Aubo i5 model, with only the gripper changed to DH Robotics AG95."
   xacro_args:
     gripper_type: "ag95"
 display_with_ee_camera:
