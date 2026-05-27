@@ -31,15 +31,16 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - MS42DC 默认闭合角为 `0.6 rad`。
 - RViz 通过 `scripts/view_model.sh` 启动，会自动清理旧的可视化节点，并打开底盘遥控、机械臂关节滑条、夹爪仿真和 Open/Close 控制窗。
 - 机械臂滑条 GUI 默认从当前用户确认的展示姿态启动；点击 `Center` 会回到这个姿态。
-- `scripts/switch_demo.sh` 可以用 Nintendo Switch Pro 手柄控制底盘、跟随视角、Aubo 关节和夹爪。
+- `scripts/switch_demo.sh` 默认启动 Gazebo 展厅 demo，可以用 Nintendo Switch Pro 手柄控制底盘、第三人称视角、Aubo 关节和夹爪。
 
 ## Roadmap
 
 1. 完成物理标定：末端转接板、传感器位姿和用于规划的简化碰撞模型。
 2. 为 Aubo + MS42DC/AG95 两种末端配置 MoveIt2。
-3. 在需要物理碰撞和任务预演时，将当前 RViz 轻量底盘积分器替换为完整仿真后端。
-4. 真机材料到齐后，实现 Aubo TCP/IP、Scout 串口、MS42DC 串口硬件接口。
-5. 在模型、控制器和 launch 接口稳定后，再构建 Web 操作界面。
+3. 优化 Gazebo demo 的帧率、第三人称视角手感和摇杆方向识别精度。
+4. 将 Gazebo demo 升级为主要物理预演后端，接入 ros2_control 机械臂和夹爪控制器。
+5. 真机材料到齐后，实现 Aubo TCP/IP、Scout 串口、MS42DC 串口硬件接口。
+6. 在模型、控制器和 launch 接口稳定后，再构建 Web 操作界面。
 
 ## 快速启动
 
@@ -120,14 +121,20 @@ DEMO_MODE=rviz ./scripts/switch_demo.sh
 
 默认按键：
 
-- 左摇杆：底盘前进、后退和转向。
-- 右摇杆：围绕机器人调整跟随视角。
+- 左摇杆：按当前第三人称视角方向移动 Scout。
+- 右摇杆：围绕机器人旋转 Gazebo 跟随相机；在 RViz 模式下旋转 RViz 跟随视角。
 - 按住 `ZL` + 十字键上下：移动当前选中的 Aubo 关节。
 - `L` / `R`：切换上一个/下一个 Aubo 关节。
 - `B`：打开夹爪。`A`：闭合夹爪。
 - `+`：机械臂回到展示姿态。`-`：底盘停止。
 
-默认 Gazebo 版本用于宣传和物理预览：它加载真实机器人 mesh、灯光展厅、可碰撞物体和 diff-drive 物理插件。机械臂实时关节运动目前仍以 RViz 为主，完整 Gazebo 机械臂控制会在 ros2_control/Gazebo 栈完成后补上。
+默认 Gazebo 版本只打开 Gazebo 展厅窗口，不启动 RViz：它加载真实机器人 mesh、灯光展厅、可碰撞物体、diff-drive 物理插件和手柄控制的第三人称相机。机械臂实时关节运动目前仍以 RViz 模式为主，完整 Gazebo 机械臂控制会在 ros2_control/Gazebo 栈完成后补上。
+
+相机距离可以不重新构建直接微调：
+
+```bash
+GAZEBO_CAMERA_DISTANCE=1.7 ./scripts/switch_demo.sh
+```
 
 手动调 MS42DC 闭合角：
 

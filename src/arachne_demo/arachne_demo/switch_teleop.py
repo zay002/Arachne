@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import rclpy
 from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import Joy, JointState
-from std_msgs.msg import String
+from std_msgs.msg import Float64, String
 
 
 @dataclass(frozen=True)
@@ -20,6 +22,8 @@ class SwitchTeleop(Node):
     def __init__(self) -> None:
         super().__init__("switch_teleop")
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
+        self.declare_parameter("camera_yaw_topic", "/arachne/camera_yaw")
+        self.declare_parameter("odom_topic", "/odom")
         self.declare_parameter("arm_joint_state_topic", "/arachne/gui_joint_states")
         self.declare_parameter("gripper_command_topic", "/arachne/gripper/command")
         self.declare_parameter("publish_rate", 30.0)
@@ -27,8 +31,10 @@ class SwitchTeleop(Node):
         self.declare_parameter("deadzone", 0.12)
         self.declare_parameter("linear_axis", 1)
         self.declare_parameter("angular_axis", 0)
+        self.declare_parameter("drive_mode", "third_person")
         self.declare_parameter("linear_scale", 0.55)
         self.declare_parameter("angular_scale", 1.1)
+        self.declare_parameter("heading_gain", 2.4)
         self.declare_parameter("turbo_multiplier", 1.6)
         self.declare_parameter("joint_velocity_scale", 0.85)
         self.declare_parameter("turbo_button", 7)
@@ -63,6 +69,8 @@ class SwitchTeleop(Node):
         )
 
         self.cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
+        camera_yaw_topic = self.get_parameter("camera_yaw_topic").value
+        odom_topic = self.get_parameter("odom_topic").value
         arm_topic = self.get_parameter("arm_joint_state_topic").value
         gripper_topic = self.get_parameter("gripper_command_topic").value
         publish_rate = float(self.get_parameter("publish_rate").value)
@@ -70,8 +78,10 @@ class SwitchTeleop(Node):
         self.deadzone = float(self.get_parameter("deadzone").value)
         self.linear_axis = int(self.get_parameter("linear_axis").value)
         self.angular_axis = int(self.get_parameter("angular_axis").value)
+        self.drive_mode = str(self.get_parameter("drive_mode").value)
         self.linear_scale = float(self.get_parameter("linear_scale").value)
         self.angular_scale = float(self.get_parameter("angular_scale").value)
+        self.heading_gain = float(self.get_parameter("heading_gain").value)
         self.turbo_multiplier = float(self.get_parameter("turbo_multiplier").value)
         self.joint_velocity_scale = float(self.get_parameter("joint_velocity_scale").value)
         self.turbo_button = int(self.get_parameter("turbo_button").value)
@@ -99,15 +109,20 @@ class SwitchTeleop(Node):
         self.last_buttons: list[int] = []
         self.last_update = self.get_clock().now()
         self.active_twist = Twist()
+        self.camera_yaw = 0.0
+        self.base_yaw = 0.0
 
         self.cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
         self.arm_pub = self.create_publisher(JointState, arm_topic, 10)
         self.gripper_pub = self.create_publisher(String, gripper_topic, 10)
         self.create_subscription(Joy, "joy", self._joy_callback, 10)
+        self.create_subscription(Float64, camera_yaw_topic, self._camera_yaw_callback, 10)
+        self.create_subscription(Odometry, odom_topic, self._odom_callback, 10)
         self.timer = self.create_timer(1.0 / max(publish_rate, 1.0), self._tick)
 
         self.get_logger().info(
-            "Switch teleop ready. Left stick drives base; right stick controls demo view; "
+            "Switch teleop ready. Left stick drives camera-relative base motion; "
+            "right stick controls the demo camera; "
             "hold ZL + D-pad up/down moves the selected Aubo joint; L/R select joint; "
             "B opens, A closes."
         )
@@ -150,9 +165,7 @@ class SwitchTeleop(Node):
         turbo = self._button(joy, self.turbo_button)
         speed_multiplier = self.turbo_multiplier if turbo else 1.0
 
-        twist = Twist()
-        twist.linear.x = self._axis(joy, self.linear_axis) * self.linear_scale * speed_multiplier
-        twist.angular.z = self._axis(joy, self.angular_axis) * self.angular_scale * speed_multiplier
+        twist = self._drive_twist(joy, speed_multiplier)
         self.active_twist = twist
         self.cmd_pub.publish(twist)
 
@@ -160,6 +173,40 @@ class SwitchTeleop(Node):
             self._apply_arm_buttons(joy, dt, speed_multiplier)
 
         self._publish_arm(now)
+
+    def _camera_yaw_callback(self, msg: Float64) -> None:
+        self.camera_yaw = float(msg.data)
+
+    def _odom_callback(self, msg: Odometry) -> None:
+        q = msg.pose.pose.orientation
+        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        self.base_yaw = math.atan2(siny_cosp, cosy_cosp)
+
+    def _drive_twist(self, joy: Joy, speed_multiplier: float) -> Twist:
+        if self.drive_mode != "third_person":
+            twist = Twist()
+            twist.linear.x = self._axis(joy, self.linear_axis) * self.linear_scale * speed_multiplier
+            twist.angular.z = self._axis(joy, self.angular_axis) * self.angular_scale * speed_multiplier
+            return twist
+
+        forward = self._axis(joy, self.linear_axis)
+        lateral = self._axis(joy, self.angular_axis)
+        magnitude = min(math.hypot(forward, lateral), 1.0)
+        twist = Twist()
+        if magnitude <= 0.0:
+            return twist
+
+        desired_yaw = self.camera_yaw + math.atan2(-lateral, forward)
+        yaw_error = self._normalize_angle(desired_yaw - self.base_yaw)
+        alignment = max(math.cos(yaw_error), 0.15)
+        twist.linear.x = magnitude * self.linear_scale * alignment * speed_multiplier
+        twist.angular.z = self._clamp(
+            yaw_error * self.heading_gain,
+            -self.angular_scale * speed_multiplier,
+            self.angular_scale * speed_multiplier,
+        )
+        return twist
 
     def _apply_arm_buttons(self, joy: Joy, dt: float, speed_multiplier: float) -> None:
         value = 0.0
@@ -202,6 +249,12 @@ class SwitchTeleop(Node):
         if abs(value) < self.deadzone:
             return 0.0
         return value
+
+    def _clamp(self, value: float, lower: float, upper: float) -> float:
+        return min(max(value, lower), upper)
+
+    def _normalize_angle(self, angle: float) -> float:
+        return math.atan2(math.sin(angle), math.cos(angle))
 
     def _button(self, joy: Joy, index: int) -> bool:
         if index < 0 or index >= len(joy.buttons):

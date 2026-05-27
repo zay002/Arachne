@@ -1,6 +1,6 @@
 # Control
 
-The first simulation control layer is implemented for RViz demos. The base accepts `/cmd_vel` and publishes `/odom`, `odom -> base_link`, and wheel joint states. The Aubo arm is still controlled by `joint_state_publisher_gui`, seeded with the current user-confirmed display pose instead of the folded zero pose. Both MS42DC and AG95 expose the same two gripper states, `Open` and `Close`; the only model difference is the gripper attached under `gripper_adapter_link`.
+The first simulation control layer is implemented for RViz and Gazebo demos. The base accepts `/cmd_vel` and publishes `/odom`, `odom -> base_link`, and wheel joint states for the lightweight view; Gazebo mode also drives the spawned model through a diff-drive physics plugin. The Aubo arm is still controlled by `joint_state_publisher_gui` in RViz mode, seeded with the current user-confirmed display pose instead of the folded zero pose. Both MS42DC and AG95 expose the same two gripper states, `Open` and `Close`; the only model difference is the gripper attached under `gripper_adapter_link`.
 
 In `display.launch.py`, default zero-state joints publish to `/arachne/default_joint_states`, GUI slider joints publish to `/arachne/gui_joint_states`, base wheel states publish to `/arachne/base/joint_states`, gripper states publish to `/arachne/gripper/joint_states`, and `joint_state_mux` is the only publisher of the unified `/joint_states` stream used by `robot_state_publisher`.
 
@@ -112,10 +112,10 @@ The control layer should remain split by hardware device while sharing the unifi
 `src/arachne_demo` adds a Nintendo Switch Pro controller-driven demo path:
 
 - `switch_teleop.py`: maps `sensor_msgs/msg/Joy` to `/cmd_vel`, `/arachne/gui_joint_states`, and `/arachne/gripper/command`.
-- `camera_follow_controller.py`: maps the right stick to `arachne_view_frame`, which RViz follows from a robot-centered third-person view.
+- `camera_follow_controller.py`: maps the right stick to the Gazebo GUI follower camera, and also publishes `arachne_view_frame` for the RViz-only third-person view.
 - `web_gamepad_bridge.py`: serves a small local browser bridge for WSL2 or systems without `/dev/input/js*`.
 - `switch_rviz_demo.launch.py`: launches the normal RViz model with gripper/base simulation plus either `joy_node` or the web gamepad bridge.
-- `switch_gazebo_demo.launch.py`: adds a Gazebo showroom world and spawns the robot with Gazebo diff-drive physics plugins.
+- `switch_gazebo_demo.launch.py`: opens the Gazebo showroom without RViz, spawns the robot, and enables the Gazebo follower camera plus diff-drive physics plugins.
 
 Run the playable Gazebo showroom demo:
 
@@ -131,7 +131,9 @@ INPUT_BACKEND=joy JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh
 INPUT_BACKEND=web ./scripts/switch_demo.sh
 ```
 
-With the web backend, open `http://127.0.0.1:8787` in the browser and press any Switch Pro button. The left stick drives the base; the right stick controls the RViz follower view; `B` / `A` open and close the gripper; `ZL` + D-pad up/down moves the selected Aubo joint.
+With the web backend, open `http://127.0.0.1:8787` in the browser and press any Switch Pro button. The left stick moves the Scout relative to the current third-person camera direction; the right stick orbits the Gazebo follower camera; `B` / `A` open and close the gripper; `ZL` + D-pad up/down moves the selected Aubo joint.
+
+The default camera distance is `2.0 m`; tune it with `GAZEBO_CAMERA_DISTANCE=1.7 ./scripts/switch_demo.sh` if a closer or wider capture is needed.
 
 Run the lightweight RViz-only view:
 
@@ -139,4 +141,10 @@ Run the lightweight RViz-only view:
 DEMO_MODE=rviz ./scripts/switch_demo.sh
 ```
 
-The first Gazebo pass focuses on promotional driving physics and real mesh visualization. The base is driven through Gazebo DiffDrive; the arm is held at the display pose in Gazebo and remains interactively controlled in RViz. Full arm physics control should be moved to ros2_control controllers later.
+The first Gazebo pass focuses on promotional driving physics and real mesh visualization in a single Gazebo window. The base is driven through Gazebo DiffDrive with controller-relative third-person movement; the arm is held at the display pose in Gazebo and remains interactively controlled in RViz mode. Full arm physics control should be moved to ros2_control controllers later.
+
+Known follow-ups:
+
+- Improve Gazebo frame rate; the current showroom can feel choppy.
+- Rework the camera controller so the right-stick view behaves more like a normal third-person game camera.
+- Improve joystick interpretation and motion filtering; the current camera-relative drive can still feel imprecise or choose a direction that differs from the operator's intent.

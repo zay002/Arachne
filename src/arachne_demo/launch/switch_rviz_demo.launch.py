@@ -66,6 +66,7 @@ def generate_launch_description():
                 "deadzone": ParameterValue(LaunchConfiguration("teleop_deadzone"), value_type=float),
                 "linear_scale": ParameterValue(LaunchConfiguration("linear_scale"), value_type=float),
                 "angular_scale": ParameterValue(LaunchConfiguration("angular_scale"), value_type=float),
+                "drive_mode": LaunchConfiguration("drive_mode"),
                 "joint_velocity_scale": ParameterValue(
                     LaunchConfiguration("joint_velocity_scale"), value_type=float
                 ),
@@ -81,6 +82,12 @@ def generate_launch_description():
         parameters=[
             {
                 "deadzone": ParameterValue(LaunchConfiguration("teleop_deadzone"), value_type=float),
+                "gazebo_gui_camera": ParameterValue(
+                    LaunchConfiguration("gazebo_gui_camera"), value_type=bool
+                ),
+                "gazebo_distance": ParameterValue(
+                    LaunchConfiguration("gazebo_camera_distance"), value_type=float
+                ),
             }
         ],
         output="screen",
@@ -100,7 +107,10 @@ def generate_launch_description():
             DeclareLaunchArgument("teleop_deadzone", default_value="0.12"),
             DeclareLaunchArgument("linear_scale", default_value="0.55"),
             DeclareLaunchArgument("angular_scale", default_value="1.1"),
+            DeclareLaunchArgument("drive_mode", default_value="third_person"),
             DeclareLaunchArgument("joint_velocity_scale", default_value="0.85"),
+            DeclareLaunchArgument("gazebo_gui_camera", default_value="false"),
+            DeclareLaunchArgument("gazebo_camera_distance", default_value="2.0"),
             display,
             joy,
             web_gamepad,

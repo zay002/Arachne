@@ -10,7 +10,7 @@ Arachne is a ROS2 workspace for a Scout 2.0 mobile base carrying an Aubo i5 arm 
 
 The default hardware model is Scout 2.0 + Aubo i5 + Yizhua Robot MS42DC two-finger flexible servo gripper. AG95 is kept as an open-source gripper variant for comparison and demos. Both grippers are exposed through the same `Open` / `Close` GUI and service interface.
 
-The current milestone is a reliable robot description and RViz demo: one connected TF tree, real upstream Scout/Aubo/AG95 descriptions, a user-created movable MS42DC split mesh model, and lightweight gripper open/close simulation.
+The current milestone is a reliable robot description plus interactive demos: one connected TF tree, real upstream Scout/Aubo/AG95 descriptions, a user-created movable MS42DC split mesh model, lightweight gripper open/close simulation, and a playable Gazebo showroom.
 
 ## What Is Included
 
@@ -41,9 +41,10 @@ External model dependencies are restored by `scripts/fetch_third_party.sh`, with
 
 1. Finalize physical calibration: tool adapter pose, sensor poses, and collision simplification for planning.
 2. Add MoveIt2 configuration for the Aubo arm with interchangeable MS42DC and AG95 end-effectors.
-3. Replace the lightweight RViz base integrator with a full simulation backend when physics and collision rehearsal are needed.
-4. Implement hardware-facing bridges for Aubo TCP/IP, Scout serial, and MS42DC serial after the remaining materials arrive.
-5. Build the operator Web UI after the model, controllers, and launch contracts are stable.
+3. Tune the Gazebo demo frame rate, third-person camera feel, and camera-relative joystick precision.
+4. Upgrade the Gazebo demo into the main physics rehearsal backend with ros2_control arm and gripper controllers.
+5. Implement hardware-facing bridges for Aubo TCP/IP, Scout serial, and MS42DC serial after the remaining materials arrive.
+6. Build the operator Web UI after the model, controllers, and launch contracts are stable.
 
 ## Quick Start
 
@@ -125,14 +126,20 @@ DEMO_MODE=rviz ./scripts/switch_demo.sh
 
 Default controls:
 
-- Left stick: drive forward/back and turn.
-- Right stick: orbit the follower view around the robot.
+- Left stick: move the Scout in the current third-person camera direction.
+- Right stick: orbit the Gazebo follower camera around the robot.
 - Hold `ZL` + D-pad up/down: move the selected Aubo joint.
 - `L` / `R`: select previous/next Aubo joint.
 - `B`: open gripper. `A`: close gripper.
 - `+`: reset arm to the display pose. `-`: stop base motion.
 
-The default Gazebo version is the promotional/physics preview path: it uses the real robot meshes, a lit showroom world, dynamic props, and a diff-drive physics plugin. RViz remains the most reliable view for live arm joint motion until the full ros2_control/Gazebo arm stack is completed.
+The default Gazebo version opens only the Gazebo showroom window: it uses the real robot meshes, a lit world, dynamic props, a diff-drive physics plugin, and a controller-driven third-person camera. RViz remains available as a separate lightweight control view until the full ros2_control/Gazebo arm stack is completed.
+
+Camera distance can be tuned without rebuilding:
+
+```bash
+GAZEBO_CAMERA_DISTANCE=1.7 ./scripts/switch_demo.sh
+```
 
 To manually tune the MS42DC close angle with sliders:
 

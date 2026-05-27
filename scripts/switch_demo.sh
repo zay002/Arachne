@@ -9,6 +9,7 @@ JOY_DEV="${JOY_DEV:-/dev/input/js0}"
 INPUT_BACKEND="${INPUT_BACKEND:-auto}"
 WEB_GAMEPAD_HOST="${WEB_GAMEPAD_HOST:-127.0.0.1}"
 WEB_GAMEPAD_PORT="${WEB_GAMEPAD_PORT:-8787}"
+GAZEBO_CAMERA_DISTANCE="${GAZEBO_CAMERA_DISTANCE:-2.0}"
 
 if [[ ! -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]]; then
   echo "ROS setup not found: /opt/ros/${ROS_DISTRO}/setup.bash" >&2
@@ -83,7 +84,8 @@ case "${DEMO_MODE}" in
       with_joy:="${WITH_JOY}" \
       with_web_gamepad:="${WITH_WEB_GAMEPAD}" \
       web_gamepad_host:="${WEB_GAMEPAD_HOST}" \
-      web_gamepad_port:="${WEB_GAMEPAD_PORT}"
+      web_gamepad_port:="${WEB_GAMEPAD_PORT}" \
+      gazebo_camera_distance:="${GAZEBO_CAMERA_DISTANCE}"
     ;;
   gazebo)
     exec ros2 launch arachne_demo switch_gazebo_demo.launch.py \
@@ -92,7 +94,8 @@ case "${DEMO_MODE}" in
       with_joy:="${WITH_JOY}" \
       with_web_gamepad:="${WITH_WEB_GAMEPAD}" \
       web_gamepad_host:="${WEB_GAMEPAD_HOST}" \
-      web_gamepad_port:="${WEB_GAMEPAD_PORT}"
+      web_gamepad_port:="${WEB_GAMEPAD_PORT}" \
+      gazebo_camera_distance:="${GAZEBO_CAMERA_DISTANCE}"
     ;;
   *)
     echo "DEMO_MODE must be 'rviz' or 'gazebo'. Current value: ${DEMO_MODE}" >&2

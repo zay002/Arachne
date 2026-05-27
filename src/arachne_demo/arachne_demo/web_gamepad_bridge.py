@@ -39,7 +39,7 @@ HTML = """<!doctype html>
   <div class="panel">
     <div class="status" id="status">Press any Switch Pro button...</div>
     <p>WSL2 cannot always read the Switch Pro Controller as <code>/dev/input/js0</code>. Keep this page open; it forwards the browser Gamepad API to ROS2 <code>/joy</code>.</p>
-    <p>Left stick drives the base. Right stick controls the demo view. B/A open and close the gripper.</p>
+    <p>Left stick moves the base relative to the third-person camera. Right stick orbits the Gazebo camera. B/A open and close the gripper.</p>
     <p class="muted" id="detail">No controller detected yet.</p>
   </div>
 </main>
@@ -65,7 +65,7 @@ function normalizePad(gp) {
   const ry = dz(rawAxes[3] || 0);
   return {
     id: gp.id,
-    axes: [-lx, -ly, rx, ry],
+    axes: [lx, -ly, rx, ry],
     buttons
   };
 }
