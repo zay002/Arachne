@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROS_DISTRO="${ROS_DISTRO:-jazzy}"
-DEMO_MODE="${DEMO_MODE:-rviz}"
+DEMO_MODE="${DEMO_MODE:-gazebo}"
 GRIPPER_TYPE="${GRIPPER_TYPE:-ms42dc}"
 JOY_DEV="${JOY_DEV:-/dev/input/js0}"
 INPUT_BACKEND="${INPUT_BACKEND:-auto}"
@@ -73,6 +73,7 @@ esac
 if [[ "${WITH_WEB_GAMEPAD}" == "true" ]]; then
   echo "Open http://${WEB_GAMEPAD_HOST}:${WEB_GAMEPAD_PORT} in a browser and press any gamepad button."
 fi
+echo "Starting Arachne demo mode: ${DEMO_MODE}"
 
 case "${DEMO_MODE}" in
   rviz)

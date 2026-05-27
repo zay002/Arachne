@@ -14,7 +14,7 @@ Arachne now has an interactive demo path for a Nintendo Switch Pro Controller on
 - `launch/switch_gazebo_demo.launch.py`: starts Gazebo, spawns Arachne with Gazebo plugins, and reuses the same Switch teleop path.
 - `worlds/arachne_showroom.sdf`: physics-enabled demo world with floor, lighting, ramp, and movable props.
 - `urdf/gazebo/arachne_gazebo_plugins.xacro`: Gazebo DiffDrive, joint-state, and arm hold plugins for the demo model.
-- `scripts/switch_demo.sh`: one-command helper for RViz or Gazebo demo mode.
+- `scripts/switch_demo.sh`: one-command helper that defaults to Gazebo showroom mode and keeps RViz mode available through `DEMO_MODE=rviz`.
 
 ## Interfaces
 

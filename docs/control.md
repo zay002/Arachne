@@ -117,7 +117,7 @@ The control layer should remain split by hardware device while sharing the unifi
 - `switch_rviz_demo.launch.py`: launches the normal RViz model with gripper/base simulation plus either `joy_node` or the web gamepad bridge.
 - `switch_gazebo_demo.launch.py`: adds a Gazebo showroom world and spawns the robot with Gazebo diff-drive physics plugins.
 
-Run the RViz demo:
+Run the playable Gazebo showroom demo:
 
 ```bash
 ./scripts/switch_demo.sh
@@ -133,10 +133,10 @@ INPUT_BACKEND=web ./scripts/switch_demo.sh
 
 With the web backend, open `http://127.0.0.1:8787` in the browser and press any Switch Pro button. The left stick drives the base; the right stick controls the RViz follower view; `B` / `A` open and close the gripper; `ZL` + D-pad up/down moves the selected Aubo joint.
 
-Run the Gazebo showroom preview:
+Run the lightweight RViz-only view:
 
 ```bash
-DEMO_MODE=gazebo ./scripts/switch_demo.sh
+DEMO_MODE=rviz ./scripts/switch_demo.sh
 ```
 
 The first Gazebo pass focuses on promotional driving physics and real mesh visualization. The base is driven through Gazebo DiffDrive; the arm is held at the display pose in Gazebo and remains interactively controlled in RViz. Full arm physics control should be moved to ros2_control controllers later.

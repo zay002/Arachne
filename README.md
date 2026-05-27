@@ -95,7 +95,7 @@ GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
 
 ## Switch Demo
 
-Connect the Nintendo Switch Pro Controller over Bluetooth, then run:
+Connect the Nintendo Switch Pro Controller over Bluetooth, then run the playable Gazebo showroom demo:
 
 ```bash
 ./scripts/switch_demo.sh
@@ -117,6 +117,12 @@ INPUT_BACKEND=web ./scripts/switch_demo.sh
 
 For the Switch Pro Controller, the WSL2/browser backend is usually the most reliable path because the controller stays visible to Windows Bluetooth while the browser forwards its standard Gamepad state into ROS2.
 
+For the lightweight RViz-only control view:
+
+```bash
+DEMO_MODE=rviz ./scripts/switch_demo.sh
+```
+
 Default controls:
 
 - Left stick: drive forward/back and turn.
@@ -126,13 +132,7 @@ Default controls:
 - `B`: open gripper. `A`: close gripper.
 - `+`: reset arm to the display pose. `-`: stop base motion.
 
-To open the Gazebo showroom world with physics objects and the same controller input:
-
-```bash
-DEMO_MODE=gazebo ./scripts/switch_demo.sh
-```
-
-The Gazebo version is the promotional/physics preview path: it uses the real robot meshes, a lit showroom world, dynamic props, and a diff-drive physics plugin. RViz remains the most reliable view for live arm joint motion until the full ros2_control/Gazebo arm stack is completed.
+The default Gazebo version is the promotional/physics preview path: it uses the real robot meshes, a lit showroom world, dynamic props, and a diff-drive physics plugin. RViz remains the most reliable view for live arm joint motion until the full ros2_control/Gazebo arm stack is completed.
 
 To manually tune the MS42DC close angle with sliders:
 

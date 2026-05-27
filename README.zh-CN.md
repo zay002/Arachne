@@ -90,7 +90,7 @@ GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
 
 ## Switch 手柄 Demo
 
-先通过蓝牙连接 Nintendo Switch Pro 手柄，然后运行：
+先通过蓝牙连接 Nintendo Switch Pro 手柄，然后运行可玩的 Gazebo 展厅 demo：
 
 ```bash
 ./scripts/switch_demo.sh
@@ -112,6 +112,12 @@ INPUT_BACKEND=web ./scripts/switch_demo.sh
 
 对于 Switch Pro 手柄，WSL2 下通常优先推荐浏览器桥接，因为手柄保持连接在 Windows 蓝牙侧，再由浏览器把标准 Gamepad 状态转发到 ROS2。
 
+如果只想打开轻量 RViz 控制视图：
+
+```bash
+DEMO_MODE=rviz ./scripts/switch_demo.sh
+```
+
 默认按键：
 
 - 左摇杆：底盘前进、后退和转向。
@@ -121,13 +127,7 @@ INPUT_BACKEND=web ./scripts/switch_demo.sh
 - `B`：打开夹爪。`A`：闭合夹爪。
 - `+`：机械臂回到展示姿态。`-`：底盘停止。
 
-打开带物理物体的 Gazebo 展示世界：
-
-```bash
-DEMO_MODE=gazebo ./scripts/switch_demo.sh
-```
-
-Gazebo 版本用于宣传和物理预览：它加载真实机器人 mesh、灯光展厅、可碰撞物体和 diff-drive 物理插件。机械臂实时关节运动目前仍以 RViz 为主，完整 Gazebo 机械臂控制会在 ros2_control/Gazebo 栈完成后补上。
+默认 Gazebo 版本用于宣传和物理预览：它加载真实机器人 mesh、灯光展厅、可碰撞物体和 diff-drive 物理插件。机械臂实时关节运动目前仍以 RViz 为主，完整 Gazebo 机械臂控制会在 ros2_control/Gazebo 栈完成后补上。
 
 手动调 MS42DC 闭合角：
 
