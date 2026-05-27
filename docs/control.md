@@ -1,6 +1,33 @@
 # Control
 
-The first simulation control layer is implemented for MS42DC and AG95 open/close demos. Both gripper variants expose the same two states, `Open` and `Close`; the only model difference is the gripper attached under `gripper_adapter_link`. In `display.launch.py`, default zero-state joints publish to `/arachne/default_joint_states`, GUI slider joints publish to `/arachne/gui_joint_states`, gripper states publish to `/arachne/gripper/joint_states`, and `joint_state_mux` is the only publisher of the unified `/joint_states` stream used by `robot_state_publisher`.
+The first simulation control layer is implemented for RViz demos. The base accepts `/cmd_vel` and publishes `/odom`, `odom -> base_link`, and wheel joint states. The Aubo arm is still controlled by `joint_state_publisher_gui`, seeded with the current user-confirmed display pose instead of the folded zero pose. Both MS42DC and AG95 expose the same two gripper states, `Open` and `Close`; the only model difference is the gripper attached under `gripper_adapter_link`.
+
+In `display.launch.py`, default zero-state joints publish to `/arachne/default_joint_states`, GUI slider joints publish to `/arachne/gui_joint_states`, base wheel states publish to `/arachne/base/joint_states`, gripper states publish to `/arachne/gripper/joint_states`, and `joint_state_mux` is the only publisher of the unified `/joint_states` stream used by `robot_state_publisher`.
+
+## Base Simulation
+
+Launch the normal combined simulation:
+
+```bash
+./scripts/view_model.sh
+```
+
+The `Arachne Base` GUI provides Forward, Back, Left, Right, and Stop. It publishes `geometry_msgs/msg/Twist` on `/cmd_vel`. Terminal control uses the same topic:
+
+```bash
+ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.25}, angular: {z: 0.0}}"
+```
+
+Reset the simulated base pose:
+
+```bash
+ros2 service call /arachne/base/reset std_srvs/srv/Trigger {}
+```
+
+`base_sim_controller` is intentionally a lightweight kinematic integrator for RViz. Full physics and collision rehearsal should be added later through a dedicated simulation backend.
+
+## Gripper Simulation
 
 Launch MS42DC control with the two-button gripper GUI:
 
@@ -71,5 +98,11 @@ Planned controllers:
 - `aubo_arm_controller`: joint trajectory controller for `aubo_shoulder_joint`, `aubo_upperArm_joint`, `aubo_foreArm_joint`, `aubo_wrist1_joint`, `aubo_wrist2_joint`, and `aubo_wrist3_joint`.
 - `scout_base_controller`: diff drive or native Scout driver bridge.
 - `ms42dc_gripper_controller`: hardware-facing wrapper after the MS42DC communication method and command range are confirmed.
+
+Reserved real-hardware files:
+
+- `src/arachne_hardware/arachne_hardware/gripper_serial_driver.py`: MS42DC serial control placeholder.
+- `src/arachne_hardware/arachne_hardware/base_serial_driver.py`: Scout/base serial control placeholder.
+- `src/arachne_hardware/arachne_hardware/aubo_tcp_driver.py`: Aubo TCP/IP control placeholder.
 
 The control layer should remain split by hardware device while sharing the unified robot state.

@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 
 import rclpy
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 
@@ -87,7 +87,10 @@ def main(args: list[str] | None = None) -> None:
 
     try:
         node.run()
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
     finally:
         executor.shutdown()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()

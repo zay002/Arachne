@@ -11,7 +11,9 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 ## 我们提供了什么
 
 - `src/arachne_description`：统一的 Xacro/URDF 机器人模型、RViz 配置、模型变体、安装框架和传感器框架。
+- `src/arachne_sim`：面向 RViz 的底盘仿真，负责 `/cmd_vel` 积分、里程计 TF、轮子 joint state 和底盘遥控 GUI。
 - `src/arachne_gripper`：夹爪仿真控制器、joint-state mux，以及只有 `Open` / `Close` 的小型 GUI。
+- `src/arachne_hardware`：预留真机驱动包，包含空的夹具串口、底盘串口、Aubo TCP/IP 驱动文件。
 - `scripts`：环境安装、第三方模型下载、可视化启动、URDF 检查和夹爪仿真测试脚本。
 - `docs`：硬件、建模、控制、标定说明，以及阶段报告。
 - `docs/demo/model_compare.png`：MS42DC 与 AG95 两套夹爪模型展示图。
@@ -26,14 +28,15 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - Aubo 安装在当前硬件确认的 Scout 顶部位置。
 - MS42DC 使用作者手动拆分的真实 CAD 部件，左右夹指可以绕真实铰点开合。
 - MS42DC 默认闭合角为 `0.6 rad`。
-- RViz 通过 `scripts/view_model.sh` 启动，会自动清理旧的可视化节点，并打开机械臂关节滑条、夹爪仿真和 Open/Close 控制窗。
+- RViz 通过 `scripts/view_model.sh` 启动，会自动清理旧的可视化节点，并打开底盘遥控、机械臂关节滑条、夹爪仿真和 Open/Close 控制窗。
+- 机械臂滑条 GUI 默认从当前用户确认的展示姿态启动；点击 `Center` 会回到这个姿态。
 
 ## Roadmap
 
 1. 完成物理标定：末端转接板、传感器位姿和用于规划的简化碰撞模型。
 2. 为 Aubo + MS42DC/AG95 两种末端配置 MoveIt2。
-3. 添加 `ros2_control` 控制器，以及 Aubo、Scout、MS42DC 的硬件接口。
-4. 添加仿真后端，用于运动规划和任务预演。
+3. 在需要物理碰撞和任务预演时，将当前 RViz 轻量底盘积分器替换为完整仿真后端。
+4. 真机材料到齐后，实现 Aubo TCP/IP、Scout 串口、MS42DC 串口硬件接口。
 5. 在模型、控制器和 launch 接口稳定后，再构建 Web 操作界面。
 
 ## 快速启动
@@ -52,11 +55,29 @@ conda deactivate 2>/dev/null || true
 source /opt/ros/jazzy/setup.bash  # Ubuntu 22.04 使用 /opt/ros/humble/setup.bash
 
 colcon build --base-paths src --packages-select \
-  aubo_description scout_description dh_ag95_description arachne_gripper arachne_description \
+  aubo_description scout_description dh_ag95_description \
+  arachne_sim arachne_gripper arachne_hardware arachne_description \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 
 source install/setup.bash
 ./scripts/view_model.sh
+```
+
+底盘遥控 GUI 会发布 `/cmd_vel`，底盘仿真节点会发布 `/odom`、`odom -> base_link` 和轮子 joint state。
+
+如果看到 Aubo 折叠到 Scout 车体里，先重新构建并用 helper 脚本启动，确保安装目录里的 launch 文件是最新的：
+
+```bash
+colcon build --base-paths src --packages-select arachne_description
+source install/setup.bash
+./scripts/view_model.sh
+```
+
+也可以直接用命令控制底盘：
+
+```bash
+ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.25}, angular: {z: 0.0}}"
 ```
 
 查看 AG95 版本：
@@ -82,6 +103,12 @@ GRIPPER_CLOSED_POSITION=0.58 ./scripts/view_model.sh
 ```bash
 ./scripts/check_model.sh
 ./scripts/test_gripper_sim.sh
+```
+
+重置底盘仿真位姿：
+
+```bash
+ros2 service call /arachne/base/reset std_srvs/srv/Trigger {}
 ```
 
 如果 RViz 只看到网格，优先用 `./scripts/view_model.sh` 重新启动；这个脚本会清理旧的 RViz、robot_state_publisher 和 joint_state_publisher 节点。模型加载可能需要等待几秒。

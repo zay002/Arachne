@@ -15,7 +15,9 @@ The current milestone is a reliable robot description and RViz demo: one connect
 ## What Is Included
 
 - `src/arachne_description`: unified Xacro/URDF, RViz config, model variants, mount frames, sensor frames, and MS42DC/AG95 gripper adapters.
+- `src/arachne_sim`: RViz-oriented base simulation, `/cmd_vel` integration, odometry TF, wheel joint states, and a small base teleop GUI.
 - `src/arachne_gripper`: simulated gripper controller, joint-state mux, and a small `Open` / `Close` GUI.
+- `src/arachne_hardware`: reserved real-hardware driver package with empty files for gripper serial, base serial, and Aubo TCP/IP drivers.
 - `scripts`: setup, third-party fetch, model visualization, URDF check, and gripper smoke-test helpers.
 - `docs`: hardware/modeling/control/calibration notes and stage reports.
 - `docs/demo/model_compare.png`: current MS42DC and AG95 model showcase.
@@ -30,14 +32,15 @@ Large upstream repositories under `third_party/` are intentionally ignored by gi
 - Aubo is mounted at the current intended Scout top-deck pose.
 - MS42DC uses user-created split CAD meshes with revolute left/right finger links.
 - MS42DC close target is calibrated to `0.6 rad` by default.
-- RViz starts through `scripts/view_model.sh`, which cleans stale visualization nodes and launches the arm joint sliders, gripper simulator, and gripper Open/Close GUI for either gripper.
+- RViz starts through `scripts/view_model.sh`, which cleans stale visualization nodes and launches base teleop, arm joint sliders, gripper simulator, and gripper Open/Close GUI.
+- The arm slider GUI starts from the current user-confirmed display pose; pressing `Center` returns to that pose.
 
 ## Roadmap
 
 1. Finalize physical calibration: tool adapter pose, sensor poses, and collision simplification for planning.
 2. Add MoveIt2 configuration for the Aubo arm with interchangeable MS42DC and AG95 end-effectors.
-3. Add `ros2_control` controllers and hardware-facing bridges for Aubo, Scout, and MS42DC.
-4. Add simulation backend support for planning and task rehearsal.
+3. Replace the lightweight RViz base integrator with a full simulation backend when physics and collision rehearsal are needed.
+4. Implement hardware-facing bridges for Aubo TCP/IP, Scout serial, and MS42DC serial after the remaining materials arrive.
 5. Build the operator Web UI after the model, controllers, and launch contracts are stable.
 
 ## Quick Start
@@ -57,14 +60,30 @@ conda deactivate 2>/dev/null || true
 source /opt/ros/jazzy/setup.bash  # use /opt/ros/humble/setup.bash on Ubuntu 22.04
 
 colcon build --base-paths src --packages-select \
-  aubo_description scout_description dh_ag95_description arachne_gripper arachne_description \
+  aubo_description scout_description dh_ag95_description \
+  arachne_sim arachne_gripper arachne_hardware arachne_description \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 
 source install/setup.bash
 ./scripts/view_model.sh
 ```
 
-`view_model.sh` launches the normal development view: MS42DC model, Aubo joint sliders, gripper open/close simulator, and the `Arachne Gripper` Open/Close window.
+`view_model.sh` launches the normal development view: MS42DC model, base teleop GUI, Aubo joint sliders, gripper open/close simulator, and the `Arachne Gripper` Open/Close window. The base GUI publishes `/cmd_vel`; `base_sim_controller` publishes `/odom`, `odom -> base_link`, and wheel joint states.
+
+If the Aubo appears folded into the Scout body, rebuild and relaunch with the helper script so the installed launch file includes the current user-confirmed display pose:
+
+```bash
+colcon build --base-paths src --packages-select arachne_description
+source install/setup.bash
+./scripts/view_model.sh
+```
+
+The base can also be commanded from the terminal:
+
+```bash
+ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.25}, angular: {z: 0.0}}"
+```
 
 To view AG95 with the same Open/Close controls:
 
@@ -98,18 +117,25 @@ Smoke-test both gripper simulation profiles:
 ./scripts/test_gripper_sim.sh
 ```
 
+Reset the simulated base pose:
+
+```bash
+ros2 service call /arachne/base/reset std_srvs/srv/Trigger {}
+```
+
 Direct launch equivalent:
 
 ```bash
 ros2 launch arachne_description display.launch.py \
   gripper_type:=ms42dc \
   use_gui:=true \
+  with_base_gui:=true \
   with_gripper_sim:=true \
   with_gripper_gui:=true \
   gripper_sim_profile:=ms42dc
 ```
 
-If RViz opens with only a grid, use `./scripts/view_model.sh` rather than a bare launch command; it clears stale ROS visualization nodes before starting. Wait a few seconds for meshes to load, then check that RViz `Fixed Frame` is `base_link`.
+If RViz opens with only a grid, use `./scripts/view_model.sh` rather than a bare launch command; it clears stale ROS visualization nodes before starting. Wait a few seconds for meshes to load, then check that RViz `Fixed Frame` is `odom`.
 
 ## Key Frames
 
@@ -133,3 +159,4 @@ base_link
 - `docs/reports/stage_0_repository_foundation.md`
 - `docs/reports/stage_1_unified_robot_model.md`
 - `docs/reports/stage_2_gripper_sim_control.md`
+- `docs/reports/stage_3_joint_sim_control.md`

@@ -10,6 +10,16 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 
+DISPLAY_ARM_ZEROS = {
+    "zeros.aubo_shoulder_joint": 1.664,
+    "zeros.aubo_upperArm_joint": 0.034,
+    "zeros.aubo_foreArm_joint": -1.324,
+    "zeros.aubo_wrist1_joint": 0.034,
+    "zeros.aubo_wrist2_joint": -1.732,
+    "zeros.aubo_wrist3_joint": 0.0,
+}
+
+
 def launch_setup(context, *args, **kwargs):
     pkg_share = Path(get_package_share_directory("arachne_description"))
     model_path = pkg_share / "urdf" / "arachne.urdf.xacro"
@@ -41,6 +51,7 @@ def launch_setup(context, *args, **kwargs):
             executable="joint_state_publisher",
             name="default_joint_state_publisher",
             arguments=[str(generated_urdf)],
+            parameters=[DISPLAY_ARM_ZEROS],
             remappings=[("joint_states", "/arachne/default_joint_states")],
             output="screen",
         ),
@@ -49,6 +60,7 @@ def launch_setup(context, *args, **kwargs):
             executable="joint_state_publisher_gui",
             name="joint_state_publisher_gui",
             arguments=[str(generated_urdf)],
+            parameters=[DISPLAY_ARM_ZEROS],
             remappings=[("joint_states", "/arachne/gui_joint_states")],
             condition=IfCondition(LaunchConfiguration("use_gui")),
             output="screen",
@@ -57,6 +69,40 @@ def launch_setup(context, *args, **kwargs):
             package="arachne_gripper",
             executable="joint_state_mux",
             name="joint_state_mux",
+            output="screen",
+        ),
+        Node(
+            package="arachne_sim",
+            executable="base_sim_controller",
+            name="base_sim_controller",
+            parameters=[
+                {
+                    "max_linear_velocity": ParameterValue(
+                        LaunchConfiguration("base_max_linear_velocity"), value_type=float
+                    ),
+                    "max_angular_velocity": ParameterValue(
+                        LaunchConfiguration("base_max_angular_velocity"), value_type=float
+                    ),
+                }
+            ],
+            condition=IfCondition(LaunchConfiguration("with_base_sim")),
+            output="screen",
+        ),
+        Node(
+            package="arachne_sim",
+            executable="base_teleop_gui",
+            name="base_teleop_gui",
+            parameters=[
+                {
+                    "linear_speed": ParameterValue(
+                        LaunchConfiguration("base_linear_speed"), value_type=float
+                    ),
+                    "angular_speed": ParameterValue(
+                        LaunchConfiguration("base_angular_speed"), value_type=float
+                    ),
+                }
+            ],
+            condition=IfCondition(LaunchConfiguration("with_base_gui")),
             output="screen",
         ),
         Node(
@@ -91,6 +137,7 @@ def launch_setup(context, *args, **kwargs):
             package="rviz2",
             executable="rviz2",
             arguments=["-d", str(rviz_config)],
+            condition=IfCondition(LaunchConfiguration("with_rviz")),
             output="screen",
         ),
     ]
@@ -104,6 +151,12 @@ def generate_launch_description():
             DeclareLaunchArgument("tool_adapter_xyz", default_value="0.0 0.0 0.0"),
             DeclareLaunchArgument("tool_adapter_rpy", default_value="0.0 0.0 0.0"),
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
+            DeclareLaunchArgument("with_base_sim", default_value="true"),
+            DeclareLaunchArgument("with_base_gui", default_value="false"),
+            DeclareLaunchArgument("base_linear_speed", default_value="0.25"),
+            DeclareLaunchArgument("base_angular_speed", default_value="0.65"),
+            DeclareLaunchArgument("base_max_linear_velocity", default_value="0.8"),
+            DeclareLaunchArgument("base_max_angular_velocity", default_value="1.4"),
             DeclareLaunchArgument("with_gripper_sim", default_value="false"),
             DeclareLaunchArgument("with_gripper_gui", default_value="false"),
             DeclareLaunchArgument("gripper_sim_profile", default_value="ms42dc"),
@@ -111,6 +164,7 @@ def generate_launch_description():
             DeclareLaunchArgument("gripper_closed_position", default_value="-1.0"),
             DeclareLaunchArgument("gripper_max_velocity", default_value="-1.0"),
             DeclareLaunchArgument("use_gui", default_value="false"),
+            DeclareLaunchArgument("with_rviz", default_value="true"),
             DeclareLaunchArgument("with_lidar", default_value="true"),
             DeclareLaunchArgument("with_ee_camera", default_value="false"),
             OpaqueFunction(function=launch_setup),

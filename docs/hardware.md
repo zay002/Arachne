@@ -18,3 +18,11 @@ Arachne targets a Scout 2.0 mobile base, an Aubo i5 arm, and a Yizhua Robot MS42
 - MS42DC communication method for real hardware control.
 
 These values should be measured before real planning or collision checking is trusted.
+
+## Reserved Driver Boundaries
+
+Real hardware drivers are intentionally empty until the remaining hardware materials arrive:
+
+- MS42DC gripper: serial control, reserved at `src/arachne_hardware/arachne_hardware/gripper_serial_driver.py`.
+- Scout/base controller: separate serial control, reserved at `src/arachne_hardware/arachne_hardware/base_serial_driver.py`.
+- Aubo i5 arm: TCP/IP control following Aubo documentation, reserved at `src/arachne_hardware/arachne_hardware/aubo_tcp_driver.py`.
