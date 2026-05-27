@@ -18,8 +18,17 @@ link_dir() {
     return
   fi
 
-  rm -rf "${link}"
-  ln -s "${target}" "${link}"
+  if [[ -L "${link}" && "$(readlink -f "${link}")" == "$(readlink -f "${target}")" ]]; then
+    return
+  fi
+
+  local tmp_link="${link}.tmp.$$"
+  rm -rf "${tmp_link}"
+  ln -s "${target}" "${tmp_link}"
+  if [[ -e "${link}" && ! -L "${link}" ]]; then
+    rm -rf "${link}"
+  fi
+  mv -Tf "${tmp_link}" "${link}"
 }
 
 link_first_existing() {

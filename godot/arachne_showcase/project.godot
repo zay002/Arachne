@@ -28,4 +28,4 @@ textures/default_filters/anisotropic_filtering_level=4
 [physics]
 
 common/physics_ticks_per_second=120
-3d/default_gravity=0.0
+3d/default_gravity=9.80665

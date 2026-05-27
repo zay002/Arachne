@@ -32,6 +32,7 @@ const SCOUT_WHEEL_SPIN_AXIS := Vector3(0.0, 0.0, 1.0)
 const ARENA_LIMIT := 10.5
 const BODY_COLLISION_SIZE := Vector3(0.96, 0.34, 0.72)
 const BODY_COLLISION_CENTER := Vector3(0.0, 0.24, 0.0)
+const DEFAULT_CAMERA_AXIS := -1
 
 @export var max_linear_speed := 2.05
 @export var max_angular_speed := 2.45
@@ -50,6 +51,7 @@ const BODY_COLLISION_CENTER := Vector3(0.0, 0.24, 0.0)
 @export var ground_clearance := 0.015
 @export var suspension_follow_rate := 18.0
 @export var cinematic_camera := true
+@export var camera_axis_index := DEFAULT_CAMERA_AXIS
 
 var robot_root: CharacterBody3D
 var visual_root: Node3D
@@ -76,6 +78,7 @@ var ros_bridge: Node
 var materials := {}
 var backend_label := "standalone"
 var visual_profile := "cinematic"
+var camera_axis_label := "auto"
 var forced_drive_enabled := false
 var forced_drive_stick := Vector2.ZERO
 var self_test_mode := false
@@ -86,6 +89,7 @@ func _ready() -> void:
 	visual_profile = OS.get_environment("ARACHNE_GODOT_PROFILE")
 	if visual_profile.is_empty():
 		visual_profile = "cinematic"
+	_configure_input_overrides()
 	_setup_materials()
 	_build_world()
 	_build_robot()
@@ -117,6 +121,16 @@ func _configure_backend() -> void:
 		backend_label = "ROS2 command ready"
 	else:
 		backend_label = "standalone physics"
+
+
+func _configure_input_overrides() -> void:
+	var requested_camera_axis := OS.get_environment("ARACHNE_CAMERA_AXIS")
+	if requested_camera_axis.is_valid_int():
+		camera_axis_index = requested_camera_axis.to_int()
+		camera_axis_label = str(camera_axis_index)
+	else:
+		camera_axis_index = DEFAULT_CAMERA_AXIS
+		camera_axis_label = "auto"
 
 
 func _physics_process(delta: float) -> void:
@@ -165,11 +179,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _setup_materials() -> void:
-	materials["body"] = _material(Color(0.055, 0.075, 0.083), 0.62, 0.12)
-	materials["body_clearcoat"] = _material(Color(0.11, 0.29, 0.31), 0.36, 0.16)
+	materials["body"] = _material(Color(0.08, 0.09, 0.09), 0.68, 0.05)
+	materials["body_clearcoat"] = _material(Color(0.18, 0.19, 0.18), 0.58, 0.04)
 	materials["dark"] = _material(Color(0.015, 0.017, 0.020), 0.82, 0.0)
 	materials["tire"] = _material(Color(0.012, 0.012, 0.013), 0.94, 0.0)
-	materials["arm"] = _material(Color(0.87, 0.89, 0.84), 0.46, 0.0)
+	materials["arm"] = _material(Color(0.88, 0.90, 0.88), 0.48, 0.0)
 	materials["arm_joint"] = _material(Color(0.18, 0.20, 0.22), 0.55, 0.08)
 	materials["accent"] = _material(Color(1.0, 0.60, 0.10), 0.38, 0.0)
 	materials["accent_blue"] = _material(Color(0.10, 0.48, 0.70), 0.42, 0.0)
@@ -177,6 +191,10 @@ func _setup_materials() -> void:
 	materials["asphalt_dark"] = _material(Color(0.12, 0.14, 0.15), 0.92, 0.0)
 	materials["obstacle"] = _material(Color(0.23, 0.28, 0.30), 0.70, 0.02)
 	materials["crate"] = _material(Color(0.52, 0.39, 0.22), 0.76, 0.0)
+	materials["desk"] = _material(Color(0.48, 0.42, 0.34), 0.72, 0.0)
+	materials["wall"] = _material(Color(0.72, 0.74, 0.70), 0.82, 0.0)
+	materials["glass"] = _material(Color(0.48, 0.72, 0.82, 0.34), 0.36, 0.0)
+	materials["carpet"] = _material(Color(0.20, 0.25, 0.27), 0.88, 0.0)
 	materials["zone"] = _material(Color(0.16, 0.42, 0.58, 0.35), 0.7, 0.0)
 	materials["line"] = _material(Color(0.92, 0.86, 0.62), 0.78, 0.0)
 
@@ -253,9 +271,7 @@ func _build_world() -> void:
 	ground_shape.position = ground.position
 	ground_body.add_child(ground_shape)
 
-	_add_grid_lines()
-	_add_course_markings()
-	_add_obstacles()
+	_add_office_map()
 
 
 func _build_robot() -> void:
@@ -303,7 +319,6 @@ func _build_scout_visual() -> void:
 	)
 	base.name = "ScoutChassis"
 	visual_root.add_child(base)
-	_add_scout_paint_details()
 
 	var wheel_positions := {
 		"front_right": _ros_vec(Vector3(0.249, -0.2915, -0.0702)),
@@ -341,28 +356,6 @@ func _build_scout_visual() -> void:
 	var deck := _box_visual("ArmDeck", _ros_size(Vector3(0.42, 0.30, 0.035)), materials["accent"])
 	deck.position = _ros_vec(Vector3(0.22, 0.0, 0.135))
 	visual_root.add_child(deck)
-
-	var lidar_beacon := _add_cylinder_visual("LidarBeacon", 0.06, 0.045, materials["accent_blue"])
-	lidar_beacon.position = _ros_vec(Vector3(0.35, 0.0, 0.215))
-	visual_root.add_child(lidar_beacon)
-
-
-func _add_scout_paint_details() -> void:
-	var top_panel := _box_visual("ScoutTopPaintPanel", Vector3(0.54, 0.012, 0.36), materials["body"])
-	top_panel.position = _ros_vec(Vector3(0.00, 0.0, 0.196))
-	visual_root.add_child(top_panel)
-
-	var front_stripe := _box_visual("ScoutForwardStripe", Vector3(0.055, 0.014, 0.50), materials["accent"])
-	front_stripe.position = _ros_vec(Vector3(0.34, 0.0, 0.207))
-	visual_root.add_child(front_stripe)
-
-	var left_side := _box_visual("ScoutLeftBlueSide", Vector3(0.45, 0.018, 0.055), materials["accent_blue"])
-	left_side.position = _ros_vec(Vector3(-0.02, 0.325, 0.055))
-	visual_root.add_child(left_side)
-
-	var right_side := _box_visual("ScoutRightBlueSide", Vector3(0.45, 0.018, 0.055), materials["accent_blue"])
-	right_side.position = _ros_vec(Vector3(-0.02, -0.325, 0.055))
-	visual_root.add_child(right_side)
 
 
 func _build_aubo_visual() -> void:
@@ -507,7 +500,7 @@ func _build_hud() -> void:
 	panel.offset_left = 16
 	panel.offset_top = 16
 	panel.offset_right = 410
-	panel.offset_bottom = 104
+	panel.offset_bottom = 124
 	layer.add_child(panel)
 
 	status_label = Label.new()
@@ -526,6 +519,98 @@ func _add_grid_lines() -> void:
 		var z_line := _box_visual("grid_z_%d" % i, Vector3(0.010, 0.004, 24.0), line_material)
 		z_line.position = Vector3(float(i), 0.004, 0.0)
 		add_child(z_line)
+
+
+func _add_office_map() -> void:
+	_add_office_floor_plan()
+	_add_office_furniture()
+	_add_office_training_props()
+
+
+func _add_office_floor_plan() -> void:
+	var reception_carpet := _box_visual("OfficeReceptionCarpet", Vector3(4.2, 0.006, 2.8), materials["carpet"])
+	reception_carpet.position = Vector3(-2.6, 0.006, 1.9)
+	add_child(reception_carpet)
+
+	var lab_zone := _box_visual("RobotLabZonePaint", Vector3(3.7, 0.006, 2.6), materials["zone"])
+	lab_zone.position = Vector3(2.7, 0.008, -1.8)
+	add_child(lab_zone)
+
+	var center_lane := _box_visual("OfficeNavigationLane", Vector3(8.8, 0.007, 0.14), materials["line"])
+	center_lane.position = Vector3(0.0, 0.010, -0.2)
+	add_child(center_lane)
+
+	_add_obstacle_box("OfficeWallNorthA", Vector3(5.0, 1.55, 0.14), Vector3(-3.4, 0.775, -4.15), materials["wall"])
+	_add_obstacle_box("OfficeWallNorthB", Vector3(4.2, 1.55, 0.14), Vector3(3.8, 0.775, -4.15), materials["wall"])
+	_add_obstacle_box("OfficeWallSouthA", Vector3(5.4, 1.55, 0.14), Vector3(-3.0, 0.775, 4.15), materials["wall"])
+	_add_obstacle_box("OfficeWallSouthB", Vector3(3.4, 1.55, 0.14), Vector3(4.3, 0.775, 4.15), materials["wall"])
+	_add_obstacle_box("OfficeWallWest", Vector3(0.14, 1.55, 8.3), Vector3(-6.0, 0.775, 0.0), materials["wall"])
+	_add_obstacle_box("OfficeWallEastA", Vector3(0.14, 1.55, 3.3), Vector3(6.0, 0.775, -2.45), materials["wall"])
+	_add_obstacle_box("OfficeWallEastB", Vector3(0.14, 1.55, 3.1), Vector3(6.0, 0.775, 2.55), materials["wall"])
+
+	_add_obstacle_box("GlassMeetingRoomWall", Vector3(0.08, 1.25, 3.1), Vector3(-0.7, 0.625, 2.2), materials["glass"])
+	_add_obstacle_box("GlassMeetingRoomFront", Vector3(3.2, 1.25, 0.08), Vector3(-2.25, 0.625, 0.65), materials["glass"])
+	_add_obstacle_box("LabDividerWall", Vector3(0.10, 1.20, 3.2), Vector3(1.05, 0.60, -2.45), materials["glass"])
+
+
+func _add_office_furniture() -> void:
+	_add_desk("DeskA", Vector3(-4.25, 0.75, -2.9), 0.0)
+	_add_desk("DeskB", Vector3(-4.25, 0.75, -1.55), 0.0)
+	_add_desk("DeskC", Vector3(3.35, 0.75, 2.65), PI)
+	_add_desk("DeskD", Vector3(4.85, 0.75, 2.65), PI)
+
+	_add_obstacle_box("MeetingTable", Vector3(1.65, 0.16, 0.84), Vector3(-3.15, 0.52, 2.35), materials["desk"])
+	_add_obstacle_box("MeetingTableBase", Vector3(0.26, 0.70, 0.22), Vector3(-3.15, 0.35, 2.35), materials["dark"])
+	for i in range(4):
+		_add_obstacle_box("MeetingChair_%d" % i, Vector3(0.38, 0.58, 0.38), Vector3(-3.95 + i * 0.52, 0.29, 1.55), materials["obstacle"])
+
+	_add_obstacle_box("LabWorkbench", Vector3(1.75, 0.20, 0.74), Vector3(3.55, 0.58, -3.15), materials["desk"])
+	_add_obstacle_box("LabCabinetA", Vector3(0.74, 1.05, 0.42), Vector3(5.20, 0.525, -3.15), materials["obstacle"])
+	_add_obstacle_box("ShelfA", Vector3(0.52, 1.28, 1.45), Vector3(-5.35, 0.64, 2.80), materials["obstacle"])
+	_add_obstacle_box("ChargingDock", Vector3(0.78, 0.12, 0.58), Vector3(4.85, 0.06, -0.95), materials["dark"])
+
+
+func _add_desk(name: String, position: Vector3, yaw: float) -> void:
+	var desk := StaticBody3D.new()
+	desk.name = name
+	desk.position = position
+	desk.rotation.y = yaw
+	add_child(desk)
+
+	var top := _box_visual("%s_top" % name, Vector3(1.24, 0.12, 0.68), materials["desk"])
+	desk.add_child(top)
+	var top_shape := CollisionShape3D.new()
+	var top_box := BoxShape3D.new()
+	top_box.size = Vector3(1.24, 0.75, 0.68)
+	top_shape.shape = top_box
+	top_shape.position = Vector3(0.0, -0.375, 0.0)
+	desk.add_child(top_shape)
+
+	for x in [-0.48, 0.48]:
+		for z in [-0.23, 0.23]:
+			var leg := _box_visual("%s_leg" % name, Vector3(0.08, 0.70, 0.08), materials["dark"])
+			leg.position = Vector3(x, -0.35, z)
+			desk.add_child(leg)
+
+	var chair := _box_visual("%s_chair_visual" % name, Vector3(0.42, 0.48, 0.42), materials["obstacle"])
+	chair.position = Vector3(0.0, -0.51, 0.78)
+	desk.add_child(chair)
+	var chair_shape := CollisionShape3D.new()
+	var chair_box := BoxShape3D.new()
+	chair_box.size = Vector3(0.42, 0.48, 0.42)
+	chair_shape.shape = chair_box
+	chair_shape.position = chair.position
+	desk.add_child(chair_shape)
+
+
+func _add_office_training_props() -> void:
+	_add_obstacle_cylinder("OfficeMarkerA", 0.16, 0.40, Vector3(1.75, 0.20, 0.95), materials["accent"])
+	_add_obstacle_cylinder("OfficeMarkerB", 0.14, 0.36, Vector3(3.95, 0.18, -1.55), materials["obstacle"])
+	_add_obstacle_box("SpeedBumpOfficeA", Vector3(2.8, 0.07, 0.20), Vector3(2.4, 0.035, -0.35), materials["asphalt_dark"])
+	_add_obstacle_box("LowOfficeRamp", Vector3(1.20, 0.14, 0.92), Vector3(4.25, 0.07, 0.50), materials["asphalt_dark"])
+
+	for i in range(5):
+		_add_pushable_box("OfficePushCrate_%d" % i, Vector3(0.28, 0.24, 0.28), Vector3(-0.35 + i * 0.32, 0.16, -2.75), materials["crate"])
 
 
 func _add_course_markings() -> void:
@@ -704,13 +789,7 @@ func _update_gripper(delta: float) -> void:
 
 
 func _update_camera(delta: float) -> void:
-	var orbit_input := 0.0
-	if Input.is_key_pressed(KEY_Q):
-		orbit_input -= 1.0
-	if Input.is_key_pressed(KEY_E):
-		orbit_input += 1.0
-	if Input.get_connected_joypads().size() > 0:
-		orbit_input += _deadzone_axis(Input.get_joy_axis(0, JOY_AXIS_RIGHT_X), 0.10)
+	var orbit_input := _read_camera_orbit_input()
 	camera_yaw += orbit_input * camera_orbit_speed * delta
 
 	var yaw: float = robot_root.rotation.y + camera_yaw
@@ -740,9 +819,8 @@ func _update_vehicle_body_fx(delta: float) -> void:
 
 func _sample_track_height(position: Vector3) -> float:
 	var height := 0.0
-	height = max(height, _axis_bump(position, Vector3(0.2, 0.0, -3.35), Vector2(3.4, 0.22), 0.065))
-	height = max(height, _axis_bump(position, Vector3(-2.6, 0.0, 3.05), Vector2(2.8, 0.20), 0.055))
-	height = max(height, _axis_bump(position, Vector3(3.25, 0.0, 2.45), Vector2(1.35, 1.05), 0.115))
+	height = max(height, _axis_bump(position, Vector3(2.4, 0.0, -0.35), Vector2(2.8, 0.20), 0.055))
+	height = max(height, _axis_bump(position, Vector3(4.25, 0.0, 0.50), Vector2(1.20, 0.92), 0.105))
 	return height
 
 
@@ -756,7 +834,7 @@ func _axis_bump(position: Vector3, center: Vector3, size: Vector2, height: float
 
 
 func _update_hud() -> void:
-	status_label.text = "Arachne Playable Showcase\nBackend: %s    Pose: %s    Gripper: %.2f\nv: %.2f m/s    yaw: %.2f rad/s    target: %.2f / %.2f" % [
+	status_label.text = "Arachne Playable Showcase\nBackend: %s    Pose: %s    Gripper: %.2f\nv: %.2f m/s    yaw: %.2f rad/s    target: %.2f / %.2f    cam axis: %s" % [
 		backend_label,
 		current_pose_name,
 		gripper_position,
@@ -764,6 +842,7 @@ func _update_hud() -> void:
 		-current_angular,
 		target_linear,
 		-target_angular,
+		camera_axis_label,
 	]
 
 
@@ -808,6 +887,38 @@ func _read_drive_stick() -> Vector2:
 	if stick.length() > 1.0:
 		stick = stick.normalized()
 	return stick
+
+
+func _read_camera_orbit_input() -> float:
+	var orbit_input := 0.0
+	if Input.is_key_pressed(KEY_Q):
+		orbit_input -= 1.0
+	if Input.is_key_pressed(KEY_E):
+		orbit_input += 1.0
+
+	var joypads := Input.get_connected_joypads()
+	if not joypads.is_empty():
+		var joypad_id: int = int(joypads[0])
+		if camera_axis_index >= 0:
+			orbit_input += _deadzone_axis(Input.get_joy_axis(joypad_id, camera_axis_index), 0.10)
+		else:
+			orbit_input += _read_best_camera_axis(joypad_id)
+
+	return clamp(orbit_input, -1.0, 1.0)
+
+
+func _read_best_camera_axis(joypad_id: int) -> float:
+	var candidates: Array[int] = [JOY_AXIS_RIGHT_X, JOY_AXIS_RIGHT_Y, 4, 5]
+	var best_value := 0.0
+	var best_axis := -1
+	for axis in candidates:
+		var value := _deadzone_axis(Input.get_joy_axis(joypad_id, axis), 0.10)
+		if abs(value) > abs(best_value):
+			best_value = value
+			best_axis = axis
+	if best_axis >= 0:
+		camera_axis_label = "auto:%d" % best_axis
+	return best_value
 
 
 func _select_pose(pose_name: String) -> void:
@@ -1115,6 +1226,10 @@ func _run_self_test() -> void:
 		errors.append("expected four wheel visual nodes, got %d" % wheel_nodes.size())
 	if _count_mesh_instances(robot_root) < 20:
 		errors.append("robot visual mesh count is unexpectedly low")
+	if _count_collision_shapes(self) < 24:
+		errors.append("office map collision coverage is unexpectedly low")
+	if find_child("OfficeWallNorthA", true, false) == null:
+		errors.append("office map did not load")
 	if ros_bridge == null or ros_bridge.last_cmd_vel.is_empty():
 		errors.append("ROS2 bridge placeholder did not receive cmd_vel")
 
@@ -1133,6 +1248,18 @@ func _count_mesh_instances(node: Node) -> int:
 	while not stack.is_empty():
 		var current: Node = stack.pop_back()
 		if current is MeshInstance3D:
+			count += 1
+		for child in current.get_children():
+			stack.append(child)
+	return count
+
+
+func _count_collision_shapes(node: Node) -> int:
+	var count := 0
+	var stack: Array[Node] = [node]
+	while not stack.is_empty():
+		var current: Node = stack.pop_back()
+		if current is CollisionShape3D:
 			count += 1
 		for child in current.get_children():
 			stack.append(child)

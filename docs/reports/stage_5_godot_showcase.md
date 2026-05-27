@@ -2,7 +2,7 @@
 
 ## Summary
 
-Arachne now has a separate Godot 4.x showcase frontend for high-FPS portfolio demos. It keeps Gazebo as the physics rehearsal backend, while Godot focuses on smooth third-person interaction: proportional Scout driving, collision-aware movement, pushable rigid-body props, follow camera damping, visual suspension, painted materials, scene props, MS42DC gripper animation, and Aubo i5 preset pose interpolation.
+Arachne now has a separate Godot 4.x showcase frontend for high-FPS portfolio demos. It keeps Gazebo as the physics rehearsal backend, while Godot focuses on smooth third-person interaction: proportional Scout driving, an office-style initial map, collision-aware movement, pushable rigid-body props, follow camera damping, visual suspension, scene props, MS42DC gripper animation, and Aubo i5 preset pose interpolation.
 
 ## Core Files
 
@@ -19,4 +19,4 @@ Arachne now has a separate Godot 4.x showcase frontend for high-FPS portfolio de
 
 The Godot demo uses a collision-aware character body and tuned arcade physics for a responsive third-person feel. It is not intended to replace Gazebo contact simulation, but it now has enough physical feedback for driving, obstacles, speed bumps, and portfolio capture. A later MuJoCo or ROS2 bridge can attach behind the placeholder interface without replacing the scene.
 
-WSL2 currently uses Mesa D3D12 OpenGL through the launch script because Godot's Vulkan path may select CPU `llvmpipe`. Wheel animation is driven from measured base displacement and yaw delta, so collisions and speed limits remain visually synchronized.
+WSL2 currently uses Mesa D3D12 OpenGL through the launch script because Godot's Vulkan path may select CPU `llvmpipe`. Wheel animation is driven from measured base displacement and yaw delta, so collisions and speed limits remain visually synchronized. Extra Scout side-strip geometry was removed so the Godot robot stays closer to the Gazebo/URDF model.

@@ -1,6 +1,6 @@
 # Arachne Godot Showcase
 
-This is a Godot 4.x high-FPS third-person showcase for Arachne. It is tuned like a playable robot demo: smooth follow camera, proportional gamepad driving, collision-aware arena movement, pushable props, visual suspension, painted materials, arm presets, gripper animation, and ROS2 bridge placeholders.
+This is a Godot 4.x high-FPS third-person showcase for Arachne. It is tuned like a playable robot demo: smooth follow camera, proportional gamepad driving, an office-style initial map, collision-aware movement, pushable props, visual suspension, arm presets, gripper animation, and ROS2 bridge placeholders.
 
 Gazebo remains the contact-accurate rehearsal backend. This frontend is the portfolio/gameplay layer, with enough physical feel for driving and obstacle interaction while keeping performance high.
 
@@ -40,7 +40,7 @@ Self-test the scene without opening a window:
 
 - `W/S` or left-stick Y: proportional forward / backward.
 - `A/D` or left-stick X: proportional skid-steer turning.
-- `Q/E` or right-stick X: orbit the follow camera.
+- `Q/E` or right stick: orbit the follow camera. If a controller reports a nonstandard axis, set `ARACHNE_CAMERA_AXIS=2` or the axis shown in the HUD.
 - `1` to `5`: arm presets `home`, `ready`, `reach`, `grasp`, `lift`.
 - `Space`: toggle gripper.
 - `R`: reset base, camera, arm, and gripper.

@@ -157,9 +157,11 @@ The current Gazebo pass focuses on promotional driving physics and real mesh vis
 
 ## Godot Showcase Frontend
 
-`godot/arachne_showcase` is a separate Godot 4.x frontend for high-FPS third-person visualization and teleoperation feel. It loads existing Scout, Aubo i5, MS42DC, AG95, and prop meshes through generated links under `assets/vendor/`, then uses collision-aware character-body movement, proportional skid-steer controls, pushable rigid-body props, camera damping, visual suspension, painted materials, and visual arm/gripper interpolation.
+`godot/arachne_showcase` is a separate Godot 4.x frontend for high-FPS third-person visualization and teleoperation feel. It loads existing Scout, Aubo i5, MS42DC, AG95, and prop meshes through generated links under `assets/vendor/`, then uses an office-style initial map, collision-aware character-body movement, proportional skid-steer controls, pushable rigid-body props, camera damping, visual suspension, and visual arm/gripper interpolation.
 
 In WSL2, `scripts/godot_showcase.sh` forces `GALLIUM_DRIVER=d3d12` and the OpenGL compatibility renderer because the Vulkan path can fall back to CPU `llvmpipe`. Native Linux can keep Forward+ unless a different renderer is requested.
+
+The right-stick camera reader auto-selects the strongest axis among common right-stick mappings. If a controller needs manual mapping, set `ARACHNE_CAMERA_AXIS=<axis>`.
 
 The bridge layer is intentionally a placeholder:
 

@@ -173,7 +173,7 @@ GRIPPER_CLOSED_POSITION=0.58 ./scripts/view_model.sh
 
 ## Godot Showcase
 
-The Godot frontend is a high-FPS third-person playable demo for presentations and portfolio videos. It loads the existing Scout 2.0, Aubo i5, MS42DC, AG95, and prop meshes through local links, then runs a stylized arena with proportional keyboard/gamepad driving, collision-aware Scout movement, pushable props, visual suspension, painted robot materials, follow-camera smoothing, MS42DC open/close animation, and Aubo preset interpolation.
+The Godot frontend is a high-FPS third-person playable demo for presentations and portfolio videos. It loads the existing Scout 2.0, Aubo i5, MS42DC, AG95, and prop meshes through local links, then runs an office-style map with proportional keyboard/gamepad driving, collision-aware Scout movement, pushable props, visual suspension, follow-camera smoothing, MS42DC open/close animation, and Aubo preset interpolation.
 
 ```bash
 ./scripts/install_godot4.sh   # optional if godot4 is already installed
@@ -187,6 +187,12 @@ On WSL2, the launcher automatically selects Mesa D3D12 OpenGL rendering so the w
 
 ```bash
 MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA ./scripts/godot_showcase.sh
+```
+
+If the right stick does not rotate the camera on a controller with unusual axis mapping, force the camera axis:
+
+```bash
+ARACHNE_CAMERA_AXIS=2 ./scripts/godot_showcase.sh
 ```
 
 Headless self-test:
