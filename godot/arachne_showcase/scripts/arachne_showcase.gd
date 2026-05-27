@@ -26,6 +26,9 @@ const MS42DC_CAD_RPY := Vector3(PI * 0.5, 0.0, 0.0)
 const MS42DC_LEFT_VISUAL_XYZ := -MS42DC_LEFT_PIVOT
 const MS42DC_RIGHT_VISUAL_XYZ := -MS42DC_RIGHT_PIVOT
 const ROS_TO_GODOT_BASIS := Basis(Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 1.0, 0.0))
+const SCOUT_WHEEL_RADIUS := 0.16459
+const SCOUT_TRACK_WIDTH := 0.583
+const SCOUT_WHEEL_SPIN_AXIS := Vector3(0.0, 0.0, 1.0)
 
 @export var max_linear_speed := 1.25
 @export var max_angular_speed := 1.85
@@ -54,7 +57,7 @@ var gripper_position := 0.0
 var gripper_target := 0.0
 var joint_nodes: Array[Node3D] = []
 var joint_rest_bases: Array[Basis] = []
-var wheel_nodes: Array[Node3D] = []
+var wheel_nodes: Array[Dictionary] = []
 var left_finger_joint: Node3D
 var right_finger_joint: Node3D
 var status_label: Label
@@ -228,7 +231,11 @@ func _build_scout_visual() -> void:
 		)
 		wheel.name = "%s_wheel" % wheel_name
 		wheel.position = wheel_positions[wheel_name]
-		wheel_nodes.append(wheel)
+		wheel_nodes.append({
+			"node": wheel,
+			"side": -1.0 if wheel_name.ends_with("_left") else 1.0,
+			"rest_basis": wheel.basis,
+		})
 		visual_root.add_child(wheel)
 
 	var deck := _box_visual("ArmDeck", _ros_size(Vector3(0.42, 0.30, 0.035)), materials["accent"])
@@ -467,9 +474,11 @@ func _update_base(delta: float) -> void:
 	robot_root.rotation.y -= current_angular * delta
 	robot_root.global_position += robot_root.global_transform.basis.x * current_linear * delta
 
-	var wheel_delta := current_linear * delta * 7.0
-	for wheel in wheel_nodes:
-		wheel.rotate_object_local(Vector3(0, 1, 0), wheel_delta)
+	for wheel_state in wheel_nodes:
+		var wheel := wheel_state["node"] as Node3D
+		var side := float(wheel_state["side"])
+		var wheel_linear := current_linear + current_angular * side * SCOUT_TRACK_WIDTH * 0.5
+		wheel.rotate_object_local(SCOUT_WHEEL_SPIN_AXIS, -wheel_linear * delta / SCOUT_WHEEL_RADIUS)
 
 
 func _update_arm(delta: float) -> void:
@@ -574,6 +583,9 @@ func _reset_demo() -> void:
 	camera_yaw = 0.0
 	current_linear = 0.0
 	current_angular = 0.0
+	for wheel_state in wheel_nodes:
+		var wheel := wheel_state["node"] as Node3D
+		wheel.basis = wheel_state["rest_basis"]
 	_select_pose("home")
 	_set_gripper(false)
 
