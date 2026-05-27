@@ -31,13 +31,30 @@ if [[ ! -f /etc/apt/sources.list.d/ros2.list ]]; then
 fi
 
 sudo apt-get update
+ROS_PACKAGES=(
+  "ros-${ROS_DISTRO}-desktop"
+  "ros-${ROS_DISTRO}-xacro"
+  "ros-${ROS_DISTRO}-joint-state-publisher"
+  "ros-${ROS_DISTRO}-joint-state-publisher-gui"
+  "ros-${ROS_DISTRO}-robot-state-publisher"
+  "ros-${ROS_DISTRO}-tf2-tools"
+  "ros-${ROS_DISTRO}-joy"
+  "ros-${ROS_DISTRO}-teleop-twist-joy"
+  "ros-${ROS_DISTRO}-ros-gz"
+  "ros-${ROS_DISTRO}-ros-gz-sim"
+  "ros-${ROS_DISTRO}-ros-gz-bridge"
+)
+
+if [[ "${ROS_DISTRO}" == "jazzy" ]]; then
+  ROS_PACKAGES+=(
+    "ros-${ROS_DISTRO}-gz-ros2-control"
+    "ros-${ROS_DISTRO}-ros2-control"
+    "ros-${ROS_DISTRO}-ros2-controllers"
+  )
+fi
+
 sudo apt-get install -y \
-  "ros-${ROS_DISTRO}-desktop" \
-  "ros-${ROS_DISTRO}-xacro" \
-  "ros-${ROS_DISTRO}-joint-state-publisher" \
-  "ros-${ROS_DISTRO}-joint-state-publisher-gui" \
-  "ros-${ROS_DISTRO}-robot-state-publisher" \
-  "ros-${ROS_DISTRO}-tf2-tools" \
+  "${ROS_PACKAGES[@]}" \
   python3-colcon-common-extensions \
   python3-tk \
   ros-dev-tools

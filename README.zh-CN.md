@@ -13,6 +13,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `src/arachne_description`：统一的 Xacro/URDF 机器人模型、RViz 配置、模型变体、安装框架和传感器框架。
 - `src/arachne_sim`：面向 RViz 的底盘仿真，负责 `/cmd_vel` 积分、里程计 TF、轮子 joint state 和底盘遥控 GUI。
 - `src/arachne_gripper`：夹爪仿真控制器、joint-state mux，以及只有 `Open` / `Close` 的小型 GUI。
+- `src/arachne_demo`：Nintendo Switch 手柄遥控、RViz demo 启动和 Gazebo 展示世界。
 - `src/arachne_hardware`：预留真机驱动包，包含空的夹具串口、底盘串口、Aubo TCP/IP 驱动文件。
 - `scripts`：环境安装、第三方模型下载、可视化启动、URDF 检查和夹爪仿真测试脚本。
 - `docs`：硬件、建模、控制、标定说明，以及阶段报告。
@@ -30,6 +31,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - MS42DC 默认闭合角为 `0.6 rad`。
 - RViz 通过 `scripts/view_model.sh` 启动，会自动清理旧的可视化节点，并打开底盘遥控、机械臂关节滑条、夹爪仿真和 Open/Close 控制窗。
 - 机械臂滑条 GUI 默认从当前用户确认的展示姿态启动；点击 `Center` 会回到这个姿态。
+- `scripts/switch_demo.sh` 可以用 Nintendo Switch 手柄控制底盘、Aubo 关节和夹爪。
 
 ## Roadmap
 
@@ -56,7 +58,7 @@ source /opt/ros/jazzy/setup.bash  # Ubuntu 22.04 使用 /opt/ros/humble/setup.ba
 
 colcon build --base-paths src --packages-select \
   aubo_description scout_description dh_ag95_description \
-  arachne_sim arachne_gripper arachne_hardware arachne_description \
+  arachne_sim arachne_gripper arachne_hardware arachne_description arachne_demo \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 
 source install/setup.bash
@@ -85,6 +87,32 @@ ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
 ```bash
 GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
 ```
+
+## Switch 手柄 Demo
+
+先通过蓝牙连接 Nintendo Switch 手柄，然后运行：
+
+```bash
+./scripts/switch_demo.sh
+```
+
+如果手柄不是 `/dev/input/js0`，可以指定设备，例如 `JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh`。
+
+默认按键：
+
+- 左摇杆：底盘前进、后退和转向。
+- 按住 `ZL` + 右摇杆上下：移动当前选中的 Aubo 关节。
+- `L` / `R`：切换上一个/下一个 Aubo 关节。
+- `B`：打开夹爪。`A`：闭合夹爪。
+- `+`：机械臂回到展示姿态。`-`：底盘停止。
+
+打开带物理物体的 Gazebo 展示世界：
+
+```bash
+DEMO_MODE=gazebo ./scripts/switch_demo.sh
+```
+
+Gazebo 版本用于宣传和物理预览：它加载真实机器人 mesh、灯光展厅、可碰撞物体和 diff-drive 物理插件。机械臂实时关节运动目前仍以 RViz 为主，完整 Gazebo 机械臂控制会在 ros2_control/Gazebo 栈完成后补上。
 
 手动调 MS42DC 闭合角：
 

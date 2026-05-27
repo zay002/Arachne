@@ -8,6 +8,7 @@
   <xacro:arg name="with_lidar" default="true"/>
   <xacro:arg name="with_ee_camera" default="false"/>
   <xacro:arg name="with_ros2_control" default="false"/>
+  <xacro:arg name="with_gazebo_plugins" default="false"/>
 
   <xacro:include filename="materials.xacro"/>
   <xacro:include filename="common_inertials.xacro"/>
@@ -19,6 +20,7 @@
   <xacro:include filename="mounts/aubo_ms42dc_adapter.xacro"/>
   <xacro:include filename="sensors/lidar.xacro"/>
   <xacro:include filename="sensors/ee_camera.xacro"/>
+  <xacro:include filename="gazebo/arachne_gazebo_plugins.xacro"/>
 
   <xacro:arachne_scout_2_vendor/>
   <xacro:arachne_scout_aubo_mount parent="base_link" xyz="$(arg arm_mount_xyz)" rpy="$(arg arm_mount_rpy)"/>
@@ -47,5 +49,9 @@
 
   <xacro:if value="$(arg with_ros2_control)">
     <xacro:arachne_aubo_i5_ros2_control prefix="aubo_"/>
+  </xacro:if>
+
+  <xacro:if value="$(arg with_gazebo_plugins)">
+    <xacro:arachne_gazebo_plugins gripper_type="$(arg gripper_type)"/>
   </xacro:if>
 </robot>

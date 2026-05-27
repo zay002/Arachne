@@ -106,3 +106,27 @@ Reserved real-hardware files:
 - `src/arachne_hardware/arachne_hardware/aubo_tcp_driver.py`: Aubo TCP/IP control placeholder.
 
 The control layer should remain split by hardware device while sharing the unified robot state.
+
+## Nintendo Switch Demo
+
+`src/arachne_demo` adds a controller-driven demo path:
+
+- `switch_teleop.py`: maps `sensor_msgs/msg/Joy` to `/cmd_vel`, `/arachne/gui_joint_states`, and `/arachne/gripper/command`.
+- `switch_rviz_demo.launch.py`: launches the normal RViz model with gripper/base simulation plus `joy_node`.
+- `switch_gazebo_demo.launch.py`: adds a Gazebo showroom world and spawns the robot with Gazebo diff-drive physics plugins.
+
+Run the RViz demo:
+
+```bash
+./scripts/switch_demo.sh
+```
+
+Set `JOY_DEV=/dev/input/js1` if Bluetooth assigns the controller to another joystick device.
+
+Run the Gazebo showroom preview:
+
+```bash
+DEMO_MODE=gazebo ./scripts/switch_demo.sh
+```
+
+The first Gazebo pass focuses on promotional driving physics and real mesh visualization. The base is driven through Gazebo DiffDrive; the arm is held at the display pose in Gazebo and remains interactively controlled in RViz. Full arm physics control should be moved to ros2_control controllers later.
