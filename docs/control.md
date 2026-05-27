@@ -146,3 +146,16 @@ DEMO_MODE=rviz ./scripts/switch_demo.sh
 ```
 
 The current Gazebo pass focuses on promotional driving physics and real mesh visualization in a single Gazebo window. The world uses a lighter physics step, disabled shadows, a static ramp, Gazebo DiffDrive, Gazebo `/gz/odom`, high-rate `/gui/track` camera messages, a demo Aubo trajectory bridge, and explicit MS42DC finger position controllers. Full arm and gripper physics control should be moved to ros2_control controllers later.
+
+## Godot Showcase Frontend
+
+`godot/arachne_showcase` is a separate Godot 4.x frontend for high-FPS visualization and teleoperation feel. It loads existing Scout, Aubo i5, MS42DC, AG95, and prop meshes through generated links under `assets/vendor/`, then uses simple kinematic base motion and visual arm/gripper interpolation.
+
+The bridge layer is intentionally a placeholder:
+
+- `/cmd_vel`: stored from the Godot base teleop output.
+- `/joint_states`: stored from the interpolated Aubo preset positions.
+- `/odom`: stored from the Godot base pose.
+- `/tf`: stores the current `odom -> base_link` and static visual-frame placeholders.
+
+This keeps the showcase dependency-free while leaving a stable insertion point for a later ROS2, WebSocket, UDP, or MuJoCo backend.

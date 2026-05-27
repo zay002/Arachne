@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/demo/model_compare.png" alt="Arachne MS42DC and AG95 model variants" width="900">
+  <img src="docs/demo/arachne.png" alt="Arachne robot system showcase" width="900">
 </p>
 
 # Arachne
@@ -20,8 +20,10 @@ The current milestone is a reliable robot description plus interactive demos: on
 - `src/arachne_demo`: Nintendo Switch Pro controller teleop, RViz demo launch, and Gazebo showroom launch.
 - `src/arachne_gazebo`: Gazebo helper nodes for smooth GUI camera tracking and demo arm/gripper commands.
 - `src/arachne_hardware`: reserved real-hardware driver package with empty files for gripper serial, base serial, and Aubo TCP/IP drivers.
+- `godot/arachne_showcase`: Godot 4.x high-FPS showcase frontend with visual teleop, follow camera, arm presets, and ROS2 bridge placeholders.
 - `scripts`: setup, third-party fetch, model visualization, URDF check, and gripper smoke-test helpers.
 - `docs`: hardware/modeling/control/calibration notes and stage reports.
+- `docs/demo/arachne.png`: project showcase image for the repository front page.
 - `docs/demo/model_compare.png`: current MS42DC and AG95 model showcase.
 - `third_party/MS42DC.step` and `third_party/MS42DC_SPLIT/*.stl`: source CAD and user-created movable split parts for the MS42DC gripper.
 
@@ -37,14 +39,16 @@ External model dependencies are restored by `scripts/fetch_third_party.sh`, with
 - RViz starts through `scripts/view_model.sh`, which cleans stale visualization nodes and launches base teleop, arm joint sliders, gripper simulator, and gripper Open/Close GUI.
 - The arm slider GUI starts from the current user-confirmed display pose; pressing `Center` returns to that pose.
 - `scripts/switch_demo.sh` starts an interactive Nintendo Switch Pro controller demo with Gazebo physics, a smoothed third-person camera, body-relative Scout driving, Aubo joint nudging, and gripper commands. Gazebo uses a physics-specific Scout wheel setup so forward input drives all four wheels in the same direction.
+- `scripts/godot_showcase.sh` starts a separate Godot 4.x frontend for smoother portfolio visualization. It uses simple kinematic motion and interpolation, not contact-accurate simulation.
 
 ## Roadmap
 
 1. Finalize physical calibration: tool adapter pose, sensor poses, and collision simplification for planning.
 2. Add MoveIt2 configuration for the Aubo arm with interchangeable MS42DC and AG95 end-effectors.
 3. Upgrade the Gazebo demo into the main physics rehearsal backend with ros2_control arm and gripper controllers.
-4. Implement hardware-facing bridges for Aubo TCP/IP, Scout serial, and MS42DC serial after the remaining materials arrive.
-5. Build the operator Web UI after the model, controllers, and launch contracts are stable.
+4. Connect the Godot showcase to ROS2 or MuJoCo through the prepared bridge interface.
+5. Implement hardware-facing bridges for Aubo TCP/IP, Scout serial, and MS42DC serial after the remaining materials arrive.
+6. Build the operator Web UI after the model, controllers, and launch contracts are stable.
 
 ## Quick Start
 
@@ -166,6 +170,18 @@ Drag `ms42dc_left_finger_joint`; the right finger follows through the URDF mimic
 ```bash
 GRIPPER_CLOSED_POSITION=0.58 ./scripts/view_model.sh
 ```
+
+## Godot Showcase
+
+The Godot frontend is a high-FPS visual demo for presentations and portfolio videos. It loads the existing Scout 2.0, Aubo i5, MS42DC, AG95, and prop meshes through local links, then runs a lightweight scene with keyboard/gamepad driving, camera follow, simple obstacles, MS42DC open/close animation, and Aubo preset interpolation.
+
+```bash
+./scripts/install_godot4.sh   # optional if godot4 is already installed
+./scripts/fetch_third_party.sh
+./scripts/godot_showcase.sh
+```
+
+If Godot is not on `PATH`, set `GODOT_BIN=/path/to/godot4`. The launcher prepares local mesh links and generated GLB cache files before opening Godot. See `godot/arachne_showcase/README.md` for controls and bridge notes.
 
 ## Useful Commands
 

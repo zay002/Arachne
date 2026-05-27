@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://arachne_showcase_scene"]
+
+[ext_resource type="Script" path="res://scripts/arachne_showcase.gd" id="1_arachne"]
+
+[node name="ArachneShowcase" type="Node3D"]
+script = ExtResource("1_arachne")

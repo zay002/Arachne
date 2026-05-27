@@ -1,0 +1,28 @@
+; Engine configuration file.
+; Open with Godot 4.x.
+
+config_version=5
+
+[application]
+
+config/name="Arachne Godot Showcase"
+config/description="High-FPS visualization and teleoperation frontend for the Arachne Scout 2.0 + Aubo i5 robot."
+run/main_scene="res://scenes/arachne_showcase.tscn"
+config/features=PackedStringArray("4.2", "Forward Plus")
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=900
+window/size/mode=0
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
+anti_aliasing/quality/msaa_3d=2
+lights_and_shadows/directional_shadow/size=4096
+environment/defaults/default_clear_color=Color(0.69, 0.76, 0.82, 1)
+
+[physics]
+
+common/physics_ticks_per_second=120

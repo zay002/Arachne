@@ -5,6 +5,14 @@ log/
 .colcon/
 .ros/
 .vscode
+
+# Godot editor/import cache and generated asset links.
+godot/**/.godot/
+godot/**/.import/
+godot/**/assets/generated/
+godot/**/assets/vendor/*
+!godot/**/assets/vendor/README.md
+!godot/**/assets/vendor/.gdignore
 # Python generated files
 *.pyc
 __pycache__/
