@@ -40,13 +40,9 @@ Visualization Manager:
   Value: true
 Views:
   Current:
-    Class: rviz_default_plugins/Orbit
-    Distance: 1.45
-    Focal Point:
-      X: 0.25
-      Y: 0.0
-      Z: 0.45
+    Class: rviz_default_plugins/ThirdPersonFollower
+    Distance: 2.2
     Name: Current View
     Pitch: 0.65
-    Target Frame: base_link
-    Yaw: 0.78
+    Target Frame: arachne_view_frame
+    Yaw: 0.0

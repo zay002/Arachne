@@ -60,7 +60,10 @@ def launch_setup(context, *args, **kwargs):
             "gripper_type": LaunchConfiguration("gripper_type"),
             "with_rviz": LaunchConfiguration("with_rviz"),
             "with_joy": LaunchConfiguration("with_joy"),
+            "with_web_gamepad": LaunchConfiguration("with_web_gamepad"),
             "joy_dev": LaunchConfiguration("joy_dev"),
+            "web_gamepad_host": LaunchConfiguration("web_gamepad_host"),
+            "web_gamepad_port": LaunchConfiguration("web_gamepad_port"),
         }.items(),
     )
 
@@ -111,7 +114,10 @@ def generate_launch_description():
             DeclareLaunchArgument("with_gazebo", default_value="true"),
             DeclareLaunchArgument("with_rviz", default_value="true"),
             DeclareLaunchArgument("with_joy", default_value="true"),
+            DeclareLaunchArgument("with_web_gamepad", default_value="false"),
             DeclareLaunchArgument("joy_dev", default_value="/dev/input/js0"),
+            DeclareLaunchArgument("web_gamepad_host", default_value="127.0.0.1"),
+            DeclareLaunchArgument("web_gamepad_port", default_value="8787"),
             DeclareLaunchArgument("world_name", default_value="arachne_showroom"),
             DeclareLaunchArgument("gz_args", default_value=f"-r {world_path}"),
             gz_resource_path,

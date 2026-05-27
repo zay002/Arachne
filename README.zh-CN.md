@@ -31,7 +31,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - MS42DC 默认闭合角为 `0.6 rad`。
 - RViz 通过 `scripts/view_model.sh` 启动，会自动清理旧的可视化节点，并打开底盘遥控、机械臂关节滑条、夹爪仿真和 Open/Close 控制窗。
 - 机械臂滑条 GUI 默认从当前用户确认的展示姿态启动；点击 `Center` 会回到这个姿态。
-- `scripts/switch_demo.sh` 可以用 Nintendo Switch 手柄控制底盘、Aubo 关节和夹爪。
+- `scripts/switch_demo.sh` 可以用 Nintendo Switch 手柄控制底盘、跟随视角、Aubo 关节和夹爪。
 
 ## Roadmap
 
@@ -96,12 +96,25 @@ GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
 ./scripts/switch_demo.sh
 ```
 
-如果手柄不是 `/dev/input/js0`，可以指定设备，例如 `JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh`。
+在正常 Linux 中，`switch_demo.sh` 会优先使用 `/dev/input/js0`。在 WSL2 中，或者系统里没有 joystick 设备时，它会自动启动浏览器桥接：
+
+```bash
+./scripts/switch_demo.sh
+# 然后在 Windows 或 Linux 浏览器打开 http://127.0.0.1:8787
+```
+
+也可以手动指定输入方式：
+
+```bash
+INPUT_BACKEND=joy JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh
+INPUT_BACKEND=web ./scripts/switch_demo.sh
+```
 
 默认按键：
 
 - 左摇杆：底盘前进、后退和转向。
-- 按住 `ZL` + 右摇杆上下：移动当前选中的 Aubo 关节。
+- 右摇杆：围绕机器人调整跟随视角。
+- 按住 `ZL` + 十字键上下：移动当前选中的 Aubo 关节。
 - `L` / `R`：切换上一个/下一个 Aubo 关节。
 - `B`：打开夹爪。`A`：闭合夹爪。
 - `+`：机械臂回到展示姿态。`-`：底盘停止。

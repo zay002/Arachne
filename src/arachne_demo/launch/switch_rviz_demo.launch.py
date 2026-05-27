@@ -43,6 +43,20 @@ def generate_launch_description():
         output="screen",
     )
 
+    web_gamepad = Node(
+        package="arachne_demo",
+        executable="web_gamepad_bridge",
+        name="web_gamepad_bridge",
+        parameters=[
+            {
+                "host": LaunchConfiguration("web_gamepad_host"),
+                "port": ParameterValue(LaunchConfiguration("web_gamepad_port"), value_type=int),
+            }
+        ],
+        condition=IfCondition(LaunchConfiguration("with_web_gamepad")),
+        output="screen",
+    )
+
     switch_teleop = Node(
         package="arachne_demo",
         executable="switch_teleop",
@@ -60,20 +74,37 @@ def generate_launch_description():
         output="screen",
     )
 
+    camera_follow = Node(
+        package="arachne_demo",
+        executable="camera_follow_controller",
+        name="camera_follow_controller",
+        parameters=[
+            {
+                "deadzone": ParameterValue(LaunchConfiguration("teleop_deadzone"), value_type=float),
+            }
+        ],
+        output="screen",
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
             DeclareLaunchArgument("with_rviz", default_value="true"),
             DeclareLaunchArgument("with_joy", default_value="true"),
+            DeclareLaunchArgument("with_web_gamepad", default_value="false"),
             DeclareLaunchArgument("joy_dev", default_value="/dev/input/js0"),
             DeclareLaunchArgument("joy_deadzone", default_value="0.05"),
             DeclareLaunchArgument("joy_rate", default_value="30.0"),
+            DeclareLaunchArgument("web_gamepad_host", default_value="127.0.0.1"),
+            DeclareLaunchArgument("web_gamepad_port", default_value="8787"),
             DeclareLaunchArgument("teleop_deadzone", default_value="0.12"),
             DeclareLaunchArgument("linear_scale", default_value="0.55"),
             DeclareLaunchArgument("angular_scale", default_value="1.1"),
             DeclareLaunchArgument("joint_velocity_scale", default_value="0.85"),
             display,
             joy,
+            web_gamepad,
             switch_teleop,
+            camera_follow,
         ]
     )

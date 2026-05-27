@@ -35,7 +35,7 @@ External model dependencies are restored by `scripts/fetch_third_party.sh`, with
 - MS42DC close target is calibrated to `0.6 rad` by default.
 - RViz starts through `scripts/view_model.sh`, which cleans stale visualization nodes and launches base teleop, arm joint sliders, gripper simulator, and gripper Open/Close GUI.
 - The arm slider GUI starts from the current user-confirmed display pose; pressing `Center` returns to that pose.
-- `scripts/switch_demo.sh` starts an interactive Nintendo Switch controller demo for the base, Aubo joints, and gripper.
+- `scripts/switch_demo.sh` starts an interactive Nintendo Switch controller demo for the base, follower view, Aubo joints, and gripper.
 
 ## Roadmap
 
@@ -101,12 +101,25 @@ Connect the Nintendo Switch controller over Bluetooth, then run:
 ./scripts/switch_demo.sh
 ```
 
-If the controller is not `/dev/input/js0`, set `JOY_DEV`, for example `JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh`.
+On native Linux, `switch_demo.sh` uses `/dev/input/js0` when it exists. In WSL2, or when no joystick device is available, it automatically starts a browser bridge:
+
+```bash
+./scripts/switch_demo.sh
+# then open http://127.0.0.1:8787 in the Windows or Linux browser
+```
+
+You can force an input backend when needed:
+
+```bash
+INPUT_BACKEND=joy JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh
+INPUT_BACKEND=web ./scripts/switch_demo.sh
+```
 
 Default controls:
 
 - Left stick: drive forward/back and turn.
-- Hold `ZL` + right stick up/down: move the selected Aubo joint.
+- Right stick: orbit the follower view around the robot.
+- Hold `ZL` + D-pad up/down: move the selected Aubo joint.
 - `L` / `R`: select previous/next Aubo joint.
 - `B`: open gripper. `A`: close gripper.
 - `+`: reset arm to the display pose. `-`: stop base motion.

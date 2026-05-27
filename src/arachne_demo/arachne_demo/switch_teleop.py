@@ -27,13 +27,14 @@ class SwitchTeleop(Node):
         self.declare_parameter("deadzone", 0.12)
         self.declare_parameter("linear_axis", 1)
         self.declare_parameter("angular_axis", 0)
-        self.declare_parameter("arm_axis", 3)
         self.declare_parameter("linear_scale", 0.55)
         self.declare_parameter("angular_scale", 1.1)
         self.declare_parameter("turbo_multiplier", 1.6)
         self.declare_parameter("joint_velocity_scale", 0.85)
         self.declare_parameter("turbo_button", 7)
         self.declare_parameter("arm_enable_button", 6)
+        self.declare_parameter("arm_positive_button", 12)
+        self.declare_parameter("arm_negative_button", 13)
         self.declare_parameter("previous_joint_button", 4)
         self.declare_parameter("next_joint_button", 5)
         self.declare_parameter("open_button", 0)
@@ -69,13 +70,14 @@ class SwitchTeleop(Node):
         self.deadzone = float(self.get_parameter("deadzone").value)
         self.linear_axis = int(self.get_parameter("linear_axis").value)
         self.angular_axis = int(self.get_parameter("angular_axis").value)
-        self.arm_axis = int(self.get_parameter("arm_axis").value)
         self.linear_scale = float(self.get_parameter("linear_scale").value)
         self.angular_scale = float(self.get_parameter("angular_scale").value)
         self.turbo_multiplier = float(self.get_parameter("turbo_multiplier").value)
         self.joint_velocity_scale = float(self.get_parameter("joint_velocity_scale").value)
         self.turbo_button = int(self.get_parameter("turbo_button").value)
         self.arm_enable_button = int(self.get_parameter("arm_enable_button").value)
+        self.arm_positive_button = int(self.get_parameter("arm_positive_button").value)
+        self.arm_negative_button = int(self.get_parameter("arm_negative_button").value)
         self.previous_joint_button = int(self.get_parameter("previous_joint_button").value)
         self.next_joint_button = int(self.get_parameter("next_joint_button").value)
         self.open_button = int(self.get_parameter("open_button").value)
@@ -105,8 +107,9 @@ class SwitchTeleop(Node):
         self.timer = self.create_timer(1.0 / max(publish_rate, 1.0), self._tick)
 
         self.get_logger().info(
-            "Switch teleop ready. Left stick drives base; hold ZL + right stick moves "
-            "the selected Aubo joint; L/R select joint; B opens, A closes."
+            "Switch teleop ready. Left stick drives base; right stick controls demo view; "
+            "hold ZL + D-pad up/down moves the selected Aubo joint; L/R select joint; "
+            "B opens, A closes."
         )
         self._log_selected_joint()
 
@@ -154,12 +157,16 @@ class SwitchTeleop(Node):
         self.cmd_pub.publish(twist)
 
         if self._button(joy, self.arm_enable_button):
-            self._apply_arm_axis(joy, dt, speed_multiplier)
+            self._apply_arm_buttons(joy, dt, speed_multiplier)
 
         self._publish_arm(now)
 
-    def _apply_arm_axis(self, joy: Joy, dt: float, speed_multiplier: float) -> None:
-        value = self._axis(joy, self.arm_axis)
+    def _apply_arm_buttons(self, joy: Joy, dt: float, speed_multiplier: float) -> None:
+        value = 0.0
+        if self._button(joy, self.arm_positive_button):
+            value += 1.0
+        if self._button(joy, self.arm_negative_button):
+            value -= 1.0
         if abs(value) <= 0.0 or dt <= 0.0:
             return
 

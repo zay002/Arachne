@@ -6,6 +6,9 @@ ROS_DISTRO="${ROS_DISTRO:-jazzy}"
 DEMO_MODE="${DEMO_MODE:-rviz}"
 GRIPPER_TYPE="${GRIPPER_TYPE:-ms42dc}"
 JOY_DEV="${JOY_DEV:-/dev/input/js0}"
+INPUT_BACKEND="${INPUT_BACKEND:-auto}"
+WEB_GAMEPAD_HOST="${WEB_GAMEPAD_HOST:-127.0.0.1}"
+WEB_GAMEPAD_PORT="${WEB_GAMEPAD_PORT:-8787}"
 
 if [[ ! -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]]; then
   echo "ROS setup not found: /opt/ros/${ROS_DISTRO}/setup.bash" >&2
@@ -34,16 +37,61 @@ if [[ ${#GZ_RESOURCE_DIRS[@]} -gt 0 ]]; then
   export GZ_SIM_RESOURCE_PATH="${GZ_RESOURCE_PATH}"
 fi
 
+IS_WSL=false
+if [[ -r /proc/sys/kernel/osrelease ]] && grep -qi "microsoft\\|wsl" /proc/sys/kernel/osrelease; then
+  IS_WSL=true
+fi
+
+case "${INPUT_BACKEND}" in
+  auto)
+    if [[ "${IS_WSL}" == "true" || ! -e "${JOY_DEV}" ]]; then
+      WITH_JOY=false
+      WITH_WEB_GAMEPAD=true
+    else
+      WITH_JOY=true
+      WITH_WEB_GAMEPAD=false
+    fi
+    ;;
+  joy)
+    WITH_JOY=true
+    WITH_WEB_GAMEPAD=false
+    ;;
+  web)
+    WITH_JOY=false
+    WITH_WEB_GAMEPAD=true
+    ;;
+  both)
+    WITH_JOY=true
+    WITH_WEB_GAMEPAD=true
+    ;;
+  *)
+    echo "INPUT_BACKEND must be auto, joy, web, or both. Current value: ${INPUT_BACKEND}" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "${WITH_WEB_GAMEPAD}" == "true" ]]; then
+  echo "Open http://${WEB_GAMEPAD_HOST}:${WEB_GAMEPAD_PORT} in a browser and press any gamepad button."
+fi
+
 case "${DEMO_MODE}" in
   rviz)
     exec ros2 launch arachne_demo switch_rviz_demo.launch.py \
       gripper_type:="${GRIPPER_TYPE}" \
-      joy_dev:="${JOY_DEV}"
+      joy_dev:="${JOY_DEV}" \
+      with_joy:="${WITH_JOY}" \
+      with_web_gamepad:="${WITH_WEB_GAMEPAD}" \
+      web_gamepad_host:="${WEB_GAMEPAD_HOST}" \
+      web_gamepad_port:="${WEB_GAMEPAD_PORT}"
     ;;
   gazebo)
     exec ros2 launch arachne_demo switch_gazebo_demo.launch.py \
       gripper_type:="${GRIPPER_TYPE}" \
-      joy_dev:="${JOY_DEV}"
+      joy_dev:="${JOY_DEV}" \
+      with_joy:="${WITH_JOY}" \
+      with_web_gamepad:="${WITH_WEB_GAMEPAD}" \
+      web_gamepad_host:="${WEB_GAMEPAD_HOST}" \
+      web_gamepad_port:="${WEB_GAMEPAD_PORT}"
     ;;
   *)
     echo "DEMO_MODE must be 'rviz' or 'gazebo'. Current value: ${DEMO_MODE}" >&2

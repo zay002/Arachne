@@ -22,7 +22,9 @@ setup(
     license="MIT",
     entry_points={
         "console_scripts": [
+            "camera_follow_controller = arachne_demo.camera_follow_controller:main",
             "switch_teleop = arachne_demo.switch_teleop:main",
+            "web_gamepad_bridge = arachne_demo.web_gamepad_bridge:main",
         ],
     },
 )
