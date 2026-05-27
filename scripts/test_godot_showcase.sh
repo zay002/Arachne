@@ -6,17 +6,7 @@ PROJECT_DIR="${ROOT_DIR}/godot/arachne_showcase"
 
 "${PROJECT_DIR}/tools/link_assets.sh"
 
-if command -v ros2 >/dev/null 2>&1; then
-  export ARACHNE_ROS2_AVAILABLE="${ARACHNE_ROS2_AVAILABLE:-1}"
-fi
-
-IS_WSL=false
 if [[ -r /proc/sys/kernel/osrelease ]] && grep -qi "microsoft\\|wsl" /proc/sys/kernel/osrelease; then
-  IS_WSL=true
-fi
-
-GODOT_ARGS=()
-if [[ "${IS_WSL}" == "true" ]]; then
   export LD_LIBRARY_PATH="/usr/lib/wsl/lib:${LD_LIBRARY_PATH:-}"
   export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-0}"
   export GALLIUM_DRIVER="${GALLIUM_DRIVER:-d3d12}"
@@ -24,14 +14,6 @@ if [[ "${IS_WSL}" == "true" ]]; then
     export MESA_D3D12_DEFAULT_ADAPTER_NAME="${MESA_D3D12_DEFAULT_ADAPTER_NAME:-NVIDIA}"
   fi
   export ARACHNE_GODOT_PROFILE="${ARACHNE_GODOT_PROFILE:-wsl}"
-  GODOT_ARGS+=(--rendering-driver opengl3 --rendering-method gl_compatibility --render-thread "${GODOT_RENDER_THREAD:-safe}" --disable-vsync)
-else
-  export ARACHNE_GODOT_PROFILE="${ARACHNE_GODOT_PROFILE:-cinematic}"
-  GODOT_ARGS+=(--render-thread "${GODOT_RENDER_THREAD:-safe}")
-fi
-
-if [[ -n "${GODOT_MAX_FPS:-}" ]]; then
-  GODOT_ARGS+=(--max-fps "${GODOT_MAX_FPS}")
 fi
 
 GODOT_BIN="${GODOT_BIN:-}"
@@ -46,4 +28,4 @@ if [[ -z "${GODOT_BIN}" ]]; then
   fi
 fi
 
-exec "${GODOT_BIN}" --path "${PROJECT_DIR}" "${GODOT_ARGS[@]}" "$@"
+exec "${GODOT_BIN}" --headless --path "${PROJECT_DIR}" -- --self-test

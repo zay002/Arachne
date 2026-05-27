@@ -35,7 +35,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - RViz 通过 `scripts/view_model.sh` 启动，会自动清理旧的可视化节点，并打开底盘遥控、机械臂关节滑条、夹爪仿真和 Open/Close 控制窗。
 - 机械臂滑条 GUI 默认从当前用户确认的展示姿态启动；点击 `Center` 会回到这个姿态。
 - `scripts/switch_demo.sh` 默认启动 Gazebo 展厅 demo，可以用 Nintendo Switch Pro 手柄控制底盘、平滑第三人称视角、Aubo 关节和夹爪。Gazebo 会使用专门的 Scout 轮子物理姿态，确保前进输入时四个轮子同向驱动。
-- `scripts/godot_showcase.sh` 可启动单独的 Godot 4.x 高帧率展示前端，适合宣传展示；它使用轻量运动学和插值，不追求接触物理精度。
+- `scripts/godot_showcase.sh` 可启动单独的 Godot 4.x 第三人称展示前端，包含可碰撞底盘运动、涂装材质、视觉悬挂、平滑跟随相机、机械臂预设姿态和 ROS2/UDP bridge 占位接口。
 
 ## Roadmap
 
@@ -168,7 +168,7 @@ GRIPPER_CLOSED_POSITION=0.58 ./scripts/view_model.sh
 
 ## Godot 展示前端
 
-Godot 前端用于高帧率演示和宣传视频，不替代 Gazebo 物理仿真。它通过本地链接复用现有 Scout 2.0、Aubo i5、MS42DC、AG95 和场景物件 mesh，并提供键盘/手柄底盘控制、跟随相机、简单障碍物、MS42DC 开闭动画和 Aubo 预设姿态插值。
+Godot 前端用于高帧率第三人称演示和宣传视频，不替代 Gazebo 物理仿真。它通过本地链接复用现有 Scout 2.0、Aubo i5、MS42DC、AG95 和场景物件 mesh，并提供键盘/手柄比例控制、可碰撞 Scout 运动、可推动物件、视觉悬挂、涂装材质、平滑跟随相机、MS42DC 开闭动画和 Aubo 预设姿态插值。
 
 ```bash
 ./scripts/install_godot4.sh   # 如果已经安装 godot4，可以跳过
@@ -176,7 +176,19 @@ Godot 前端用于高帧率演示和宣传视频，不替代 Gazebo 物理仿真
 ./scripts/godot_showcase.sh
 ```
 
-如果 Godot 不在 `PATH` 中，可以设置 `GODOT_BIN=/path/to/godot4`。启动脚本会先准备本地 mesh 链接和生成的 GLB 缓存文件，再打开 Godot。控制方式和 bridge 说明见 `godot/arachne_showcase/README.md`。
+如果 Godot 不在 `PATH` 中，可以设置 `GODOT_BIN=/path/to/godot4`。启动脚本会先准备本地 mesh 链接和生成的 GLB 缓存文件，再打开 Godot；如果当前 shell 已 source ROS2 环境，会自动使用 UDP bridge 占位模式。控制方式和 bridge 说明见 `godot/arachne_showcase/README.md`。
+
+在 WSL2 中，启动脚本会自动选择 Mesa D3D12 OpenGL 渲染，让窗口走 Windows GPU，而不是 CPU `llvmpipe`。如果想优先使用独显：
+
+```bash
+MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA ./scripts/godot_showcase.sh
+```
+
+无窗口自测：
+
+```bash
+./scripts/test_godot_showcase.sh
+```
 
 ## 常用检查
 

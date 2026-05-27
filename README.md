@@ -39,7 +39,7 @@ External model dependencies are restored by `scripts/fetch_third_party.sh`, with
 - RViz starts through `scripts/view_model.sh`, which cleans stale visualization nodes and launches base teleop, arm joint sliders, gripper simulator, and gripper Open/Close GUI.
 - The arm slider GUI starts from the current user-confirmed display pose; pressing `Center` returns to that pose.
 - `scripts/switch_demo.sh` starts an interactive Nintendo Switch Pro controller demo with Gazebo physics, a smoothed third-person camera, body-relative Scout driving, Aubo joint nudging, and gripper commands. Gazebo uses a physics-specific Scout wheel setup so forward input drives all four wheels in the same direction.
-- `scripts/godot_showcase.sh` starts a separate Godot 4.x frontend for smoother portfolio visualization. It uses simple kinematic motion and interpolation, not contact-accurate simulation.
+- `scripts/godot_showcase.sh` starts a separate Godot 4.x third-person showcase with collision-aware driving, painted materials, visual suspension, smooth camera follow, arm presets, and ROS2/UDP bridge placeholders.
 
 ## Roadmap
 
@@ -173,7 +173,7 @@ GRIPPER_CLOSED_POSITION=0.58 ./scripts/view_model.sh
 
 ## Godot Showcase
 
-The Godot frontend is a high-FPS visual demo for presentations and portfolio videos. It loads the existing Scout 2.0, Aubo i5, MS42DC, AG95, and prop meshes through local links, then runs a lightweight scene with keyboard/gamepad driving, camera follow, simple obstacles, MS42DC open/close animation, and Aubo preset interpolation.
+The Godot frontend is a high-FPS third-person playable demo for presentations and portfolio videos. It loads the existing Scout 2.0, Aubo i5, MS42DC, AG95, and prop meshes through local links, then runs a stylized arena with proportional keyboard/gamepad driving, collision-aware Scout movement, pushable props, visual suspension, painted robot materials, follow-camera smoothing, MS42DC open/close animation, and Aubo preset interpolation.
 
 ```bash
 ./scripts/install_godot4.sh   # optional if godot4 is already installed
@@ -181,7 +181,19 @@ The Godot frontend is a high-FPS visual demo for presentations and portfolio vid
 ./scripts/godot_showcase.sh
 ```
 
-If Godot is not on `PATH`, set `GODOT_BIN=/path/to/godot4`. The launcher prepares local mesh links and generated GLB cache files before opening Godot. See `godot/arachne_showcase/README.md` for controls and bridge notes.
+If Godot is not on `PATH`, set `GODOT_BIN=/path/to/godot4`. The launcher prepares local mesh links and generated GLB cache files before opening Godot. It automatically uses standalone mode, or UDP bridge mode when a ROS2 environment is sourced. See `godot/arachne_showcase/README.md` for controls and bridge notes.
+
+On WSL2, the launcher automatically selects Mesa D3D12 OpenGL rendering so the window uses the Windows GPU instead of CPU `llvmpipe`. To prefer a discrete GPU, set:
+
+```bash
+MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA ./scripts/godot_showcase.sh
+```
+
+Headless self-test:
+
+```bash
+./scripts/test_godot_showcase.sh
+```
 
 ## Useful Commands
 

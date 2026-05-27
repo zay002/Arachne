@@ -29,27 +29,38 @@ const ROS_TO_GODOT_BASIS := Basis(Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0
 const SCOUT_WHEEL_RADIUS := 0.16459
 const SCOUT_TRACK_WIDTH := 0.583
 const SCOUT_WHEEL_SPIN_AXIS := Vector3(0.0, 0.0, 1.0)
+const ARENA_LIMIT := 10.5
+const BODY_COLLISION_SIZE := Vector3(0.96, 0.34, 0.72)
+const BODY_COLLISION_CENTER := Vector3(0.0, 0.24, 0.0)
 
-@export var max_linear_speed := 1.25
-@export var max_angular_speed := 1.85
+@export var max_linear_speed := 2.05
+@export var max_angular_speed := 2.45
+@export var linear_acceleration := 4.8
+@export var braking_acceleration := 8.5
+@export var angular_acceleration := 7.0
 @export var input_deadzone := 0.12
-@export var input_curve := 0.35
-@export var camera_distance := 2.5
-@export var camera_height := 1.35
-@export var camera_orbit_speed := 1.8
-@export var camera_follow_rate := 9.0
+@export var input_curve := 0.28
+@export var camera_distance := 2.05
+@export var camera_height := 1.08
+@export var camera_orbit_speed := 2.8
+@export var camera_follow_rate := 14.0
 @export var joint_follow_rate := 6.0
 @export var gripper_follow_rate := 8.0
 @export var gripper_closed_position := 0.6
 @export var ground_clearance := 0.015
+@export var suspension_follow_rate := 18.0
+@export var cinematic_camera := true
 
-var robot_root: Node3D
+var robot_root: CharacterBody3D
 var visual_root: Node3D
 var camera: Camera3D
 var camera_yaw := 0.0
 var robot_ground_y := 0.0
+var target_linear := 0.0
+var target_angular := 0.0
 var current_linear := 0.0
 var current_angular := 0.0
+var previous_linear := 0.0
 var current_pose_name := "home"
 var current_joints := ARM_PRESETS["home"].duplicate()
 var target_joints := ARM_PRESETS["home"].duplicate()
@@ -63,9 +74,18 @@ var right_finger_joint: Node3D
 var status_label: Label
 var ros_bridge: Node
 var materials := {}
+var backend_label := "standalone"
+var visual_profile := "cinematic"
+var forced_drive_enabled := false
+var forced_drive_stick := Vector2.ZERO
+var self_test_mode := false
 
 func _ready() -> void:
-	Engine.max_fps = 144
+	Engine.max_fps = 165
+	self_test_mode = _has_user_arg("--self-test")
+	visual_profile = OS.get_environment("ARACHNE_GODOT_PROFILE")
+	if visual_profile.is_empty():
+		visual_profile = "cinematic"
 	_setup_materials()
 	_build_world()
 	_build_robot()
@@ -75,7 +95,28 @@ func _ready() -> void:
 	ros_bridge = ROS2_BRIDGE_SCRIPT.new()
 	ros_bridge.name = "ROS2BridgePlaceholder"
 	add_child(ros_bridge)
+	_configure_backend()
 	_select_pose("home")
+	if self_test_mode:
+		call_deferred("_run_self_test")
+
+
+func _configure_backend() -> void:
+	var ros_distro := OS.get_environment("ROS_DISTRO")
+	var ros_available := OS.get_environment("ARACHNE_ROS2_AVAILABLE") == "1"
+	var bridge_mode := OS.get_environment("ARACHNE_GODOT_BRIDGE")
+	if bridge_mode.is_empty() and (not ros_distro.is_empty() or ros_available):
+		bridge_mode = "udp"
+	if ros_bridge.has_method("configure_from_environment"):
+		ros_bridge.configure_from_environment()
+	if not bridge_mode.is_empty():
+		backend_label = "%s bridge" % bridge_mode
+	elif not ros_distro.is_empty():
+		backend_label = "ROS2 %s ready" % ros_distro
+	elif ros_available:
+		backend_label = "ROS2 command ready"
+	else:
+		backend_label = "standalone physics"
 
 
 func _physics_process(delta: float) -> void:
@@ -124,56 +165,113 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _setup_materials() -> void:
-	materials["body"] = _material(Color(0.18, 0.20, 0.21), 0.65, 0.05)
-	materials["dark"] = _material(Color(0.02, 0.025, 0.03), 0.8, 0.0)
-	materials["arm"] = _material(Color(0.90, 0.92, 0.90), 0.5, 0.0)
-	materials["accent"] = _material(Color(0.96, 0.63, 0.18), 0.4, 0.0)
-	materials["ground"] = _material(Color(0.46, 0.51, 0.47), 0.9, 0.0)
-	materials["obstacle"] = _material(Color(0.20, 0.27, 0.32), 0.72, 0.0)
+	materials["body"] = _material(Color(0.055, 0.075, 0.083), 0.62, 0.12)
+	materials["body_clearcoat"] = _material(Color(0.11, 0.29, 0.31), 0.36, 0.16)
+	materials["dark"] = _material(Color(0.015, 0.017, 0.020), 0.82, 0.0)
+	materials["tire"] = _material(Color(0.012, 0.012, 0.013), 0.94, 0.0)
+	materials["arm"] = _material(Color(0.87, 0.89, 0.84), 0.46, 0.0)
+	materials["arm_joint"] = _material(Color(0.18, 0.20, 0.22), 0.55, 0.08)
+	materials["accent"] = _material(Color(1.0, 0.60, 0.10), 0.38, 0.0)
+	materials["accent_blue"] = _material(Color(0.10, 0.48, 0.70), 0.42, 0.0)
+	materials["ground"] = _material(Color(0.34, 0.38, 0.35), 0.88, 0.0)
+	materials["asphalt_dark"] = _material(Color(0.12, 0.14, 0.15), 0.92, 0.0)
+	materials["obstacle"] = _material(Color(0.23, 0.28, 0.30), 0.70, 0.02)
+	materials["crate"] = _material(Color(0.52, 0.39, 0.22), 0.76, 0.0)
 	materials["zone"] = _material(Color(0.16, 0.42, 0.58, 0.35), 0.7, 0.0)
+	materials["line"] = _material(Color(0.92, 0.86, 0.62), 0.78, 0.0)
 
 
 func _build_world() -> void:
 	var world := WorldEnvironment.new()
 	var environment := Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color(0.69, 0.76, 0.82)
+	environment.background_mode = Environment.BG_SKY
+	var sky := Sky.new()
+	var sky_material := ProceduralSkyMaterial.new()
+	sky_material.sky_top_color = Color(0.37, 0.56, 0.76)
+	sky_material.sky_horizon_color = Color(0.72, 0.80, 0.86)
+	sky_material.ground_bottom_color = Color(0.18, 0.20, 0.19)
+	sky_material.ground_horizon_color = Color(0.52, 0.56, 0.50)
+	sky.sky_material = sky_material
+	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.72, 0.76, 0.80)
-	environment.ambient_light_energy = 0.85
+	environment.ambient_light_color = Color(0.60, 0.66, 0.70)
+	environment.ambient_light_energy = 0.58
+	environment.tonemap_mode = Environment.TONE_MAPPER_ACES
+	environment.tonemap_exposure = 1.05
+	environment.tonemap_white = 2.4
+	var fast_profile := visual_profile == "performance" or visual_profile == "wsl"
+	environment.ssao_enabled = not fast_profile
+	environment.ssao_radius = 2.2
+	environment.ssao_intensity = 1.45
+	environment.glow_enabled = not fast_profile
+	environment.glow_intensity = 0.18
+	environment.fog_enabled = not fast_profile
+	environment.fog_density = 0.006
 	world.environment = environment
 	add_child(world)
 
 	var sun := DirectionalLight3D.new()
 	sun.name = "KeyLight"
-	sun.rotation_degrees = Vector3(-52.0, -34.0, 0.0)
-	sun.light_energy = 3.4
-	sun.shadow_enabled = true
+	sun.rotation_degrees = Vector3(-47.0, -38.0, 0.0)
+	sun.light_energy = 3.8
+	sun.shadow_enabled = not fast_profile
 	add_child(sun)
 
 	var fill := OmniLight3D.new()
 	fill.name = "SoftFill"
 	fill.position = Vector3(-3.5, 3.0, 4.0)
-	fill.light_energy = 0.8
+	fill.light_energy = 0.65
 	add_child(fill)
 
+	var rim := SpotLight3D.new()
+	rim.name = "WorkshopRimLight"
+	rim.position = Vector3(4.0, 4.2, -3.8)
+	rim.rotation_degrees = Vector3(-58.0, 38.0, 0.0)
+	rim.light_energy = 6.0
+	rim.spot_range = 7.0
+	rim.spot_angle = 42.0
+	rim.shadow_enabled = false
+	add_child(rim)
+
+	var ground_body := StaticBody3D.new()
+	ground_body.name = "GroundCollider"
+	add_child(ground_body)
+
 	var ground := MeshInstance3D.new()
-	ground.name = "MatteGround"
+	ground.name = "PaintedConcrete"
 	var ground_mesh := BoxMesh.new()
-	ground_mesh.size = Vector3(18.0, 0.04, 18.0)
+	ground_mesh.size = Vector3(24.0, 0.04, 24.0)
 	ground.mesh = ground_mesh
 	ground.position = Vector3(0.0, -0.02, 0.0)
 	ground.material_override = materials["ground"]
-	add_child(ground)
+	ground_body.add_child(ground)
+
+	var ground_shape := CollisionShape3D.new()
+	var ground_box := BoxShape3D.new()
+	ground_box.size = ground_mesh.size
+	ground_shape.shape = ground_box
+	ground_shape.position = ground.position
+	ground_body.add_child(ground_shape)
 
 	_add_grid_lines()
+	_add_course_markings()
 	_add_obstacles()
 
 
 func _build_robot() -> void:
-	robot_root = Node3D.new()
+	robot_root = CharacterBody3D.new()
 	robot_root.name = "ArachneRobot"
+	robot_root.motion_mode = CharacterBody3D.MOTION_MODE_FLOATING
+	robot_root.safe_margin = 0.02
 	add_child(robot_root)
+
+	var body_shape := CollisionShape3D.new()
+	body_shape.name = "ScoutPhysicsProxy"
+	var body_box := BoxShape3D.new()
+	body_box.size = BODY_COLLISION_SIZE
+	body_shape.shape = body_box
+	body_shape.position = BODY_COLLISION_CENTER
+	robot_root.add_child(body_shape)
 
 	visual_root = Node3D.new()
 	visual_root.name = "RobotVisualRoot"
@@ -200,11 +298,12 @@ func _build_scout_visual() -> void:
 			"res://assets/vendor/scout/base_link_full.dae",
 		],
 		_box_mesh(Vector3(0.93, 0.38, 0.20)),
-		materials["body"],
+		materials["body_clearcoat"],
 		Vector3.ONE
 	)
 	base.name = "ScoutChassis"
 	visual_root.add_child(base)
+	_add_scout_paint_details()
 
 	var wheel_positions := {
 		"front_right": _ros_vec(Vector3(0.249, -0.2915, -0.0702)),
@@ -226,7 +325,7 @@ func _build_scout_visual() -> void:
 				"res://assets/vendor/scout/wheel.dae",
 			],
 			_cylinder_mesh(0.165, 0.116),
-			materials["dark"],
+			materials["tire"],
 			Vector3.ONE
 		)
 		wheel.name = "%s_wheel" % wheel_name
@@ -235,12 +334,35 @@ func _build_scout_visual() -> void:
 			"node": wheel,
 			"side": -1.0 if wheel_name.ends_with("_left") else 1.0,
 			"rest_basis": wheel.basis,
+			"spin": 0.0,
 		})
 		visual_root.add_child(wheel)
 
 	var deck := _box_visual("ArmDeck", _ros_size(Vector3(0.42, 0.30, 0.035)), materials["accent"])
 	deck.position = _ros_vec(Vector3(0.22, 0.0, 0.135))
 	visual_root.add_child(deck)
+
+	var lidar_beacon := _add_cylinder_visual("LidarBeacon", 0.06, 0.045, materials["accent_blue"])
+	lidar_beacon.position = _ros_vec(Vector3(0.35, 0.0, 0.215))
+	visual_root.add_child(lidar_beacon)
+
+
+func _add_scout_paint_details() -> void:
+	var top_panel := _box_visual("ScoutTopPaintPanel", Vector3(0.54, 0.012, 0.36), materials["body"])
+	top_panel.position = _ros_vec(Vector3(0.00, 0.0, 0.196))
+	visual_root.add_child(top_panel)
+
+	var front_stripe := _box_visual("ScoutForwardStripe", Vector3(0.055, 0.014, 0.50), materials["accent"])
+	front_stripe.position = _ros_vec(Vector3(0.34, 0.0, 0.207))
+	visual_root.add_child(front_stripe)
+
+	var left_side := _box_visual("ScoutLeftBlueSide", Vector3(0.45, 0.018, 0.055), materials["accent_blue"])
+	left_side.position = _ros_vec(Vector3(-0.02, 0.325, 0.055))
+	visual_root.add_child(left_side)
+
+	var right_side := _box_visual("ScoutRightBlueSide", Vector3(0.45, 0.018, 0.055), materials["accent_blue"])
+	right_side.position = _ros_vec(Vector3(-0.02, -0.325, 0.055))
+	visual_root.add_child(right_side)
 
 
 func _build_aubo_visual() -> void:
@@ -396,14 +518,38 @@ func _build_hud() -> void:
 
 
 func _add_grid_lines() -> void:
-	var line_material := _material(Color(0.78, 0.82, 0.80, 0.55), 1.0, 0.0)
-	for i in range(-9, 10):
-		var x_line := _box_visual("grid_x_%d" % i, Vector3(18.0, 0.006, 0.012), line_material)
+	var line_material := _material(Color(0.78, 0.82, 0.80, 0.30), 1.0, 0.0)
+	for i in range(-12, 13):
+		var x_line := _box_visual("grid_x_%d" % i, Vector3(24.0, 0.004, 0.010), line_material)
 		x_line.position = Vector3(0.0, 0.003, float(i))
 		add_child(x_line)
-		var z_line := _box_visual("grid_z_%d" % i, Vector3(0.012, 0.006, 18.0), line_material)
+		var z_line := _box_visual("grid_z_%d" % i, Vector3(0.010, 0.004, 24.0), line_material)
 		z_line.position = Vector3(float(i), 0.004, 0.0)
 		add_child(z_line)
+
+
+func _add_course_markings() -> void:
+	var start_zone := _box_visual("StartZonePaint", Vector3(1.8, 0.006, 1.15), materials["zone"])
+	start_zone.position = Vector3(0.0, 0.006, 0.0)
+	add_child(start_zone)
+
+	var runway := _box_visual("PracticeRunway", Vector3(8.5, 0.007, 0.16), materials["line"])
+	runway.position = Vector3(0.0, 0.009, -2.7)
+	add_child(runway)
+
+	for i in range(7):
+		var dash := _box_visual("RunwayDash_%d" % i, Vector3(0.42, 0.010, 0.10), materials["line"])
+		dash.position = Vector3(-3.2 + i * 1.05, 0.014, -2.25)
+		add_child(dash)
+
+	var title := Label3D.new()
+	title.name = "ArenaTitle"
+	title.text = "ARACHNE"
+	title.font_size = 68
+	title.modulate = Color(0.08, 0.12, 0.13, 0.72)
+	title.position = Vector3(-4.8, 0.022, 4.2)
+	title.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+	add_child(title)
 
 
 func _add_obstacles() -> void:
@@ -411,20 +557,21 @@ func _add_obstacles() -> void:
 	_add_obstacle_box("PalletB", Vector3(0.72, 0.25, 1.0), Vector3(-2.1, 0.125, 1.15))
 	_add_obstacle_cylinder("MarkerA", 0.18, 0.45, Vector3(1.4, 0.225, 1.55), materials["accent"])
 	_add_obstacle_cylinder("MarkerB", 0.15, 0.35, Vector3(-1.1, 0.175, -1.65), materials["obstacle"])
+	_add_obstacle_box("SpeedBumpA", Vector3(3.4, 0.08, 0.22), Vector3(0.2, 0.04, -3.35), materials["asphalt_dark"])
+	_add_obstacle_box("SpeedBumpB", Vector3(2.8, 0.07, 0.20), Vector3(-2.6, 0.035, 3.05), materials["asphalt_dark"])
+	_add_obstacle_box("LowRamp", Vector3(1.35, 0.16, 1.05), Vector3(3.25, 0.08, 2.45), materials["asphalt_dark"])
 
 	for i in range(4):
-		var cube := _box_visual("Crate_%d" % i, Vector3(0.28, 0.24, 0.28), materials["obstacle"])
-		cube.position = Vector3(-0.8 + i * 0.34, 0.12, 2.2)
-		add_child(cube)
+		_add_pushable_box("PushCrate_%d" % i, Vector3(0.28, 0.24, 0.28), Vector3(-0.8 + i * 0.34, 0.14, 2.2), materials["crate"])
 
 
-func _add_obstacle_box(name: String, size: Vector3, position: Vector3) -> void:
+func _add_obstacle_box(name: String, size: Vector3, position: Vector3, material: Material = null) -> void:
 	var obstacle := StaticBody3D.new()
 	obstacle.name = name
 	obstacle.position = position
 	add_child(obstacle)
 
-	var mesh_instance := _box_visual("%s_visual" % name, size, materials["obstacle"])
+	var mesh_instance := _box_visual("%s_visual" % name, size, material if material != null else materials["obstacle"])
 	mesh_instance.position = Vector3.ZERO
 	obstacle.add_child(mesh_instance)
 
@@ -458,27 +605,86 @@ func _add_obstacle_cylinder(name: String, radius: float, height: float, position
 	obstacle.add_child(shape)
 
 
+func _add_pushable_box(name: String, size: Vector3, position: Vector3, material: Material) -> void:
+	var body := RigidBody3D.new()
+	body.name = name
+	body.position = position
+	body.mass = 2.4
+	body.linear_damp = 2.8
+	body.angular_damp = 3.5
+	add_child(body)
+
+	var mesh_instance := _box_visual("%s_visual" % name, size, material)
+	body.add_child(mesh_instance)
+
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	shape.shape = box
+	body.add_child(shape)
+
+
 func _update_base(delta: float) -> void:
 	var stick := _read_drive_stick()
 	var radius := stick.length()
 	if radius < input_deadzone:
-		current_linear = lerp(current_linear, 0.0, _follow_alpha(10.0, delta))
-		current_angular = lerp(current_angular, 0.0, _follow_alpha(12.0, delta))
+		target_linear = 0.0
+		target_angular = 0.0
 	else:
 		var unit: Vector2 = stick / max(radius, 0.0001)
 		var speed_radius: float = clamp((min(radius, 1.0) - input_deadzone) / max(1.0 - input_deadzone, 0.0001), 0.0, 1.0)
 		speed_radius = lerp(speed_radius, speed_radius * speed_radius, input_curve)
-		current_linear = unit.y * speed_radius * max_linear_speed
-		current_angular = unit.x * speed_radius * max_angular_speed
+		target_linear = unit.y * speed_radius * max_linear_speed
+		target_angular = unit.x * speed_radius * max_angular_speed
 
+	var linear_rate := linear_acceleration
+	if sign(target_linear) != sign(current_linear) or abs(target_linear) < abs(current_linear):
+		linear_rate = braking_acceleration
+	current_linear = move_toward(current_linear, target_linear, linear_rate * delta)
+	current_angular = move_toward(current_angular, target_angular, angular_acceleration * delta)
+
+	if abs(current_linear) < 0.002:
+		current_linear = 0.0
+	if abs(current_angular) < 0.002:
+		current_angular = 0.0
+
+	var previous_position := robot_root.global_position
+	var previous_yaw := robot_root.rotation.y
 	robot_root.rotation.y -= current_angular * delta
-	robot_root.global_position += robot_root.global_transform.basis.x * current_linear * delta
+	var desired_velocity := robot_root.global_transform.basis.x * current_linear
+	robot_root.velocity = Vector3(desired_velocity.x, 0.0, desired_velocity.z)
+	robot_root.move_and_slide()
+	_apply_push_impulses()
+	robot_root.global_position.x = clamp(robot_root.global_position.x, -ARENA_LIMIT, ARENA_LIMIT)
+	robot_root.global_position.z = clamp(robot_root.global_position.z, -ARENA_LIMIT, ARENA_LIMIT)
+	var ground_target := robot_ground_y + _sample_track_height(robot_root.global_position)
+	robot_root.global_position.y = lerp(robot_root.global_position.y, ground_target, _follow_alpha(suspension_follow_rate, delta))
 
+	var actual_motion := robot_root.global_position - previous_position
+	var actual_forward_distance := robot_root.global_transform.basis.x.dot(actual_motion)
+	var actual_yaw_delta := robot_root.rotation.y - previous_yaw
 	for wheel_state in wheel_nodes:
 		var wheel := wheel_state["node"] as Node3D
 		var side := float(wheel_state["side"])
-		var wheel_linear := current_linear + current_angular * side * SCOUT_TRACK_WIDTH * 0.5
-		wheel.rotate_object_local(SCOUT_WHEEL_SPIN_AXIS, -wheel_linear * delta / SCOUT_WHEEL_RADIUS)
+		var turn_distance := -actual_yaw_delta * side * SCOUT_TRACK_WIDTH * 0.5
+		wheel_state["spin"] = float(wheel_state["spin"]) - (actual_forward_distance + turn_distance) / SCOUT_WHEEL_RADIUS
+		wheel.basis = wheel_state["rest_basis"] * Basis(SCOUT_WHEEL_SPIN_AXIS, float(wheel_state["spin"]))
+	_update_vehicle_body_fx(delta)
+	previous_linear = current_linear
+
+
+func _apply_push_impulses() -> void:
+	for i in range(robot_root.get_slide_collision_count()):
+		var collision := robot_root.get_slide_collision(i)
+		var collider := collision.get_collider()
+		if collider is RigidBody3D:
+			var rigid_body := collider as RigidBody3D
+			var impulse_direction: Vector3 = robot_root.global_transform.basis.x * sign(current_linear)
+			if impulse_direction.length_squared() < 0.001:
+				impulse_direction = -collision.get_normal()
+			var impulse_strength: float = clamp(abs(current_linear) * 1.6 + abs(current_angular) * 0.25, 0.0, 3.2)
+			var contact_offset: Vector3 = collision.get_position() - rigid_body.global_position
+			rigid_body.apply_impulse(impulse_direction.normalized() * impulse_strength, contact_offset)
 
 
 func _update_arm(delta: float) -> void:
@@ -507,20 +713,57 @@ func _update_camera(delta: float) -> void:
 		orbit_input += _deadzone_axis(Input.get_joy_axis(0, JOY_AXIS_RIGHT_X), 0.10)
 	camera_yaw += orbit_input * camera_orbit_speed * delta
 
-	var yaw := robot_root.rotation.y + camera_yaw
-	var offset := Basis(Vector3.UP, yaw) * Vector3(-camera_distance, camera_height, 0.0)
-	var focus := robot_root.global_position + Vector3(0.0, 0.72, 0.0)
-	var desired_position := focus + offset
+	var yaw: float = robot_root.rotation.y + camera_yaw
+	var speed_zoom: float = clamp(abs(current_linear) / max_linear_speed, 0.0, 1.0) * 0.38
+	var turn_shoulder: float = clamp(current_angular / max_angular_speed, -1.0, 1.0) * 0.20
+	if not cinematic_camera:
+		speed_zoom = 0.0
+		turn_shoulder = 0.0
+	var offset: Vector3 = Basis(Vector3.UP, yaw) * Vector3(-camera_distance - speed_zoom, camera_height, turn_shoulder)
+	var focus: Vector3 = robot_root.global_position + Vector3(0.18, 0.64, 0.0)
+	var desired_position: Vector3 = focus + offset
 	camera.global_position = camera.global_position.lerp(desired_position, _follow_alpha(camera_follow_rate, delta))
-	camera.look_at(focus, Vector3.UP)
+	var look_ahead: Vector3 = robot_root.global_transform.basis.x * clamp(current_linear, -0.35, 0.80) * 0.22
+	camera.look_at(focus + look_ahead, Vector3.UP)
+
+
+func _update_vehicle_body_fx(delta: float) -> void:
+	var acceleration: float = (current_linear - previous_linear) / max(delta, 0.0001)
+	var target_pitch: float = clamp(acceleration / max(linear_acceleration, 0.001), -1.0, 1.0) * 0.040
+	var target_roll: float = clamp(current_angular / max_angular_speed, -1.0, 1.0) * 0.055
+	var bump_phase: float = Time.get_ticks_msec() * 0.001 * (8.0 + abs(current_linear) * 3.0)
+	var bump_amount: float = sin(bump_phase) * clamp(abs(current_linear) / max_linear_speed, 0.0, 1.0) * 0.006
+	visual_root.rotation.z = lerp(visual_root.rotation.z, -target_pitch, _follow_alpha(9.0, delta))
+	visual_root.rotation.x = lerp(visual_root.rotation.x, target_roll, _follow_alpha(8.0, delta))
+	visual_root.position.y = lerp(visual_root.position.y, bump_amount, _follow_alpha(14.0, delta))
+
+
+func _sample_track_height(position: Vector3) -> float:
+	var height := 0.0
+	height = max(height, _axis_bump(position, Vector3(0.2, 0.0, -3.35), Vector2(3.4, 0.22), 0.065))
+	height = max(height, _axis_bump(position, Vector3(-2.6, 0.0, 3.05), Vector2(2.8, 0.20), 0.055))
+	height = max(height, _axis_bump(position, Vector3(3.25, 0.0, 2.45), Vector2(1.35, 1.05), 0.115))
+	return height
+
+
+func _axis_bump(position: Vector3, center: Vector3, size: Vector2, height: float) -> float:
+	var local_x: float = abs(position.x - center.x)
+	var local_z: float = abs(position.z - center.z)
+	if local_x > size.x * 0.5 or local_z > size.y * 0.5:
+		return 0.0
+	var z_norm: float = clamp(local_z / max(size.y * 0.5, 0.001), 0.0, 1.0)
+	return height * sin((1.0 - z_norm) * PI * 0.5)
 
 
 func _update_hud() -> void:
-	status_label.text = "Arachne Godot Showcase\nPose: %s    Gripper: %.2f\nv: %.2f m/s    yaw rate: %.2f rad/s" % [
+	status_label.text = "Arachne Playable Showcase\nBackend: %s    Pose: %s    Gripper: %.2f\nv: %.2f m/s    yaw: %.2f rad/s    target: %.2f / %.2f" % [
+		backend_label,
 		current_pose_name,
 		gripper_position,
 		current_linear,
 		-current_angular,
+		target_linear,
+		-target_angular,
 	]
 
 
@@ -528,7 +771,13 @@ func _publish_ros_placeholders() -> void:
 	if ros_bridge == null:
 		return
 	ros_bridge.publish_cmd_vel(current_linear, -current_angular)
-	ros_bridge.publish_joint_states(ARM_JOINT_NAMES, current_joints)
+	var names := ARM_JOINT_NAMES.duplicate()
+	var positions := current_joints.duplicate()
+	names.append("ms42dc_left_finger_joint")
+	names.append("ms42dc_right_finger_joint")
+	positions.append(gripper_position)
+	positions.append(-gripper_position)
+	ros_bridge.publish_joint_states(names, positions)
 	ros_bridge.publish_odom(robot_root.global_position, robot_root.rotation.y, current_linear, -current_angular)
 	ros_bridge.publish_tf([
 		{"parent": "odom", "child": "base_link", "position": robot_root.global_position, "yaw": robot_root.rotation.y},
@@ -537,6 +786,9 @@ func _publish_ros_placeholders() -> void:
 
 
 func _read_drive_stick() -> Vector2:
+	if forced_drive_enabled:
+		return forced_drive_stick
+
 	var turn := 0.0
 	var forward := 0.0
 	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
@@ -580,11 +832,18 @@ func _set_gripper(closed: bool) -> void:
 func _reset_demo() -> void:
 	robot_root.position = Vector3(0.0, robot_ground_y, 0.0)
 	robot_root.rotation = Vector3.ZERO
+	robot_root.velocity = Vector3.ZERO
 	camera_yaw = 0.0
+	target_linear = 0.0
+	target_angular = 0.0
 	current_linear = 0.0
 	current_angular = 0.0
+	previous_linear = 0.0
+	visual_root.position = Vector3.ZERO
+	visual_root.rotation = Vector3.ZERO
 	for wheel_state in wheel_nodes:
 		var wheel := wheel_state["node"] as Node3D
+		wheel_state["spin"] = 0.0
 		wheel.basis = wheel_state["rest_basis"]
 	_select_pose("home")
 	_set_gripper(false)
@@ -751,6 +1010,14 @@ func _box_visual(name: String, size: Vector3, material: Material) -> MeshInstanc
 	return mesh_instance
 
 
+func _add_cylinder_visual(name: String, radius: float, height: float, material: Material) -> MeshInstance3D:
+	var mesh_instance := MeshInstance3D.new()
+	mesh_instance.name = name
+	mesh_instance.mesh = _cylinder_mesh(radius, height)
+	mesh_instance.material_override = material
+	return mesh_instance
+
+
 func _box_mesh(size: Vector3) -> BoxMesh:
 	var mesh := BoxMesh.new()
 	mesh.size = size
@@ -809,6 +1076,67 @@ func _ros_rpy_basis(rpy: Vector3) -> Basis:
 		Vector3(cy * sp * cr + sy * sr, sy * sp * cr - cy * sr, cp * cr)
 	)
 	return ROS_TO_GODOT_BASIS * ros_basis * ROS_TO_GODOT_BASIS.inverse()
+
+
+func _has_user_arg(flag: String) -> bool:
+	for arg in OS.get_cmdline_user_args():
+		if arg == flag:
+			return true
+	for arg in OS.get_cmdline_args():
+		if arg == flag:
+			return true
+	return false
+
+
+func _run_self_test() -> void:
+	var errors: Array[String] = []
+	await get_tree().physics_frame
+	var start_position := robot_root.global_position
+	forced_drive_enabled = true
+	forced_drive_stick = Vector2(0.30, 1.0)
+	for _i in range(110):
+		await get_tree().physics_frame
+	forced_drive_stick = Vector2(-0.65, 0.35)
+	for _i in range(70):
+		await get_tree().physics_frame
+	forced_drive_stick = Vector2.ZERO
+	for _i in range(30):
+		await get_tree().physics_frame
+	forced_drive_enabled = false
+
+	var travel := robot_root.global_position.distance_to(start_position)
+	if travel < 0.75:
+		errors.append("robot did not travel far enough during scripted drive: %.3f m" % travel)
+	if robot_root.global_position.y < -0.05:
+		errors.append("robot sank below the ground: y=%.3f" % robot_root.global_position.y)
+	if camera.global_position.distance_to(robot_root.global_position) > 5.0:
+		errors.append("follow camera drifted too far from robot")
+	if wheel_nodes.size() != 4:
+		errors.append("expected four wheel visual nodes, got %d" % wheel_nodes.size())
+	if _count_mesh_instances(robot_root) < 20:
+		errors.append("robot visual mesh count is unexpectedly low")
+	if ros_bridge == null or ros_bridge.last_cmd_vel.is_empty():
+		errors.append("ROS2 bridge placeholder did not receive cmd_vel")
+
+	if errors.is_empty():
+		print("Arachne Godot self-test passed: travel=%.2f m, meshes=%d, backend=%s" % [travel, _count_mesh_instances(robot_root), backend_label])
+		get_tree().quit(0)
+	else:
+		for error in errors:
+			push_error(error)
+		get_tree().quit(1)
+
+
+func _count_mesh_instances(node: Node) -> int:
+	var count := 0
+	var stack: Array[Node] = [node]
+	while not stack.is_empty():
+		var current: Node = stack.pop_back()
+		if current is MeshInstance3D:
+			count += 1
+		for child in current.get_children():
+			stack.append(child)
+	return count
 
 
 func _node_visual_bounds(node: Node) -> AABB:

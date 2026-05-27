@@ -125,6 +125,14 @@ Run the playable Gazebo showroom demo:
 ./scripts/switch_demo.sh
 ```
 
+On WSL2, `switch_demo.sh` exports the Mesa D3D12 settings needed by Gazebo GUI so rendering can use the Windows GPU instead of CPU `llvmpipe`. It also defaults Gazebo to the OpenGL backend and a lighter `180 Hz` physics update rate. Tune these without editing files:
+
+```bash
+GZ_UPDATE_RATE=120 ./scripts/switch_demo.sh
+GZ_RENDER_BACKEND=opengl ./scripts/switch_demo.sh
+MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA ./scripts/switch_demo.sh
+```
+
 Input backend selection:
 
 ```bash
@@ -149,7 +157,9 @@ The current Gazebo pass focuses on promotional driving physics and real mesh vis
 
 ## Godot Showcase Frontend
 
-`godot/arachne_showcase` is a separate Godot 4.x frontend for high-FPS visualization and teleoperation feel. It loads existing Scout, Aubo i5, MS42DC, AG95, and prop meshes through generated links under `assets/vendor/`, then uses simple kinematic base motion and visual arm/gripper interpolation.
+`godot/arachne_showcase` is a separate Godot 4.x frontend for high-FPS third-person visualization and teleoperation feel. It loads existing Scout, Aubo i5, MS42DC, AG95, and prop meshes through generated links under `assets/vendor/`, then uses collision-aware character-body movement, proportional skid-steer controls, pushable rigid-body props, camera damping, visual suspension, painted materials, and visual arm/gripper interpolation.
+
+In WSL2, `scripts/godot_showcase.sh` forces `GALLIUM_DRIVER=d3d12` and the OpenGL compatibility renderer because the Vulkan path can fall back to CPU `llvmpipe`. Native Linux can keep Forward+ unless a different renderer is requested.
 
 The bridge layer is intentionally a placeholder:
 
@@ -158,4 +168,6 @@ The bridge layer is intentionally a placeholder:
 - `/odom`: stored from the Godot base pose.
 - `/tf`: stores the current `odom -> base_link` and static visual-frame placeholders.
 
-This keeps the showcase dependency-free while leaving a stable insertion point for a later ROS2, WebSocket, UDP, or MuJoCo backend.
+The bridge defaults to standalone memory mode, and switches to UDP placeholder mode when a ROS2 environment is sourced. This keeps the showcase dependency-free while leaving a stable insertion point for a later ROS2, WebSocket, native Godot ROS2, MuJoCo, or other physics backend.
+
+Use `scripts/test_godot_showcase.sh` to run the headless Godot self-test. It links assets, loads the scene, drives a scripted route, checks basic movement/camera/mesh/bridge health, and exits nonzero on regressions.

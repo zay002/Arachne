@@ -12,6 +12,8 @@ WEB_GAMEPAD_PORT="${WEB_GAMEPAD_PORT:-8787}"
 GAZEBO_CAMERA_DISTANCE="${GAZEBO_CAMERA_DISTANCE:-2.0}"
 FORWARD_AXIS_SIGN="${FORWARD_AXIS_SIGN:--1.0}"
 LATERAL_AXIS_SIGN="${LATERAL_AXIS_SIGN:-1.0}"
+GZ_RENDER_BACKEND="${GZ_RENDER_BACKEND:-opengl}"
+GZ_UPDATE_RATE="${GZ_UPDATE_RATE:-180}"
 
 if [[ ! -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]]; then
   echo "ROS setup not found: /opt/ros/${ROS_DISTRO}/setup.bash" >&2
@@ -43,6 +45,15 @@ fi
 IS_WSL=false
 if [[ -r /proc/sys/kernel/osrelease ]] && grep -qi "microsoft\\|wsl" /proc/sys/kernel/osrelease; then
   IS_WSL=true
+fi
+
+if [[ "${IS_WSL}" == "true" ]]; then
+  export LD_LIBRARY_PATH="/usr/lib/wsl/lib:${LD_LIBRARY_PATH:-}"
+  export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-0}"
+  export GALLIUM_DRIVER="${GALLIUM_DRIVER:-d3d12}"
+  if [[ -x /usr/lib/wsl/lib/nvidia-smi ]]; then
+    export MESA_D3D12_DEFAULT_ADAPTER_NAME="${MESA_D3D12_DEFAULT_ADAPTER_NAME:-NVIDIA}"
+  fi
 fi
 
 case "${INPUT_BACKEND}" in
@@ -101,7 +112,9 @@ case "${DEMO_MODE}" in
       web_gamepad_port:="${WEB_GAMEPAD_PORT}" \
       forward_axis_multiplier:="${FORWARD_AXIS_SIGN}" \
       lateral_axis_multiplier:="${LATERAL_AXIS_SIGN}" \
-      gazebo_camera_distance:="${GAZEBO_CAMERA_DISTANCE}"
+      gazebo_camera_distance:="${GAZEBO_CAMERA_DISTANCE}" \
+      gazebo_render_backend:="${GZ_RENDER_BACKEND}" \
+      gazebo_update_rate:="${GZ_UPDATE_RATE}"
     ;;
   *)
     echo "DEMO_MODE must be 'rviz' or 'gazebo'. Current value: ${DEMO_MODE}" >&2
