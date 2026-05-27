@@ -26,7 +26,7 @@
     </collision>
   </xacro:macro>
 
-  <xacro:macro name="arachne_ms42dc" params="prefix:='ms42dc_' parent">
+  <xacro:macro name="arachne_ms42dc" params="prefix:='ms42dc_' parent mimic_right:=true">
     <link name="${prefix}body_link"/>
 
     <joint name="${prefix}body_fixed_joint" type="fixed">
@@ -70,7 +70,9 @@
       <origin xyz="${ms42dc_right_pivot_xyz}" rpy="0 0 0"/>
       <axis xyz="0 0 -1"/>
       <limit lower="-1.0" upper="0.0" effort="30.0" velocity="1.0"/>
-      <mimic joint="${prefix}left_finger_joint" multiplier="-1.0" offset="0.0"/>
+      <xacro:if value="${mimic_right}">
+        <mimic joint="${prefix}left_finger_joint" multiplier="-1.0" offset="0.0"/>
+      </xacro:if>
     </joint>
 
     <link name="${prefix}mid_link">

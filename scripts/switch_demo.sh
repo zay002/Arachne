@@ -10,6 +10,8 @@ INPUT_BACKEND="${INPUT_BACKEND:-auto}"
 WEB_GAMEPAD_HOST="${WEB_GAMEPAD_HOST:-127.0.0.1}"
 WEB_GAMEPAD_PORT="${WEB_GAMEPAD_PORT:-8787}"
 GAZEBO_CAMERA_DISTANCE="${GAZEBO_CAMERA_DISTANCE:-2.0}"
+FORWARD_AXIS_SIGN="${FORWARD_AXIS_SIGN:--1.0}"
+LATERAL_AXIS_SIGN="${LATERAL_AXIS_SIGN:-1.0}"
 
 if [[ ! -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]]; then
   echo "ROS setup not found: /opt/ros/${ROS_DISTRO}/setup.bash" >&2
@@ -85,6 +87,8 @@ case "${DEMO_MODE}" in
       with_web_gamepad:="${WITH_WEB_GAMEPAD}" \
       web_gamepad_host:="${WEB_GAMEPAD_HOST}" \
       web_gamepad_port:="${WEB_GAMEPAD_PORT}" \
+      forward_axis_multiplier:="${FORWARD_AXIS_SIGN}" \
+      lateral_axis_multiplier:="${LATERAL_AXIS_SIGN}" \
       gazebo_camera_distance:="${GAZEBO_CAMERA_DISTANCE}"
     ;;
   gazebo)
@@ -95,6 +99,8 @@ case "${DEMO_MODE}" in
       with_web_gamepad:="${WITH_WEB_GAMEPAD}" \
       web_gamepad_host:="${WEB_GAMEPAD_HOST}" \
       web_gamepad_port:="${WEB_GAMEPAD_PORT}" \
+      forward_axis_multiplier:="${FORWARD_AXIS_SIGN}" \
+      lateral_axis_multiplier:="${LATERAL_AXIS_SIGN}" \
       gazebo_camera_distance:="${GAZEBO_CAMERA_DISTANCE}"
     ;;
   *)

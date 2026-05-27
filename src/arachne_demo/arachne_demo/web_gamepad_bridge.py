@@ -39,7 +39,7 @@ HTML = """<!doctype html>
   <div class="panel">
     <div class="status" id="status">Press any Switch Pro button...</div>
     <p>WSL2 cannot always read the Switch Pro Controller as <code>/dev/input/js0</code>. Keep this page open; it forwards the browser Gamepad API to ROS2 <code>/joy</code>.</p>
-    <p>Left stick moves the base relative to the third-person camera. Right stick orbits the Gazebo camera. B/A open and close the gripper.</p>
+    <p>Left stick proportionally drives body-frame forward/back speed and turn speed; the Aubo arm side is the front. Right stick orbits the Gazebo camera. B/A open and close the gripper.</p>
     <p class="muted" id="detail">No controller detected yet.</p>
   </div>
 </main>
@@ -89,8 +89,12 @@ function tick(ts) {
 
   const pad = pads[0];
   const payload = normalizePad(pad);
+  const pressedButtons = payload.buttons
+    .map((value, index) => value ? index : null)
+    .filter(value => value !== null);
   statusEl.textContent = "Connected: " + pad.id;
-  detailEl.textContent = "axes " + payload.axes.map(v => v.toFixed(2)).join(", ");
+  detailEl.textContent = "axes " + payload.axes.map(v => v.toFixed(2)).join(", ")
+    + " | buttons " + (pressedButtons.length ? pressedButtons.join(", ") : "none");
 
   if (ts - lastSent > 33) {
     lastSent = ts;

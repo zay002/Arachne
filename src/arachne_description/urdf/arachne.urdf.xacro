@@ -9,6 +9,8 @@
   <xacro:arg name="with_ee_camera" default="false"/>
   <xacro:arg name="with_ros2_control" default="false"/>
   <xacro:arg name="with_gazebo_plugins" default="false"/>
+  <xacro:arg name="with_mimic_joints" default="true"/>
+  <xacro:arg name="gazebo_drive_wheels" default="false"/>
 
   <xacro:include filename="materials.xacro"/>
   <xacro:include filename="common_inertials.xacro"/>
@@ -22,12 +24,12 @@
   <xacro:include filename="sensors/ee_camera.xacro"/>
   <xacro:include filename="gazebo/arachne_gazebo_plugins.xacro"/>
 
-  <xacro:arachne_scout_2_vendor/>
+  <xacro:arachne_scout_2_vendor gazebo_drive_wheels="$(arg gazebo_drive_wheels)"/>
   <xacro:arachne_scout_aubo_mount parent="base_link" xyz="$(arg arm_mount_xyz)" rpy="$(arg arm_mount_rpy)"/>
   <xacro:arachne_aubo_i5_vendor parent="arm_mount_link"/>
   <xacro:arachne_aubo_ms42dc_adapter parent="tool0" xyz="$(arg tool_adapter_xyz)" rpy="$(arg tool_adapter_rpy)"/>
   <xacro:if value="${'$(arg gripper_type)' == 'ms42dc'}">
-    <xacro:arachne_ms42dc parent="gripper_adapter_link"/>
+    <xacro:arachne_ms42dc parent="gripper_adapter_link" mimic_right="$(arg with_mimic_joints)"/>
   </xacro:if>
   <xacro:if value="${'$(arg gripper_type)' == 'ag95'}">
     <xacro:include filename="gripper/ag95.urdf.xacro"/>

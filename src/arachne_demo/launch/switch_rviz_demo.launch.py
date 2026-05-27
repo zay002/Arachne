@@ -20,12 +20,13 @@ def generate_launch_description():
             "gripper_type": LaunchConfiguration("gripper_type"),
             "use_gui": "false",
             "with_rviz": LaunchConfiguration("with_rviz"),
-            "with_base_sim": "true",
+            "with_base_sim": LaunchConfiguration("with_base_sim"),
             "with_base_gui": "false",
             "with_gripper_sim": "true",
             "with_gripper_gui": "false",
             "gripper_sim_profile": LaunchConfiguration("gripper_type"),
         }.items(),
+        condition=IfCondition(LaunchConfiguration("with_description")),
     )
 
     joy = Node(
@@ -67,6 +68,13 @@ def generate_launch_description():
                 "linear_scale": ParameterValue(LaunchConfiguration("linear_scale"), value_type=float),
                 "angular_scale": ParameterValue(LaunchConfiguration("angular_scale"), value_type=float),
                 "drive_mode": LaunchConfiguration("drive_mode"),
+                "forward_axis_multiplier": ParameterValue(
+                    LaunchConfiguration("forward_axis_multiplier"), value_type=float
+                ),
+                "lateral_axis_multiplier": ParameterValue(
+                    LaunchConfiguration("lateral_axis_multiplier"), value_type=float
+                ),
+                "odom_topic": LaunchConfiguration("odom_topic"),
                 "joint_velocity_scale": ParameterValue(
                     LaunchConfiguration("joint_velocity_scale"), value_type=float
                 ),
@@ -88,6 +96,8 @@ def generate_launch_description():
                 "gazebo_distance": ParameterValue(
                     LaunchConfiguration("gazebo_camera_distance"), value_type=float
                 ),
+                "odom_topic": LaunchConfiguration("odom_topic"),
+                "gazebo_offset_topic": LaunchConfiguration("gazebo_camera_offset_topic"),
             }
         ],
         output="screen",
@@ -96,7 +106,9 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
+            DeclareLaunchArgument("with_description", default_value="true"),
             DeclareLaunchArgument("with_rviz", default_value="true"),
+            DeclareLaunchArgument("with_base_sim", default_value="true"),
             DeclareLaunchArgument("with_joy", default_value="true"),
             DeclareLaunchArgument("with_web_gamepad", default_value="false"),
             DeclareLaunchArgument("joy_dev", default_value="/dev/input/js0"),
@@ -107,10 +119,17 @@ def generate_launch_description():
             DeclareLaunchArgument("teleop_deadzone", default_value="0.12"),
             DeclareLaunchArgument("linear_scale", default_value="0.55"),
             DeclareLaunchArgument("angular_scale", default_value="1.1"),
-            DeclareLaunchArgument("drive_mode", default_value="third_person"),
+            DeclareLaunchArgument("drive_mode", default_value="body"),
+            DeclareLaunchArgument("forward_axis_multiplier", default_value="-1.0"),
+            DeclareLaunchArgument("lateral_axis_multiplier", default_value="1.0"),
+            DeclareLaunchArgument("odom_topic", default_value="/odom"),
             DeclareLaunchArgument("joint_velocity_scale", default_value="0.85"),
             DeclareLaunchArgument("gazebo_gui_camera", default_value="false"),
             DeclareLaunchArgument("gazebo_camera_distance", default_value="2.0"),
+            DeclareLaunchArgument(
+                "gazebo_camera_offset_topic",
+                default_value="/arachne/gazebo_camera/follow_offset",
+            ),
             display,
             joy,
             web_gamepad,

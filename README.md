@@ -18,6 +18,7 @@ The current milestone is a reliable robot description plus interactive demos: on
 - `src/arachne_sim`: RViz-oriented base simulation, `/cmd_vel` integration, odometry TF, wheel joint states, and a small base teleop GUI.
 - `src/arachne_gripper`: simulated gripper controller, joint-state mux, and a small `Open` / `Close` GUI.
 - `src/arachne_demo`: Nintendo Switch Pro controller teleop, RViz demo launch, and Gazebo showroom launch.
+- `src/arachne_gazebo`: Gazebo helper nodes for smooth GUI camera tracking and demo arm/gripper commands.
 - `src/arachne_hardware`: reserved real-hardware driver package with empty files for gripper serial, base serial, and Aubo TCP/IP drivers.
 - `scripts`: setup, third-party fetch, model visualization, URDF check, and gripper smoke-test helpers.
 - `docs`: hardware/modeling/control/calibration notes and stage reports.
@@ -35,16 +36,15 @@ External model dependencies are restored by `scripts/fetch_third_party.sh`, with
 - MS42DC close target is calibrated to `0.6 rad` by default.
 - RViz starts through `scripts/view_model.sh`, which cleans stale visualization nodes and launches base teleop, arm joint sliders, gripper simulator, and gripper Open/Close GUI.
 - The arm slider GUI starts from the current user-confirmed display pose; pressing `Center` returns to that pose.
-- `scripts/switch_demo.sh` starts an interactive Nintendo Switch Pro controller demo for the base, follower view, Aubo joints, and gripper.
+- `scripts/switch_demo.sh` starts an interactive Nintendo Switch Pro controller demo with Gazebo physics, a smoothed third-person camera, body-relative Scout driving, Aubo joint nudging, and gripper commands. The Aubo side is treated as the Scout front, and Gazebo uses a physics-specific Scout wheel setup so forward input drives all four wheels in the same direction.
 
 ## Roadmap
 
 1. Finalize physical calibration: tool adapter pose, sensor poses, and collision simplification for planning.
 2. Add MoveIt2 configuration for the Aubo arm with interchangeable MS42DC and AG95 end-effectors.
-3. Tune the Gazebo demo frame rate, third-person camera feel, and camera-relative joystick precision.
-4. Upgrade the Gazebo demo into the main physics rehearsal backend with ros2_control arm and gripper controllers.
-5. Implement hardware-facing bridges for Aubo TCP/IP, Scout serial, and MS42DC serial after the remaining materials arrive.
-6. Build the operator Web UI after the model, controllers, and launch contracts are stable.
+3. Upgrade the Gazebo demo into the main physics rehearsal backend with ros2_control arm and gripper controllers.
+4. Implement hardware-facing bridges for Aubo TCP/IP, Scout serial, and MS42DC serial after the remaining materials arrive.
+5. Build the operator Web UI after the model, controllers, and launch contracts are stable.
 
 ## Quick Start
 
@@ -64,7 +64,7 @@ source /opt/ros/jazzy/setup.bash  # use /opt/ros/humble/setup.bash on Ubuntu 22.
 
 colcon build --base-paths src --packages-select \
   aubo_description scout_description dh_ag95_description \
-  arachne_sim arachne_gripper arachne_hardware arachne_description arachne_demo \
+  arachne_sim arachne_gripper arachne_hardware arachne_description arachne_gazebo arachne_demo \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 
 source install/setup.bash
@@ -118,6 +118,10 @@ INPUT_BACKEND=web ./scripts/switch_demo.sh
 
 For the Switch Pro Controller, the WSL2/browser backend is usually the most reliable path because the controller stays visible to Windows Bluetooth while the browser forwards its standard Gamepad state into ROS2.
 
+<p align="center">
+  <img src="docs/demo/Bridge.png" alt="Arachne browser gamepad bridge" width="720">
+</p>
+
 For the lightweight RViz-only control view:
 
 ```bash
@@ -126,19 +130,29 @@ DEMO_MODE=rviz ./scripts/switch_demo.sh
 
 Default controls:
 
-- Left stick: move the Scout in the current third-person camera direction.
-- Right stick: orbit the Gazebo follower camera around the robot.
+- Left stick: proportional body-frame driving; vertical stick travel controls forward/back speed, horizontal travel controls turn speed, and pushing up moves toward the Aubo arm side.
+- Right stick: orbit the smoothed Gazebo chase camera around the robot.
 - Hold `ZL` + D-pad up/down: move the selected Aubo joint.
 - `L` / `R`: select previous/next Aubo joint.
 - `B`: open gripper. `A`: close gripper.
 - `+`: reset arm to the display pose. `-`: stop base motion.
 
-The default Gazebo version opens only the Gazebo showroom window: it uses the real robot meshes, a lit world, dynamic props, a diff-drive physics plugin, and a controller-driven third-person camera. RViz remains available as a separate lightweight control view until the full ros2_control/Gazebo arm stack is completed.
+The default Gazebo version opens only the Gazebo showroom window: it uses the real robot meshes, a lighter physics world, dynamic props, a diff-drive physics plugin, Gazebo `/gz/odom`, a controller-driven third-person camera, and direct demo bridges for Aubo joint nudging plus MS42DC open/close control. RViz remains available as a separate lightweight control view while the full ros2_control/Gazebo stack is developed.
+
+<p align="center">
+  <img src="docs/demo/gazebo.png" alt="Arachne Gazebo showroom demo" width="900">
+</p>
 
 Camera distance can be tuned without rebuilding:
 
 ```bash
 GAZEBO_CAMERA_DISTANCE=1.7 ./scripts/switch_demo.sh
+```
+
+If another controller reports the left-stick Y axis in the opposite direction, flip it without rebuilding:
+
+```bash
+FORWARD_AXIS_SIGN=1.0 ./scripts/switch_demo.sh
 ```
 
 To manually tune the MS42DC close angle with sliders:

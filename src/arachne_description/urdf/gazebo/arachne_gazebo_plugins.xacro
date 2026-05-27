@@ -110,6 +110,26 @@
       <xacro:arachne_gazebo_surface link="ms42dc_base_link" mu1="0.8" mu2="0.8"/>
       <xacro:arachne_gazebo_surface link="ms42dc_left_finger_link" mu1="1.1" mu2="1.1"/>
       <xacro:arachne_gazebo_surface link="ms42dc_right_finger_link" mu1="1.1" mu2="1.1"/>
+      <gazebo>
+        <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+          <joint_name>ms42dc_left_finger_joint</joint_name>
+          <topic>/arachne/gazebo/ms42dc_left_finger/command</topic>
+          <p_gain>6.0</p_gain>
+          <i_gain>0.0</i_gain>
+          <d_gain>0.2</d_gain>
+          <cmd_max>2.0</cmd_max>
+          <cmd_min>-2.0</cmd_min>
+        </plugin>
+        <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+          <joint_name>ms42dc_right_finger_joint</joint_name>
+          <topic>/arachne/gazebo/ms42dc_right_finger/command</topic>
+          <p_gain>6.0</p_gain>
+          <i_gain>0.0</i_gain>
+          <d_gain>0.2</d_gain>
+          <cmd_max>2.0</cmd_max>
+          <cmd_min>-2.0</cmd_min>
+        </plugin>
+      </gazebo>
     </xacro:if>
   </xacro:macro>
 </robot>

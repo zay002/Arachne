@@ -1,6 +1,6 @@
 # Control
 
-The first simulation control layer is implemented for RViz and Gazebo demos. The base accepts `/cmd_vel` and publishes `/odom`, `odom -> base_link`, and wheel joint states for the lightweight view; Gazebo mode also drives the spawned model through a diff-drive physics plugin. The Aubo arm is still controlled by `joint_state_publisher_gui` in RViz mode, seeded with the current user-confirmed display pose instead of the folded zero pose. Both MS42DC and AG95 expose the same two gripper states, `Open` and `Close`; the only model difference is the gripper attached under `gripper_adapter_link`.
+The first simulation control layer is implemented for RViz and Gazebo demos. The base accepts `/cmd_vel` and publishes `/odom`, `odom -> base_link`, and wheel joint states for the lightweight view; Gazebo mode drives the spawned model through a diff-drive physics plugin and uses a Gazebo-specific Scout wheel orientation so forward commands produce real forward motion. The Aubo arm is controlled by `joint_state_publisher_gui` in RViz mode and by a lightweight Gazebo trajectory bridge in the Switch demo, seeded with the current user-confirmed display pose instead of the folded zero pose. Both MS42DC and AG95 expose the same two gripper states, `Open` and `Close`; the only model difference is the gripper attached under `gripper_adapter_link`.
 
 In `display.launch.py`, default zero-state joints publish to `/arachne/default_joint_states`, GUI slider joints publish to `/arachne/gui_joint_states`, base wheel states publish to `/arachne/base/joint_states`, gripper states publish to `/arachne/gripper/joint_states`, and `joint_state_mux` is the only publisher of the unified `/joint_states` stream used by `robot_state_publisher`.
 
@@ -68,7 +68,7 @@ ros2 launch arachne_description display.launch.py \
   gripper_sim_profile:=ag95
 ```
 
-MS42DC uses user-created split finger meshes from `third_party/MS42DC_SPLIT`. The hinge axis is CAD Z with URDF axis `0 0 -1`, the right finger mimics the left with multiplier `-1.0`, and the default close target is `0.6 rad`.
+MS42DC uses user-created split finger meshes from `third_party/MS42DC_SPLIT`. The hinge axis is CAD Z with URDF axis `0 0 -1`, the right finger mimics the left with multiplier `-1.0`, and the default close target is `0.6 rad`. Gazebo disables the URDF mimic tag because the selected physics engine does not create mimic constraints; the demo instead sends explicit mirrored commands to the left and right finger position controllers.
 
 For manual slider inspection, launch:
 
@@ -111,11 +111,13 @@ The control layer should remain split by hardware device while sharing the unifi
 
 `src/arachne_demo` adds a Nintendo Switch Pro controller-driven demo path:
 
-- `switch_teleop.py`: maps `sensor_msgs/msg/Joy` to `/cmd_vel`, `/arachne/gui_joint_states`, and `/arachne/gripper/command`.
-- `camera_follow_controller.py`: maps the right stick to the Gazebo GUI follower camera, and also publishes `arachne_view_frame` for the RViz-only third-person view.
+- `switch_teleop.py`: maps `sensor_msgs/msg/Joy` to `/cmd_vel`, `/arachne/gui_joint_states`, and `/arachne/gripper/command`. In third-person mode it turns in place for strong side input and backs up for rearward input instead of always driving forward.
+- `camera_follow_controller.py`: maps the right stick to a robot-relative orbit angle, publishes `/arachne/camera_yaw`, and publishes `arachne_view_frame` for the RViz-only third-person view.
+- `src/arachne_gazebo/gazebo_camera_track_bridge.cpp`: converts the ROS camera offset topic to Gazebo `/gui/track` messages, avoiding repeated `gz service` subprocess calls.
+- `src/arachne_gazebo/gazebo_demo_control_bridge.cpp`: mirrors MS42DC open/close commands into two Gazebo finger controllers and forwards Aubo joint-state targets to Gazebo joint trajectory commands.
 - `web_gamepad_bridge.py`: serves a small local browser bridge for WSL2 or systems without `/dev/input/js*`.
 - `switch_rviz_demo.launch.py`: launches the normal RViz model with gripper/base simulation plus either `joy_node` or the web gamepad bridge.
-- `switch_gazebo_demo.launch.py`: opens the Gazebo showroom without RViz, spawns the robot, and enables the Gazebo follower camera plus diff-drive physics plugins.
+- `switch_gazebo_demo.launch.py`: opens the Gazebo showroom without RViz, spawns the robot with Gazebo-safe MS42DC and Scout wheel settings, bridges Gazebo `/gz/odom`, and enables the Gazebo follower camera plus diff-drive physics plugins.
 
 Run the playable Gazebo showroom demo:
 
@@ -131,7 +133,9 @@ INPUT_BACKEND=joy JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh
 INPUT_BACKEND=web ./scripts/switch_demo.sh
 ```
 
-With the web backend, open `http://127.0.0.1:8787` in the browser and press any Switch Pro button. The left stick moves the Scout relative to the current third-person camera direction; the right stick orbits the Gazebo follower camera; `B` / `A` open and close the gripper; `ZL` + D-pad up/down moves the selected Aubo joint.
+With the web backend, open `http://127.0.0.1:8787` in the browser and press any Switch Pro button. The left stick drives the Scout in its own body frame: vertical stick travel controls forward/back speed, horizontal travel controls turn speed, and pushing up moves toward the Aubo arm side. The right stick orbits the Gazebo follower camera. `B` / `A` open and close the gripper; `ZL` + D-pad up/down moves the selected Aubo joint.
+
+The Switch Pro web-bridge default uses `forward_axis_multiplier=-1.0`. If another controller reports left-stick Y in the opposite direction, run `FORWARD_AXIS_SIGN=1.0 ./scripts/switch_demo.sh`.
 
 The default camera distance is `2.0 m`; tune it with `GAZEBO_CAMERA_DISTANCE=1.7 ./scripts/switch_demo.sh` if a closer or wider capture is needed.
 
@@ -141,10 +145,4 @@ Run the lightweight RViz-only view:
 DEMO_MODE=rviz ./scripts/switch_demo.sh
 ```
 
-The first Gazebo pass focuses on promotional driving physics and real mesh visualization in a single Gazebo window. The base is driven through Gazebo DiffDrive with controller-relative third-person movement; the arm is held at the display pose in Gazebo and remains interactively controlled in RViz mode. Full arm physics control should be moved to ros2_control controllers later.
-
-Known follow-ups:
-
-- Improve Gazebo frame rate; the current showroom can feel choppy.
-- Rework the camera controller so the right-stick view behaves more like a normal third-person game camera.
-- Improve joystick interpretation and motion filtering; the current camera-relative drive can still feel imprecise or choose a direction that differs from the operator's intent.
+The current Gazebo pass focuses on promotional driving physics and real mesh visualization in a single Gazebo window. The world uses a lighter physics step, disabled shadows, a static ramp, Gazebo DiffDrive, Gazebo `/gz/odom`, high-rate `/gui/track` camera messages, a demo Aubo trajectory bridge, and explicit MS42DC finger position controllers. Full arm and gripper physics control should be moved to ros2_control controllers later.

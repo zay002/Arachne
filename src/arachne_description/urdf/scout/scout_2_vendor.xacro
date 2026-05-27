@@ -2,7 +2,7 @@
 
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
     <!-- Adapted from agilexrobotics/scout_ros2/scout_description/urdf/scout_v2.xacro. -->
-    <xacro:macro name="arachne_scout_2_vendor">
+    <xacro:macro name="arachne_scout_2_vendor" params="gazebo_drive_wheels:=false">
     <xacro:include filename="scout/scout_wheel_type1_vendor.xacro" />
     <xacro:include filename="scout/scout_wheel_type2_vendor.xacro" />
 
@@ -68,18 +68,35 @@
     <!-- Scout wheel macros -->
     <!-- wheel labeled from 0 to 3, conter-clockwise, starting from front right wheel -->
     <!-- motor 1 and 2 (left side) are mechanically installed in a reversed direction -->
-    <xacro:scout_wheel_type1 wheel_prefix="front_right">
-        <origin xyz="${wheelbase/2} ${-track/2} ${wheel_vertical_offset}" rpy="3.14 0 0" />
-    </xacro:scout_wheel_type1>
-    <xacro:scout_wheel_type2 wheel_prefix="front_left">
-        <origin xyz="${wheelbase/2} ${track/2} ${wheel_vertical_offset}" rpy="0 0 0" />
-    </xacro:scout_wheel_type2>
-    <xacro:scout_wheel_type1 wheel_prefix="rear_left">
-        <origin xyz="${-wheelbase/2} ${track/2} ${wheel_vertical_offset}" rpy="0 0 0" />
-    </xacro:scout_wheel_type1>
-    <xacro:scout_wheel_type2 wheel_prefix="rear_right">
-        <origin xyz="${-wheelbase/2} ${-track/2} ${wheel_vertical_offset}" rpy="3.14 0 0" />
-    </xacro:scout_wheel_type2>
+    <xacro:unless value="${gazebo_drive_wheels}">
+        <xacro:scout_wheel_type1 wheel_prefix="front_right">
+            <origin xyz="${wheelbase/2} ${-track/2} ${wheel_vertical_offset}" rpy="3.14 0 0" />
+        </xacro:scout_wheel_type1>
+        <xacro:scout_wheel_type2 wheel_prefix="front_left">
+            <origin xyz="${wheelbase/2} ${track/2} ${wheel_vertical_offset}" rpy="0 0 0" />
+        </xacro:scout_wheel_type2>
+        <xacro:scout_wheel_type1 wheel_prefix="rear_left">
+            <origin xyz="${-wheelbase/2} ${track/2} ${wheel_vertical_offset}" rpy="0 0 0" />
+        </xacro:scout_wheel_type1>
+        <xacro:scout_wheel_type2 wheel_prefix="rear_right">
+            <origin xyz="${-wheelbase/2} ${-track/2} ${wheel_vertical_offset}" rpy="3.14 0 0" />
+        </xacro:scout_wheel_type2>
+    </xacro:unless>
+
+    <xacro:if value="${gazebo_drive_wheels}">
+        <xacro:scout_wheel_type1 wheel_prefix="front_right" visual_rpy="3.14 0 0">
+            <origin xyz="${wheelbase/2} ${-track/2} ${wheel_vertical_offset}" rpy="0 0 0" />
+        </xacro:scout_wheel_type1>
+        <xacro:scout_wheel_type2 wheel_prefix="front_left">
+            <origin xyz="${wheelbase/2} ${track/2} ${wheel_vertical_offset}" rpy="0 0 0" />
+        </xacro:scout_wheel_type2>
+        <xacro:scout_wheel_type1 wheel_prefix="rear_left">
+            <origin xyz="${-wheelbase/2} ${track/2} ${wheel_vertical_offset}" rpy="0 0 0" />
+        </xacro:scout_wheel_type1>
+        <xacro:scout_wheel_type2 wheel_prefix="rear_right" visual_rpy="3.14 0 0">
+            <origin xyz="${-wheelbase/2} ${-track/2} ${wheel_vertical_offset}" rpy="0 0 0" />
+        </xacro:scout_wheel_type2>
+    </xacro:if>
 
     </xacro:macro>
 </robot>
