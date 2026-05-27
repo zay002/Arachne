@@ -21,7 +21,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `third_party/MS42DC.step`：MS42DC 原始 CAD。
 - `third_party/MS42DC_SPLIT/*.stl`：由项目作者手动拆分制作的 MS42DC 可动部件模型，用于真实开合可视化。
 
-上游大仓库不会上传到 git，包括 Aubo、Scout、AG95 的完整第三方仓库；它们由 `scripts/fetch_third_party.sh` 按固定 commit 下载。`build/`、`install/`、`log/` 和本地开发计划 `plan.md` 也不会上传。
+外部模型依赖由 `scripts/fetch_third_party.sh` 按固定版本恢复，保证新环境可以复现。`build/`、`install/` 和 `log/` 是 colcon 在本地构建时生成的标准输出目录。
 
 ## 当前状态
 

@@ -24,7 +24,7 @@ The current milestone is a reliable robot description and RViz demo: one connect
 - `docs/demo/model_compare.png`: current MS42DC and AG95 model showcase.
 - `third_party/MS42DC.step` and `third_party/MS42DC_SPLIT/*.stl`: source CAD and user-created movable split parts for the MS42DC gripper.
 
-Large upstream repositories under `third_party/` are intentionally ignored by git. They are restored with `scripts/fetch_third_party.sh` and pinned in that script for reproducible setup. Generated `build/`, `install/`, `log/`, and local planning notes such as `plan.md` are also ignored.
+External model dependencies are restored by `scripts/fetch_third_party.sh`, with pinned revisions for reproducible setup. `build/`, `install/`, and `log/` are standard colcon outputs generated during local builds.
 
 ## Current State
 
