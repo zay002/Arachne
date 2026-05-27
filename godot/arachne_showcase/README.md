@@ -1,6 +1,6 @@
 # Arachne Godot Showcase
 
-This is a Godot 4.x high-FPS third-person showcase for Arachne. It is tuned like a playable robot demo: smooth follow camera, proportional gamepad driving, an office-style initial map, collision-aware movement, pushable props, visual suspension, arm presets, gripper animation, and ROS2 bridge placeholders.
+This is a Godot 4.x high-FPS third-person showcase for Arachne. It is tuned like a playable robot demo: smooth follow camera, proportional gamepad driving, a larger flat office-style initial map, collision-aware movement, pushable props, visual suspension, arm presets, manual arm nudging, gripper animation, reproducibly scattered pickable bottles/balls, and ROS2 bridge placeholders.
 
 Gazebo remains the contact-accurate rehearsal backend. This frontend is the portfolio/gameplay layer, with enough physical feel for driving and obstacle interaction while keeping performance high.
 
@@ -11,6 +11,7 @@ From the repository root:
 ```bash
 ./scripts/install_godot4.sh   # optional if godot4 is already installed
 ./scripts/fetch_third_party.sh
+./scripts/fetch_godot_assets.sh   # optional CC0 office furniture props
 ./scripts/godot_showcase.sh
 ```
 
@@ -20,7 +21,7 @@ If Godot is installed under another name:
 GODOT_BIN=/path/to/Godot_v4.x ./scripts/godot_showcase.sh
 ```
 
-The launcher creates local links under `assets/vendor/` and generated GLB cache files under `assets/generated/` so Godot can import the existing Scout, Aubo i5, MS42DC, AG95, and prop meshes without copying bulky assets into this project.
+The launcher creates local links under `assets/vendor/` and generated GLB cache files under `assets/generated/` so Godot can import the existing Scout, Aubo i5, MS42DC, AG95, and prop meshes without copying bulky assets into this project. The robot visual meshes and mount transforms share the same source values as the URDF/Gazebo model; collision bodies are simplified for a responsive showcase.
 
 On WSL2, `scripts/godot_showcase.sh` automatically uses Mesa D3D12 OpenGL:
 
@@ -28,7 +29,7 @@ On WSL2, `scripts/godot_showcase.sh` automatically uses Mesa D3D12 OpenGL:
 GALLIUM_DRIVER=d3d12 MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA ./scripts/godot_showcase.sh
 ```
 
-This avoids Godot's Vulkan fallback to CPU `llvmpipe`. Native Linux keeps the default renderer unless overridden.
+This avoids Godot's Vulkan fallback to CPU `llvmpipe`. Native Linux keeps the default renderer unless overridden. On WSL2, the launcher also starts a browser Gamepad API bridge at `http://127.0.0.1:8790`, which is the recommended Switch Pro path when the controller is paired to Windows instead of Linux.
 
 Self-test the scene without opening a window:
 
@@ -42,8 +43,13 @@ Self-test the scene without opening a window:
 - `A/D` or left-stick X: proportional skid-steer turning.
 - `Q/E` or right stick: orbit the follow camera. If a controller reports a nonstandard axis, set `ARACHNE_CAMERA_AXIS=2` or the axis shown in the HUD.
 - `1` to `5`: arm presets `home`, `ready`, `reach`, `grasp`, `lift`.
-- `Space`: toggle gripper.
+- `H/K` or `LB/RB`: select the Aubo joint to nudge.
+- `U/J` or D-pad up/down: move the selected Aubo joint. The D-pad is ignored by base driving.
+- `Space`: toggle gripper. `C/A` closes it, `O/B` opens it.
+- Hold the right-stick button, press `P`, or click `Auto Pick` in the browser bridge: run the nearest-object demo. The current version finds a pickable target, drives near it with lightweight obstacle repulsion, interpolates an Aubo pick pose, closes the gripper, lifts, and returns home.
 - `R`: reset base, camera, arm, and gripper.
+
+The auto-pick path is a showcase algorithm placeholder, not a full MoveIt2 planner. It gives the portfolio demo a research workflow while keeping Godot dependency-free and responsive.
 
 ## ROS 2 Bridge Placeholder
 

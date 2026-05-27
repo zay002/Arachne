@@ -27,12 +27,27 @@ const MS42DC_LEFT_VISUAL_XYZ := -MS42DC_LEFT_PIVOT
 const MS42DC_RIGHT_VISUAL_XYZ := -MS42DC_RIGHT_PIVOT
 const ROS_TO_GODOT_BASIS := Basis(Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 1.0, 0.0))
 const SCOUT_WHEEL_RADIUS := 0.16459
-const SCOUT_TRACK_WIDTH := 0.583
+const SCOUT_TRACK_WIDTH := 0.58306
 const SCOUT_WHEEL_SPIN_AXIS := Vector3(0.0, 0.0, 1.0)
-const ARENA_LIMIT := 10.5
+const ARENA_LIMIT := 15.5
+const OFFICE_GROUND_SIZE := Vector3(34.0, 0.04, 28.0)
 const BODY_COLLISION_SIZE := Vector3(0.96, 0.34, 0.72)
 const BODY_COLLISION_CENTER := Vector3(0.0, 0.24, 0.0)
 const DEFAULT_CAMERA_AXIS := -1
+const GAMEPAD_BRIDGE_PORT_DEFAULT := 8791
+const WEB_GAMEPAD_TIMEOUT_MSEC := 1000
+const AUTO_PICK_HOLD_SECONDS := 0.75
+const AUTO_PICK_APPROACH_DISTANCE := 0.78
+const AUTO_PICK_REACHED_DISTANCE := 0.18
+const AUTO_PICK_REACHED_HEADING := 0.34
+const ARM_JOINT_LIMITS := [
+	[-3.05, 3.05],
+	[-2.20, 2.20],
+	[-2.65, 2.65],
+	[-3.05, 3.05],
+	[-2.20, 2.20],
+	[-3.05, 3.05],
+]
 
 @export var max_linear_speed := 2.05
 @export var max_angular_speed := 2.45
@@ -46,6 +61,7 @@ const DEFAULT_CAMERA_AXIS := -1
 @export var camera_orbit_speed := 2.8
 @export var camera_follow_rate := 14.0
 @export var joint_follow_rate := 6.0
+@export var manual_joint_rate := 0.72
 @export var gripper_follow_rate := 8.0
 @export var gripper_closed_position := 0.6
 @export var ground_clearance := 0.015
@@ -66,22 +82,43 @@ var previous_linear := 0.0
 var current_pose_name := "home"
 var current_joints := ARM_PRESETS["home"].duplicate()
 var target_joints := ARM_PRESETS["home"].duplicate()
+var selected_joint_index := 0
 var gripper_position := 0.0
 var gripper_target := 0.0
 var joint_nodes: Array[Node3D] = []
 var joint_rest_bases: Array[Basis] = []
 var wheel_nodes: Array[Dictionary] = []
+var pickable_objects: Array[RigidBody3D] = []
+var navigation_obstacles: Array[Dictionary] = []
 var left_finger_joint: Node3D
 var right_finger_joint: Node3D
+var arm_mount_node: Node3D
+var grasp_anchor: Node3D
 var status_label: Label
 var ros_bridge: Node
 var materials := {}
 var backend_label := "standalone"
 var visual_profile := "cinematic"
 var camera_axis_label := "auto"
+var gamepad_bridge_label := "native"
+var gamepad_udp: PacketPeerUDP
+var web_gamepad_connected := false
+var web_gamepad_axes: Array = []
+var web_gamepad_buttons: Array = []
+var web_gamepad_button_previous: Array = []
+var web_gamepad_button_edges: Array = []
+var web_gamepad_last_msec := 0
 var forced_drive_enabled := false
 var forced_drive_stick := Vector2.ZERO
 var self_test_mode := false
+var right_stick_hold_time := 0.0
+var right_stick_long_press_fired := false
+var auto_pick_state := "idle"
+var auto_pick_message := "idle"
+var auto_pick_timer := 0.0
+var auto_pick_target: RigidBody3D
+var auto_pick_nav_goal := Vector3.ZERO
+var held_pickable: RigidBody3D
 
 func _ready() -> void:
 	Engine.max_fps = 165
@@ -90,6 +127,7 @@ func _ready() -> void:
 	if visual_profile.is_empty():
 		visual_profile = "cinematic"
 	_configure_input_overrides()
+	_setup_gamepad_bridge()
 	_setup_materials()
 	_build_world()
 	_build_robot()
@@ -133,8 +171,113 @@ func _configure_input_overrides() -> void:
 		camera_axis_label = "auto"
 
 
+func _setup_gamepad_bridge() -> void:
+	var mode := OS.get_environment("ARACHNE_GODOT_GAMEPAD")
+	var requested_port := OS.get_environment("ARACHNE_GODOT_GAMEPAD_PORT")
+	if mode.is_empty() and requested_port.is_valid_int():
+		mode = "udp"
+	if mode != "udp":
+		return
+
+	var port := GAMEPAD_BRIDGE_PORT_DEFAULT
+	if requested_port.is_valid_int():
+		port = requested_port.to_int()
+	gamepad_udp = PacketPeerUDP.new()
+	var error := gamepad_udp.bind(port, "127.0.0.1")
+	if error != OK:
+		error = gamepad_udp.bind(port)
+	if error == OK:
+		gamepad_bridge_label = "web:%d" % port
+	else:
+		gamepad_udp = null
+		gamepad_bridge_label = "web bind failed"
+		push_warning("Could not bind Godot gamepad UDP bridge on port %d" % port)
+
+
+func _poll_gamepad_bridge() -> void:
+	if gamepad_udp == null:
+		return
+	while gamepad_udp.get_available_packet_count() > 0:
+		var packet := gamepad_udp.get_packet()
+		var parsed = JSON.parse_string(packet.get_string_from_utf8())
+		if typeof(parsed) != TYPE_DICTIONARY:
+			continue
+		_ingest_web_gamepad_packet(parsed)
+
+	if web_gamepad_connected and Time.get_ticks_msec() - web_gamepad_last_msec > WEB_GAMEPAD_TIMEOUT_MSEC:
+		web_gamepad_connected = false
+		web_gamepad_axes.clear()
+		web_gamepad_buttons.clear()
+		web_gamepad_button_previous.clear()
+		web_gamepad_button_edges.clear()
+
+
+func _ingest_web_gamepad_packet(packet: Dictionary) -> void:
+	web_gamepad_connected = true
+	web_gamepad_last_msec = Time.get_ticks_msec()
+	if packet.has("axes") and typeof(packet["axes"]) == TYPE_ARRAY:
+		web_gamepad_axes = packet["axes"].duplicate()
+	if packet.has("buttons") and typeof(packet["buttons"]) == TYPE_ARRAY:
+		_set_web_gamepad_buttons(packet["buttons"])
+	var action := str(packet.get("action", ""))
+	if not action.is_empty():
+		_handle_web_gamepad_action(action)
+
+
+func _set_web_gamepad_buttons(buttons: Array) -> void:
+	web_gamepad_button_previous = web_gamepad_buttons.duplicate()
+	web_gamepad_buttons = buttons.duplicate()
+	web_gamepad_button_edges.clear()
+	for i in range(web_gamepad_buttons.size()):
+		var previous := _web_button_value_from_array(web_gamepad_button_previous, i)
+		var current := _web_button_value_from_array(web_gamepad_buttons, i)
+		web_gamepad_button_edges.append(current > 0.5 and previous <= 0.5)
+
+
+func _handle_web_gamepad_action(action: String) -> void:
+	match action:
+		"reset":
+			_reset_demo()
+		"open":
+			_set_gripper(false)
+		"close":
+			_set_gripper(true)
+		"auto_pick":
+			_start_auto_pick()
+		"home", "ready", "reach", "grasp", "lift":
+			_select_pose(action)
+
+
+func _handle_web_gamepad_edge_actions() -> void:
+	if not web_gamepad_connected:
+		return
+	if _web_button_just_pressed(0):
+		_set_gripper(false)
+	if _web_button_just_pressed(1):
+		_select_pose("grasp")
+		_set_gripper(true)
+	if _web_button_just_pressed(2):
+		_select_pose("lift")
+	if _web_button_just_pressed(3):
+		_select_pose("ready")
+	if _web_button_just_pressed(4):
+		_select_previous_joint()
+	if _web_button_just_pressed(5):
+		_select_next_joint()
+	if _web_button_just_pressed(9):
+		_reset_demo()
+	for i in range(web_gamepad_button_edges.size()):
+		web_gamepad_button_edges[i] = false
+
+
 func _physics_process(delta: float) -> void:
+	_poll_gamepad_bridge()
+	_handle_web_gamepad_edge_actions()
+	_update_auto_pick_trigger(delta)
+	_update_auto_pick(delta)
 	_update_base(delta)
+	if auto_pick_state == "idle":
+		_update_manual_arm(delta)
 	_update_arm(delta)
 	_update_gripper(delta)
 	_update_camera(delta)
@@ -163,6 +306,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				_set_gripper(true)
 			KEY_R:
 				_reset_demo()
+			KEY_P:
+				_start_auto_pick()
+			KEY_H:
+				_select_previous_joint()
+			KEY_K:
+				_select_next_joint()
 	if event is InputEventJoypadButton and event.pressed:
 		match event.button_index:
 			JOY_BUTTON_A:
@@ -176,6 +325,16 @@ func _unhandled_input(event: InputEvent) -> void:
 				_select_pose("lift")
 			JOY_BUTTON_START:
 				_reset_demo()
+			JOY_BUTTON_RIGHT_STICK:
+				pass
+			JOY_BUTTON_LEFT_SHOULDER:
+				_select_previous_joint()
+			JOY_BUTTON_RIGHT_SHOULDER:
+				_select_next_joint()
+			JOY_BUTTON_DPAD_LEFT:
+				_set_gripper(false)
+			JOY_BUTTON_DPAD_RIGHT:
+				_set_gripper(true)
 
 
 func _setup_materials() -> void:
@@ -183,8 +342,8 @@ func _setup_materials() -> void:
 	materials["body_clearcoat"] = _material(Color(0.18, 0.19, 0.18), 0.58, 0.04)
 	materials["dark"] = _material(Color(0.015, 0.017, 0.020), 0.82, 0.0)
 	materials["tire"] = _material(Color(0.012, 0.012, 0.013), 0.94, 0.0)
-	materials["arm"] = _material(Color(0.88, 0.90, 0.88), 0.48, 0.0)
-	materials["arm_joint"] = _material(Color(0.18, 0.20, 0.22), 0.55, 0.08)
+	materials["arm"] = _material(Color(1.0, 0.48, 0.08), 0.42, 0.0)
+	materials["arm_joint"] = _material(Color(0.025, 0.028, 0.032), 0.66, 0.06)
 	materials["accent"] = _material(Color(1.0, 0.60, 0.10), 0.38, 0.0)
 	materials["accent_blue"] = _material(Color(0.10, 0.48, 0.70), 0.42, 0.0)
 	materials["ground"] = _material(Color(0.34, 0.38, 0.35), 0.88, 0.0)
@@ -197,6 +356,11 @@ func _setup_materials() -> void:
 	materials["carpet"] = _material(Color(0.20, 0.25, 0.27), 0.88, 0.0)
 	materials["zone"] = _material(Color(0.16, 0.42, 0.58, 0.35), 0.7, 0.0)
 	materials["line"] = _material(Color(0.92, 0.86, 0.62), 0.78, 0.0)
+	materials["bottle"] = _material(Color(0.24, 0.66, 0.92, 0.82), 0.30, 0.0)
+	materials["bottle_cap"] = _material(Color(0.05, 0.11, 0.16), 0.44, 0.0)
+	materials["ball_red"] = _material(Color(0.88, 0.12, 0.10), 0.52, 0.0)
+	materials["ball_yellow"] = _material(Color(0.95, 0.72, 0.12), 0.50, 0.0)
+	materials["ball_blue"] = _material(Color(0.14, 0.35, 0.88), 0.48, 0.0)
 
 
 func _build_world() -> void:
@@ -258,7 +422,7 @@ func _build_world() -> void:
 	var ground := MeshInstance3D.new()
 	ground.name = "PaintedConcrete"
 	var ground_mesh := BoxMesh.new()
-	ground_mesh.size = Vector3(24.0, 0.04, 24.0)
+	ground_mesh.size = OFFICE_GROUND_SIZE
 	ground.mesh = ground_mesh
 	ground.position = Vector3(0.0, -0.02, 0.0)
 	ground.material_override = materials["ground"]
@@ -364,13 +528,14 @@ func _build_aubo_visual() -> void:
 	arm_mount.position = _ros_vec(Vector3(0.22, 0.0, 0.155))
 	arm_mount.basis = _ros_rpy_basis(Vector3(0.0, 0.0, PI * 0.5))
 	visual_root.add_child(arm_mount)
+	arm_mount_node = arm_mount
 
-	var link0 := _load_visual(["res://assets/generated/aubo_i5/link0.glb", "res://assets/vendor/aubo_i5/link0.DAE"], _cylinder_mesh(0.10, 0.08), materials["arm"], Vector3.ONE)
+	var link0 := _load_visual(["res://assets/generated/aubo_i5/link0.glb", "res://assets/vendor/aubo_i5/link0.DAE"], _cylinder_mesh(0.10, 0.08), materials["arm_joint"], Vector3.ONE)
 	link0.name = "aubo_base_link"
 	arm_mount.add_child(link0)
 
 	var shoulder := _make_joint("aubo_shoulder_joint", Vector3(0.0, 0.0, 0.122), Vector3(0.0, 0.0, PI), arm_mount)
-	var link1 := _load_visual(["res://assets/generated/aubo_i5/link1.glb", "res://assets/vendor/aubo_i5/link1.DAE"], _cylinder_mesh(0.10, 0.13), materials["arm"], Vector3.ONE)
+	var link1 := _load_visual(["res://assets/generated/aubo_i5/link1.glb", "res://assets/vendor/aubo_i5/link1.DAE"], _cylinder_mesh(0.10, 0.13), materials["arm_joint"], Vector3.ONE)
 	link1.name = "aubo_shoulder_Link"
 	shoulder.add_child(link1)
 
@@ -385,17 +550,17 @@ func _build_aubo_visual() -> void:
 	fore.add_child(link3)
 
 	var wrist1 := _make_joint("aubo_wrist1_joint", Vector3(0.376, 0.0, 0.0), Vector3(PI, 0.0, PI * 0.5), fore)
-	var link4 := _load_visual(["res://assets/generated/aubo_i5/link4.glb", "res://assets/vendor/aubo_i5/link4.DAE"], _cylinder_mesh(0.065, 0.08), materials["arm"], Vector3.ONE)
+	var link4 := _load_visual(["res://assets/generated/aubo_i5/link4.glb", "res://assets/vendor/aubo_i5/link4.DAE"], _cylinder_mesh(0.065, 0.08), materials["arm_joint"], Vector3.ONE)
 	link4.name = "aubo_wrist1_Link"
 	wrist1.add_child(link4)
 
 	var wrist2 := _make_joint("aubo_wrist2_joint", Vector3(0.0, 0.1025, 0.0), Vector3(-PI * 0.5, 0.0, 0.0), wrist1)
-	var link5 := _load_visual(["res://assets/generated/aubo_i5/link5.glb", "res://assets/vendor/aubo_i5/link5.DAE"], _cylinder_mesh(0.06, 0.08), materials["arm"], Vector3.ONE)
+	var link5 := _load_visual(["res://assets/generated/aubo_i5/link5.glb", "res://assets/vendor/aubo_i5/link5.DAE"], _cylinder_mesh(0.06, 0.08), materials["arm_joint"], Vector3.ONE)
 	link5.name = "aubo_wrist2_Link"
 	wrist2.add_child(link5)
 
 	var wrist3 := _make_joint("aubo_wrist3_joint", Vector3(0.0, -0.094, 0.0), Vector3(PI * 0.5, 0.0, 0.0), wrist2)
-	var link6 := _load_visual(["res://assets/generated/aubo_i5/link6.glb", "res://assets/vendor/aubo_i5/link6.DAE"], _cylinder_mesh(0.055, 0.08), materials["arm"], Vector3.ONE)
+	var link6 := _load_visual(["res://assets/generated/aubo_i5/link6.glb", "res://assets/vendor/aubo_i5/link6.DAE"], _cylinder_mesh(0.055, 0.08), materials["arm_joint"], Vector3.ONE)
 	link6.name = "aubo_wrist3_Link"
 	wrist3.add_child(link6)
 
@@ -407,6 +572,10 @@ func _build_aubo_visual() -> void:
 	var gripper_adapter := Node3D.new()
 	gripper_adapter.name = "gripper_adapter_link"
 	tool0.add_child(gripper_adapter)
+	grasp_anchor = Node3D.new()
+	grasp_anchor.name = "grasp_anchor"
+	grasp_anchor.position = _ros_vec(Vector3(0.0, 0.0, 0.165))
+	gripper_adapter.add_child(grasp_anchor)
 	var adapter_visual := MeshInstance3D.new()
 	adapter_visual.name = "gripper_adapter_visual"
 	var adapter_mesh := CylinderMesh.new()
@@ -499,8 +668,8 @@ func _build_hud() -> void:
 	panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	panel.offset_left = 16
 	panel.offset_top = 16
-	panel.offset_right = 410
-	panel.offset_bottom = 124
+	panel.offset_right = 560
+	panel.offset_bottom = 136
 	layer.add_child(panel)
 
 	status_label = Label.new()
@@ -512,11 +681,11 @@ func _build_hud() -> void:
 
 func _add_grid_lines() -> void:
 	var line_material := _material(Color(0.78, 0.82, 0.80, 0.30), 1.0, 0.0)
-	for i in range(-12, 13):
-		var x_line := _box_visual("grid_x_%d" % i, Vector3(24.0, 0.004, 0.010), line_material)
+	for i in range(-16, 17):
+		var x_line := _box_visual("grid_x_%d" % i, Vector3(32.0, 0.004, 0.010), line_material)
 		x_line.position = Vector3(0.0, 0.003, float(i))
 		add_child(x_line)
-		var z_line := _box_visual("grid_z_%d" % i, Vector3(0.010, 0.004, 24.0), line_material)
+		var z_line := _box_visual("grid_z_%d" % i, Vector3(0.010, 0.004, 26.0), line_material)
 		z_line.position = Vector3(float(i), 0.004, 0.0)
 		add_child(z_line)
 
@@ -525,52 +694,64 @@ func _add_office_map() -> void:
 	_add_office_floor_plan()
 	_add_office_furniture()
 	_add_office_training_props()
+	_spawn_pickable_objects()
 
 
 func _add_office_floor_plan() -> void:
-	var reception_carpet := _box_visual("OfficeReceptionCarpet", Vector3(4.2, 0.006, 2.8), materials["carpet"])
-	reception_carpet.position = Vector3(-2.6, 0.006, 1.9)
+	var reception_carpet := _box_visual("OfficeReceptionCarpet", Vector3(5.6, 0.006, 3.5), materials["carpet"])
+	reception_carpet.position = Vector3(-5.4, 0.006, 4.7)
 	add_child(reception_carpet)
 
-	var lab_zone := _box_visual("RobotLabZonePaint", Vector3(3.7, 0.006, 2.6), materials["zone"])
-	lab_zone.position = Vector3(2.7, 0.008, -1.8)
+	var lab_zone := _box_visual("RobotLabZonePaint", Vector3(5.8, 0.006, 3.6), materials["zone"])
+	lab_zone.position = Vector3(5.5, 0.008, -4.9)
 	add_child(lab_zone)
 
-	var center_lane := _box_visual("OfficeNavigationLane", Vector3(8.8, 0.007, 0.14), materials["line"])
+	var center_lane := _box_visual("OfficeNavigationLane", Vector3(18.5, 0.007, 0.14), materials["line"])
 	center_lane.position = Vector3(0.0, 0.010, -0.2)
 	add_child(center_lane)
 
-	_add_obstacle_box("OfficeWallNorthA", Vector3(5.0, 1.55, 0.14), Vector3(-3.4, 0.775, -4.15), materials["wall"])
-	_add_obstacle_box("OfficeWallNorthB", Vector3(4.2, 1.55, 0.14), Vector3(3.8, 0.775, -4.15), materials["wall"])
-	_add_obstacle_box("OfficeWallSouthA", Vector3(5.4, 1.55, 0.14), Vector3(-3.0, 0.775, 4.15), materials["wall"])
-	_add_obstacle_box("OfficeWallSouthB", Vector3(3.4, 1.55, 0.14), Vector3(4.3, 0.775, 4.15), materials["wall"])
-	_add_obstacle_box("OfficeWallWest", Vector3(0.14, 1.55, 8.3), Vector3(-6.0, 0.775, 0.0), materials["wall"])
-	_add_obstacle_box("OfficeWallEastA", Vector3(0.14, 1.55, 3.3), Vector3(6.0, 0.775, -2.45), materials["wall"])
-	_add_obstacle_box("OfficeWallEastB", Vector3(0.14, 1.55, 3.1), Vector3(6.0, 0.775, 2.55), materials["wall"])
+	_add_obstacle_box("OfficeWallNorthA", Vector3(8.0, 1.55, 0.14), Vector3(-6.5, 0.775, -7.4), materials["wall"])
+	_add_obstacle_box("OfficeWallNorthB", Vector3(7.0, 1.55, 0.14), Vector3(6.8, 0.775, -7.4), materials["wall"])
+	_add_obstacle_box("OfficeWallSouthA", Vector3(8.6, 1.55, 0.14), Vector3(-6.2, 0.775, 7.4), materials["wall"])
+	_add_obstacle_box("OfficeWallSouthB", Vector3(6.8, 1.55, 0.14), Vector3(7.1, 0.775, 7.4), materials["wall"])
+	_add_obstacle_box("OfficeWallWest", Vector3(0.14, 1.55, 14.8), Vector3(-11.0, 0.775, 0.0), materials["wall"])
+	_add_obstacle_box("OfficeWallEastA", Vector3(0.14, 1.55, 5.3), Vector3(11.0, 0.775, -4.25), materials["wall"])
+	_add_obstacle_box("OfficeWallEastB", Vector3(0.14, 1.55, 5.1), Vector3(11.0, 0.775, 4.35), materials["wall"])
 
-	_add_obstacle_box("GlassMeetingRoomWall", Vector3(0.08, 1.25, 3.1), Vector3(-0.7, 0.625, 2.2), materials["glass"])
-	_add_obstacle_box("GlassMeetingRoomFront", Vector3(3.2, 1.25, 0.08), Vector3(-2.25, 0.625, 0.65), materials["glass"])
-	_add_obstacle_box("LabDividerWall", Vector3(0.10, 1.20, 3.2), Vector3(1.05, 0.60, -2.45), materials["glass"])
+	_add_obstacle_box("GlassMeetingRoomWall", Vector3(0.08, 1.25, 4.3), Vector3(-2.1, 0.625, 4.8), materials["glass"])
+	_add_obstacle_box("GlassMeetingRoomFront", Vector3(4.6, 1.25, 0.08), Vector3(-4.4, 0.625, 2.65), materials["glass"])
+	_add_obstacle_box("LabDividerWall", Vector3(0.10, 1.20, 4.8), Vector3(2.4, 0.60, -4.9), materials["glass"])
+	_add_obstacle_box("OpenOfficeDivider", Vector3(4.2, 1.20, 0.08), Vector3(5.7, 0.60, 1.65), materials["glass"])
 
 
 func _add_office_furniture() -> void:
-	_add_desk("DeskA", Vector3(-4.25, 0.75, -2.9), 0.0)
-	_add_desk("DeskB", Vector3(-4.25, 0.75, -1.55), 0.0)
-	_add_desk("DeskC", Vector3(3.35, 0.75, 2.65), PI)
-	_add_desk("DeskD", Vector3(4.85, 0.75, 2.65), PI)
+	_add_desk("DeskA", Vector3(-8.2, 0.75, -5.4), 0.0)
+	_add_desk("DeskB", Vector3(-8.2, 0.75, -3.6), 0.0)
+	_add_desk("DeskC", Vector3(-8.2, 0.75, -1.8), 0.0)
+	_add_desk("DeskD", Vector3(6.2, 0.75, 3.3), PI)
+	_add_desk("DeskE", Vector3(8.0, 0.75, 3.3), PI)
+	_add_desk("DeskF", Vector3(8.0, 0.75, 5.0), PI)
 
-	_add_obstacle_box("MeetingTable", Vector3(1.65, 0.16, 0.84), Vector3(-3.15, 0.52, 2.35), materials["desk"])
-	_add_obstacle_box("MeetingTableBase", Vector3(0.26, 0.70, 0.22), Vector3(-3.15, 0.35, 2.35), materials["dark"])
+	if not _add_asset_prop("MeetingTableAsset", "table", Vector3(-6.1, 0.0, 5.0), PI * 0.5, Vector3(2.25, 2.25, 2.25), Vector3(2.25, 0.76, 1.15), Vector3(0.0, 0.38, 0.0)):
+		_add_obstacle_box("MeetingTable", Vector3(2.25, 0.16, 1.15), Vector3(-6.1, 0.52, 5.0), materials["desk"])
+		_add_obstacle_box("MeetingTableBase", Vector3(0.34, 0.70, 0.26), Vector3(-6.1, 0.35, 5.0), materials["dark"])
 	for i in range(4):
-		_add_obstacle_box("MeetingChair_%d" % i, Vector3(0.38, 0.58, 0.38), Vector3(-3.95 + i * 0.52, 0.29, 1.55), materials["obstacle"])
+		_add_asset_prop("MeetingChair_%d" % i, "chair", Vector3(-7.0 + i * 0.58, 0.0, 3.95), 0.0, Vector3(1.6, 1.6, 1.6), Vector3(0.45, 0.65, 0.45), Vector3(0.0, 0.325, 0.0))
 
-	_add_obstacle_box("LabWorkbench", Vector3(1.75, 0.20, 0.74), Vector3(3.55, 0.58, -3.15), materials["desk"])
-	_add_obstacle_box("LabCabinetA", Vector3(0.74, 1.05, 0.42), Vector3(5.20, 0.525, -3.15), materials["obstacle"])
-	_add_obstacle_box("ShelfA", Vector3(0.52, 1.28, 1.45), Vector3(-5.35, 0.64, 2.80), materials["obstacle"])
-	_add_obstacle_box("ChargingDock", Vector3(0.78, 0.12, 0.58), Vector3(4.85, 0.06, -0.95), materials["dark"])
+	_add_obstacle_box("LabWorkbench", Vector3(2.25, 0.20, 0.84), Vector3(6.05, 0.58, -6.05), materials["desk"])
+	_add_asset_prop("LabCabinetA", "bookcaseClosedWide", Vector3(9.15, 0.0, -6.05), PI * 0.5, Vector3(1.75, 1.75, 1.75), Vector3(0.70, 1.45, 1.45), Vector3(0.0, 0.725, 0.0))
+	_add_asset_prop("ShelfA", "bookcaseOpen", Vector3(-10.35, 0.0, 4.15), PI * 0.5, Vector3(1.7, 1.7, 1.7), Vector3(0.58, 1.40, 1.30), Vector3(0.0, 0.70, 0.0))
+	_add_asset_prop("PlantA", "pottedPlant", Vector3(-9.9, 0.0, 6.55), 0.0, Vector3(1.35, 1.35, 1.35), Vector3(0.46, 0.90, 0.46), Vector3(0.0, 0.45, 0.0))
+	_add_asset_prop("LoungeSofa", "loungeSofa", Vector3(-3.6, 0.0, 6.25), PI, Vector3(1.85, 1.85, 1.85), Vector3(1.45, 0.82, 0.72), Vector3(0.0, 0.41, 0.0))
+	_add_obstacle_box("ChargingDock", Vector3(0.78, 0.12, 0.58), Vector3(8.75, 0.06, -1.25), materials["dark"])
 
 
 func _add_desk(name: String, position: Vector3, yaw: float) -> void:
+	if _add_asset_prop("%s_asset_desk" % name, "desk", Vector3(position.x, 0.0, position.z), yaw, Vector3(1.65, 1.65, 1.65), Vector3(1.25, 0.75, 0.70), Vector3(0.0, 0.375, 0.0)):
+		var chair_offset := Basis(Vector3.UP, yaw) * Vector3(0.0, 0.0, 0.92)
+		_add_asset_prop("%s_asset_chair" % name, "chairDesk", Vector3(position.x, 0.0, position.z) + chair_offset, yaw + PI, Vector3(1.55, 1.55, 1.55), Vector3(0.50, 0.72, 0.50), Vector3(0.0, 0.36, 0.0))
+		return
+
 	var desk := StaticBody3D.new()
 	desk.name = name
 	desk.position = position
@@ -604,13 +785,117 @@ func _add_desk(name: String, position: Vector3, yaw: float) -> void:
 
 
 func _add_office_training_props() -> void:
-	_add_obstacle_cylinder("OfficeMarkerA", 0.16, 0.40, Vector3(1.75, 0.20, 0.95), materials["accent"])
-	_add_obstacle_cylinder("OfficeMarkerB", 0.14, 0.36, Vector3(3.95, 0.18, -1.55), materials["obstacle"])
-	_add_obstacle_box("SpeedBumpOfficeA", Vector3(2.8, 0.07, 0.20), Vector3(2.4, 0.035, -0.35), materials["asphalt_dark"])
-	_add_obstacle_box("LowOfficeRamp", Vector3(1.20, 0.14, 0.92), Vector3(4.25, 0.07, 0.50), materials["asphalt_dark"])
+	_add_obstacle_cylinder("OfficeMarkerA", 0.16, 0.40, Vector3(1.75, 0.20, 1.15), materials["accent"])
+	_add_obstacle_cylinder("OfficeMarkerB", 0.14, 0.36, Vector3(5.55, 0.18, -2.35), materials["obstacle"])
 
-	for i in range(5):
-		_add_pushable_box("OfficePushCrate_%d" % i, Vector3(0.28, 0.24, 0.28), Vector3(-0.35 + i * 0.32, 0.16, -2.75), materials["crate"])
+	for i in range(8):
+		_add_pushable_box("OfficePushCrate_%d" % i, Vector3(0.28, 0.24, 0.28), Vector3(-1.2 + i * 0.32, 0.16, -3.25), materials["crate"])
+
+
+func _spawn_pickable_objects() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 424242
+	var anchor_positions: Array[Vector3] = [
+		Vector3(2.15, 0.0, 1.35),
+		Vector3(3.70, 0.0, -1.25),
+		Vector3(-1.85, 0.0, 2.10),
+		Vector3(5.20, 0.0, 0.85),
+		Vector3(-3.40, 0.0, -1.25),
+		Vector3(1.20, 0.0, -3.90),
+		Vector3(7.10, 0.0, -2.05),
+	]
+	for i in range(anchor_positions.size()):
+		var jitter := Vector3(rng.randf_range(-0.35, 0.35), 0.0, rng.randf_range(-0.30, 0.30))
+		var position: Vector3 = anchor_positions[i] + jitter
+		if i % 3 == 0:
+			_add_pickable_bottle("pickable_bottle_%d" % i, position)
+		else:
+			var material_name: String = "ball_red"
+			if i % 3 == 1:
+				material_name = "ball_yellow"
+			elif i % 3 == 2:
+				material_name = "ball_blue"
+			_add_pickable_ball("pickable_ball_%d" % i, position, material_name)
+
+
+func _add_pickable_ball(name: String, ground_position: Vector3, material_name: String) -> RigidBody3D:
+	var radius := 0.105
+	var body := RigidBody3D.new()
+	body.name = name
+	body.position = ground_position + Vector3(0.0, radius + 0.02, 0.0)
+	body.mass = 0.12
+	body.linear_damp = 2.2
+	body.angular_damp = 2.8
+	body.set_meta("pickable", true)
+	add_child(body)
+
+	var visual := MeshInstance3D.new()
+	var mesh := SphereMesh.new()
+	mesh.radius = radius
+	mesh.height = radius * 2.0
+	visual.mesh = mesh
+	visual.material_override = materials[material_name]
+	body.add_child(visual)
+
+	var shape := CollisionShape3D.new()
+	var sphere := SphereShape3D.new()
+	sphere.radius = radius
+	shape.shape = sphere
+	body.add_child(shape)
+	pickable_objects.append(body)
+	return body
+
+
+func _add_pickable_bottle(name: String, ground_position: Vector3) -> RigidBody3D:
+	var body := RigidBody3D.new()
+	body.name = name
+	body.position = ground_position + Vector3(0.0, 0.15, 0.0)
+	body.mass = 0.16
+	body.linear_damp = 2.6
+	body.angular_damp = 3.0
+	body.set_meta("pickable", true)
+	add_child(body)
+
+	var bottle := MeshInstance3D.new()
+	var bottle_mesh := CylinderMesh.new()
+	bottle_mesh.top_radius = 0.055
+	bottle_mesh.bottom_radius = 0.065
+	bottle_mesh.height = 0.24
+	bottle_mesh.radial_segments = 28
+	bottle.mesh = bottle_mesh
+	bottle.material_override = materials["bottle"]
+	body.add_child(bottle)
+
+	var neck := MeshInstance3D.new()
+	var neck_mesh := CylinderMesh.new()
+	neck_mesh.top_radius = 0.030
+	neck_mesh.bottom_radius = 0.038
+	neck_mesh.height = 0.075
+	neck_mesh.radial_segments = 24
+	neck.mesh = neck_mesh
+	neck.position.y = 0.155
+	neck.material_override = materials["bottle"]
+	body.add_child(neck)
+
+	var cap := MeshInstance3D.new()
+	var cap_mesh := CylinderMesh.new()
+	cap_mesh.top_radius = 0.032
+	cap_mesh.bottom_radius = 0.032
+	cap_mesh.height = 0.030
+	cap_mesh.radial_segments = 24
+	cap.mesh = cap_mesh
+	cap.position.y = 0.210
+	cap.material_override = materials["bottle_cap"]
+	body.add_child(cap)
+
+	var shape := CollisionShape3D.new()
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = 0.065
+	capsule.height = 0.30
+	shape.shape = capsule
+	body.add_child(shape)
+	pickable_objects.append(body)
+	return body
 
 
 func _add_course_markings() -> void:
@@ -642,9 +927,6 @@ func _add_obstacles() -> void:
 	_add_obstacle_box("PalletB", Vector3(0.72, 0.25, 1.0), Vector3(-2.1, 0.125, 1.15))
 	_add_obstacle_cylinder("MarkerA", 0.18, 0.45, Vector3(1.4, 0.225, 1.55), materials["accent"])
 	_add_obstacle_cylinder("MarkerB", 0.15, 0.35, Vector3(-1.1, 0.175, -1.65), materials["obstacle"])
-	_add_obstacle_box("SpeedBumpA", Vector3(3.4, 0.08, 0.22), Vector3(0.2, 0.04, -3.35), materials["asphalt_dark"])
-	_add_obstacle_box("SpeedBumpB", Vector3(2.8, 0.07, 0.20), Vector3(-2.6, 0.035, 3.05), materials["asphalt_dark"])
-	_add_obstacle_box("LowRamp", Vector3(1.35, 0.16, 1.05), Vector3(3.25, 0.08, 2.45), materials["asphalt_dark"])
 
 	for i in range(4):
 		_add_pushable_box("PushCrate_%d" % i, Vector3(0.28, 0.24, 0.28), Vector3(-0.8 + i * 0.34, 0.14, 2.2), materials["crate"])
@@ -665,6 +947,7 @@ func _add_obstacle_box(name: String, size: Vector3, position: Vector3, material:
 	box.size = size
 	shape.shape = box
 	obstacle.add_child(shape)
+	_register_navigation_obstacle(name, position, max(size.x, size.z) * 0.5 + 0.22)
 
 
 func _add_obstacle_cylinder(name: String, radius: float, height: float, position: Vector3, material: Material) -> void:
@@ -688,6 +971,32 @@ func _add_obstacle_cylinder(name: String, radius: float, height: float, position
 	cylinder.height = height
 	shape.shape = cylinder
 	obstacle.add_child(shape)
+	_register_navigation_obstacle(name, position, radius + 0.34)
+
+
+func _add_asset_prop(name: String, asset_name: String, position: Vector3, yaw: float, local_scale: Vector3, collision_size: Vector3, collision_center: Vector3) -> bool:
+	var path := "res://assets/generated/kenney/%s.glb" % asset_name
+	if not ResourceLoader.exists(path):
+		return false
+
+	var prop := StaticBody3D.new()
+	prop.name = name
+	prop.position = position
+	prop.rotation.y = yaw
+	add_child(prop)
+
+	var visual := _load_visual([path], _box_mesh(collision_size), materials["obstacle"], local_scale, false)
+	visual.name = "%s_visual" % name
+	prop.add_child(visual)
+
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = collision_size
+	shape.shape = box
+	shape.position = collision_center
+	prop.add_child(shape)
+	_register_navigation_obstacle(name, position + collision_center, max(collision_size.x, collision_size.z) * 0.5 + 0.28)
+	return true
 
 
 func _add_pushable_box(name: String, size: Vector3, position: Vector3, material: Material) -> void:
@@ -707,20 +1016,256 @@ func _add_pushable_box(name: String, size: Vector3, position: Vector3, material:
 	box.size = size
 	shape.shape = box
 	body.add_child(shape)
+	_register_navigation_obstacle(name, position, max(size.x, size.z) * 0.5 + 0.30)
+
+
+func _register_navigation_obstacle(name: String, position: Vector3, radius: float) -> void:
+	if radius > 2.4:
+		return
+	navigation_obstacles.append({
+		"name": name,
+		"position": position,
+		"radius": radius,
+	})
+
+
+func _update_auto_pick_trigger(delta: float) -> void:
+	var pressed := _right_stick_button_pressed()
+	if pressed:
+		right_stick_hold_time += delta
+		if right_stick_hold_time >= AUTO_PICK_HOLD_SECONDS and not right_stick_long_press_fired:
+			right_stick_long_press_fired = true
+			_start_auto_pick()
+	else:
+		right_stick_hold_time = 0.0
+		right_stick_long_press_fired = false
+
+
+func _right_stick_button_pressed() -> bool:
+	var joypads := Input.get_connected_joypads()
+	if not joypads.is_empty() and Input.is_joy_button_pressed(int(joypads[0]), JOY_BUTTON_RIGHT_STICK):
+		return true
+	return web_gamepad_connected and _web_button_pressed(11)
+
+
+func _start_auto_pick() -> void:
+	if auto_pick_state != "idle":
+		return
+	auto_pick_target = _find_nearest_pickable()
+	if auto_pick_target == null:
+		auto_pick_message = "no pickable target"
+		return
+	auto_pick_nav_goal = _approach_goal_for_pickable(auto_pick_target)
+	auto_pick_state = "navigate"
+	auto_pick_timer = 0.0
+	auto_pick_message = "target: %s" % auto_pick_target.name
+	_set_gripper(false)
+
+
+func _find_nearest_pickable() -> RigidBody3D:
+	var best: RigidBody3D = null
+	var best_distance := INF
+	for pickable in pickable_objects:
+		if pickable == null or not is_instance_valid(pickable):
+			continue
+		if bool(pickable.get_meta("held", false)):
+			continue
+		var distance := robot_root.global_position.distance_to(pickable.global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best = pickable
+	return best
+
+
+func _approach_goal_for_pickable(pickable: RigidBody3D) -> Vector3:
+	var target := pickable.global_position
+	var from_robot := target - robot_root.global_position
+	from_robot.y = 0.0
+	if from_robot.length_squared() < 0.01:
+		from_robot = robot_root.global_transform.basis.x
+	var approach := from_robot.normalized()
+	var goal := target - approach * AUTO_PICK_APPROACH_DISTANCE
+	goal.y = robot_ground_y
+	goal.x = clamp(goal.x, -ARENA_LIMIT, ARENA_LIMIT)
+	goal.z = clamp(goal.z, -ARENA_LIMIT, ARENA_LIMIT)
+	return goal
+
+
+func _update_auto_pick(delta: float) -> void:
+	if auto_pick_state == "idle":
+		return
+	auto_pick_timer += delta
+	if auto_pick_target == null or not is_instance_valid(auto_pick_target):
+		_finish_auto_pick("target lost")
+		return
+
+	match auto_pick_state:
+		"navigate":
+			auto_pick_message = "navigating to %s" % auto_pick_target.name
+			if _auto_pick_navigation_reached() or auto_pick_timer > 8.0:
+				target_linear = 0.0
+				target_angular = 0.0
+				current_linear = 0.0
+				current_angular = 0.0
+				target_joints = _solve_aubo_pick_pose(auto_pick_target.global_position)
+				current_pose_name = "auto_reach"
+				auto_pick_state = "reach"
+				auto_pick_timer = 0.0
+		"reach":
+			auto_pick_message = "solving IK + reaching"
+			if _joint_error_to_target() < 0.09 or auto_pick_timer > 1.45:
+				_set_gripper(true)
+				auto_pick_state = "grasp"
+				auto_pick_timer = 0.0
+		"grasp":
+			auto_pick_message = "closing gripper"
+			if auto_pick_timer > 0.45:
+				_attach_pickable(auto_pick_target)
+				target_joints = _auto_lift_pose()
+				current_pose_name = "auto_lift"
+				auto_pick_state = "lift"
+				auto_pick_timer = 0.0
+		"lift":
+			auto_pick_message = "lifting"
+			if _joint_error_to_target() < 0.10 or auto_pick_timer > 1.10:
+				target_joints = ARM_PRESETS["home"].duplicate()
+				current_pose_name = "auto_return"
+				auto_pick_state = "return"
+				auto_pick_timer = 0.0
+		"return":
+			auto_pick_message = "returning home"
+			if _joint_error_to_target() < 0.08 or auto_pick_timer > 1.60:
+				_finish_auto_pick("complete")
+
+
+func _auto_pick_drive_targets() -> Vector2:
+	if auto_pick_state != "navigate" or auto_pick_target == null:
+		return Vector2.ZERO
+	var to_goal := auto_pick_nav_goal - robot_root.global_position
+	to_goal.y = 0.0
+	var distance := to_goal.length()
+	if distance < 0.02:
+		return Vector2.ZERO
+
+	var desired := to_goal.normalized()
+	var avoidance := _navigation_avoidance_vector()
+	var steering := desired + avoidance
+	if steering.length_squared() < 0.001:
+		steering = desired
+	steering = steering.normalized()
+
+	var local_forward := robot_root.global_transform.basis.x.dot(steering)
+	var local_right := robot_root.global_transform.basis.z.dot(steering)
+	var face_target := auto_pick_target.global_position - robot_root.global_position
+	face_target.y = 0.0
+	if distance < 0.35 and face_target.length_squared() > 0.001:
+		local_right = robot_root.global_transform.basis.z.dot(face_target.normalized())
+	var linear: float = clamp(local_forward, -0.25, 1.0) * min(max_linear_speed * 0.42, distance * 1.15)
+	if abs(local_right) > 0.45:
+		linear *= 0.35
+	var angular: float = clamp(local_right * 2.4, -1.0, 1.0) * max_angular_speed * 0.62
+	return Vector2(linear, angular)
+
+
+func _navigation_avoidance_vector() -> Vector3:
+	var repulse := Vector3.ZERO
+	var position := robot_root.global_position
+	for obstacle in navigation_obstacles:
+		var obstacle_position: Vector3 = obstacle.get("position", Vector3.ZERO) as Vector3
+		var radius: float = float(obstacle.get("radius", 0.0))
+		var delta := position - obstacle_position
+		delta.y = 0.0
+		var distance: float = delta.length()
+		var influence: float = radius + 0.95
+		if distance < 0.001 or distance > influence:
+			continue
+		var strength: float = (influence - distance) / influence
+		repulse += delta.normalized() * strength * strength * 1.25
+	return repulse
+
+
+func _auto_pick_navigation_reached() -> bool:
+	var goal_delta := auto_pick_nav_goal - robot_root.global_position
+	goal_delta.y = 0.0
+	var target_delta := auto_pick_target.global_position - robot_root.global_position
+	target_delta.y = 0.0
+	if target_delta.length_squared() < 0.001:
+		return goal_delta.length() < AUTO_PICK_REACHED_DISTANCE
+	var heading_error: float = abs(robot_root.global_transform.basis.z.dot(target_delta.normalized()))
+	return goal_delta.length() < AUTO_PICK_REACHED_DISTANCE and heading_error < AUTO_PICK_REACHED_HEADING
+
+
+func _solve_aubo_pick_pose(world_target: Vector3) -> Array:
+	var local: Vector3 = robot_root.global_transform.affine_inverse() * world_target
+	var lateral: float = clamp(local.z, -0.65, 0.65)
+	var forward: float = clamp(local.x, 0.30, 1.05)
+	var reach: float = clamp((forward - 0.42) / 0.63, 0.0, 1.0)
+	var shoulder: float = clamp(1.18 - lateral * 0.58, -0.45, 2.65)
+	var upper: float = lerp(-0.54, -0.98, reach)
+	var fore: float = lerp(-1.18, -0.88, reach)
+	var wrist1: float = lerp(0.28, 0.12, reach)
+	var wrist2: float = lerp(-1.22, -1.02, reach)
+	var wrist3: float = clamp(lateral * 0.28, -0.35, 0.35)
+	return [shoulder, upper, fore, wrist1, wrist2, wrist3]
+
+
+func _auto_lift_pose() -> Array:
+	var pose := _solve_aubo_pick_pose(auto_pick_target.global_position)
+	pose[1] = float(pose[1]) + 0.36
+	pose[2] = float(pose[2]) - 0.28
+	pose[3] = float(pose[3]) + 0.12
+	return pose
+
+
+func _joint_error_to_target() -> float:
+	var error := 0.0
+	for i in range(current_joints.size()):
+		error = max(error, abs(float(current_joints[i]) - float(target_joints[i])))
+	return error
+
+
+func _attach_pickable(pickable: RigidBody3D) -> void:
+	if pickable == null or grasp_anchor == null:
+		return
+	held_pickable = pickable
+	pickable.set_meta("held", true)
+	pickable.freeze = true
+	pickable.collision_layer = 0
+	pickable.collision_mask = 0
+	var old_parent := pickable.get_parent()
+	if old_parent != null:
+		old_parent.remove_child(pickable)
+	grasp_anchor.add_child(pickable)
+	pickable.position = Vector3(0.0, -0.02, 0.055)
+	pickable.rotation = Vector3.ZERO
+
+
+func _finish_auto_pick(message: String) -> void:
+	auto_pick_message = message
+	auto_pick_state = "idle"
+	auto_pick_timer = 0.0
+	auto_pick_target = null
+	target_linear = 0.0
+	target_angular = 0.0
 
 
 func _update_base(delta: float) -> void:
-	var stick := _read_drive_stick()
-	var radius := stick.length()
-	if radius < input_deadzone:
-		target_linear = 0.0
-		target_angular = 0.0
+	if auto_pick_state == "navigate":
+		var auto_targets := _auto_pick_drive_targets()
+		target_linear = auto_targets.x
+		target_angular = auto_targets.y
 	else:
-		var unit: Vector2 = stick / max(radius, 0.0001)
-		var speed_radius: float = clamp((min(radius, 1.0) - input_deadzone) / max(1.0 - input_deadzone, 0.0001), 0.0, 1.0)
-		speed_radius = lerp(speed_radius, speed_radius * speed_radius, input_curve)
-		target_linear = unit.y * speed_radius * max_linear_speed
-		target_angular = unit.x * speed_radius * max_angular_speed
+		var stick := _read_drive_stick()
+		var radius := stick.length()
+		if radius < input_deadzone:
+			target_linear = 0.0
+			target_angular = 0.0
+		else:
+			var unit: Vector2 = stick / max(radius, 0.0001)
+			var speed_radius: float = clamp((min(radius, 1.0) - input_deadzone) / max(1.0 - input_deadzone, 0.0001), 0.0, 1.0)
+			speed_radius = lerp(speed_radius, speed_radius * speed_radius, input_curve)
+			target_linear = unit.y * speed_radius * max_linear_speed
+			target_angular = unit.x * speed_radius * max_angular_speed
 
 	var linear_rate := linear_acceleration
 	if sign(target_linear) != sign(current_linear) or abs(target_linear) < abs(current_linear):
@@ -742,8 +1287,7 @@ func _update_base(delta: float) -> void:
 	_apply_push_impulses()
 	robot_root.global_position.x = clamp(robot_root.global_position.x, -ARENA_LIMIT, ARENA_LIMIT)
 	robot_root.global_position.z = clamp(robot_root.global_position.z, -ARENA_LIMIT, ARENA_LIMIT)
-	var ground_target := robot_ground_y + _sample_track_height(robot_root.global_position)
-	robot_root.global_position.y = lerp(robot_root.global_position.y, ground_target, _follow_alpha(suspension_follow_rate, delta))
+	robot_root.global_position.y = lerp(robot_root.global_position.y, robot_ground_y, _follow_alpha(suspension_follow_rate, delta))
 
 	var actual_motion := robot_root.global_position - previous_position
 	var actual_forward_distance := robot_root.global_transform.basis.x.dot(actual_motion)
@@ -778,6 +1322,38 @@ func _update_arm(delta: float) -> void:
 		current_joints[i] = lerp(float(current_joints[i]), float(target_joints[i]), alpha)
 		var node := joint_nodes[i]
 		node.basis = joint_rest_bases[i] * _ros_rpy_basis(Vector3(0.0, 0.0, current_joints[i]))
+
+
+func _update_manual_arm(delta: float) -> void:
+	var command := 0.0
+	if Input.is_key_pressed(KEY_U):
+		command += 1.0
+	if Input.is_key_pressed(KEY_J):
+		command -= 1.0
+
+	var joypads := Input.get_connected_joypads()
+	if not joypads.is_empty():
+		var joypad_id: int = int(joypads[0])
+		if Input.is_joy_button_pressed(joypad_id, JOY_BUTTON_DPAD_UP):
+			command += 1.0
+		if Input.is_joy_button_pressed(joypad_id, JOY_BUTTON_DPAD_DOWN):
+			command -= 1.0
+
+	if web_gamepad_connected:
+		if _web_button_pressed(12):
+			command += 1.0
+		if _web_button_pressed(13):
+			command -= 1.0
+
+	if abs(command) < 0.001:
+		return
+	var limit: Array = ARM_JOINT_LIMITS[selected_joint_index]
+	target_joints[selected_joint_index] = clamp(
+		float(target_joints[selected_joint_index]) + command * manual_joint_rate * delta,
+		float(limit[0]),
+		float(limit[1])
+	)
+	current_pose_name = "manual"
 
 
 func _update_gripper(delta: float) -> void:
@@ -817,31 +1393,22 @@ func _update_vehicle_body_fx(delta: float) -> void:
 	visual_root.position.y = lerp(visual_root.position.y, bump_amount, _follow_alpha(14.0, delta))
 
 
-func _sample_track_height(position: Vector3) -> float:
-	var height := 0.0
-	height = max(height, _axis_bump(position, Vector3(2.4, 0.0, -0.35), Vector2(2.8, 0.20), 0.055))
-	height = max(height, _axis_bump(position, Vector3(4.25, 0.0, 0.50), Vector2(1.20, 0.92), 0.105))
-	return height
-
-
-func _axis_bump(position: Vector3, center: Vector3, size: Vector2, height: float) -> float:
-	var local_x: float = abs(position.x - center.x)
-	var local_z: float = abs(position.z - center.z)
-	if local_x > size.x * 0.5 or local_z > size.y * 0.5:
-		return 0.0
-	var z_norm: float = clamp(local_z / max(size.y * 0.5, 0.001), 0.0, 1.0)
-	return height * sin((1.0 - z_norm) * PI * 0.5)
+func _sample_track_height(_position: Vector3) -> float:
+	return 0.0
 
 
 func _update_hud() -> void:
-	status_label.text = "Arachne Playable Showcase\nBackend: %s    Pose: %s    Gripper: %.2f\nv: %.2f m/s    yaw: %.2f rad/s    target: %.2f / %.2f    cam axis: %s" % [
+	var input_label := "web" if web_gamepad_connected else ("native" if Input.get_connected_joypads().size() > 0 else "keyboard")
+	status_label.text = "Arachne Playable Showcase\nBackend: %s    Input: %s/%s    Pose: %s    Gripper: %.2f\nJoint: %s    Auto: %s    v: %.2f m/s    yaw: %.2f rad/s    cam axis: %s" % [
 		backend_label,
+		input_label,
+		gamepad_bridge_label,
 		current_pose_name,
 		gripper_position,
+		ARM_JOINT_NAMES[selected_joint_index],
+		auto_pick_message,
 		current_linear,
 		-current_angular,
-		target_linear,
-		-target_angular,
 		camera_axis_label,
 	]
 
@@ -870,18 +1437,25 @@ func _read_drive_stick() -> Vector2:
 
 	var turn := 0.0
 	var forward := 0.0
-	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+	if Input.is_key_pressed(KEY_W):
 		forward += 1.0
-	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
+	if Input.is_key_pressed(KEY_S):
 		forward -= 1.0
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+	if Input.is_key_pressed(KEY_D):
 		turn += 1.0
-	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+	if Input.is_key_pressed(KEY_A):
 		turn -= 1.0
 
-	if Input.get_connected_joypads().size() > 0:
-		turn += _deadzone_axis(Input.get_joy_axis(0, JOY_AXIS_LEFT_X), 0.08)
-		forward += -_deadzone_axis(Input.get_joy_axis(0, JOY_AXIS_LEFT_Y), 0.08)
+	var joypads := Input.get_connected_joypads()
+	if joypads.size() > 0:
+		var joypad_id: int = int(joypads[0])
+		if not _native_dpad_pressed(joypad_id):
+			turn += _deadzone_axis(Input.get_joy_axis(joypad_id, JOY_AXIS_LEFT_X), 0.08)
+			forward += -_deadzone_axis(Input.get_joy_axis(joypad_id, JOY_AXIS_LEFT_Y), 0.08)
+
+	if web_gamepad_connected and not _web_dpad_pressed():
+		turn += _read_web_axis(0, 0.08)
+		forward += -_read_web_axis(1, 0.08)
 
 	var stick := Vector2(turn, forward)
 	if stick.length() > 1.0:
@@ -903,6 +1477,12 @@ func _read_camera_orbit_input() -> float:
 			orbit_input += _deadzone_axis(Input.get_joy_axis(joypad_id, camera_axis_index), 0.10)
 		else:
 			orbit_input += _read_best_camera_axis(joypad_id)
+
+	if web_gamepad_connected:
+		var web_orbit := _read_web_axis(2, 0.10)
+		orbit_input += web_orbit
+		if abs(web_orbit) > 0.0:
+			camera_axis_label = "web:2"
 
 	return clamp(orbit_input, -1.0, 1.0)
 
@@ -932,6 +1512,14 @@ func _select_pose(pose_name: String) -> void:
 		_set_gripper(false)
 
 
+func _select_previous_joint() -> void:
+	selected_joint_index = (selected_joint_index - 1 + ARM_JOINT_NAMES.size()) % ARM_JOINT_NAMES.size()
+
+
+func _select_next_joint() -> void:
+	selected_joint_index = (selected_joint_index + 1) % ARM_JOINT_NAMES.size()
+
+
 func _toggle_gripper() -> void:
 	_set_gripper(gripper_target < gripper_closed_position * 0.5)
 
@@ -950,12 +1538,19 @@ func _reset_demo() -> void:
 	current_linear = 0.0
 	current_angular = 0.0
 	previous_linear = 0.0
+	auto_pick_state = "idle"
+	auto_pick_message = "idle"
+	auto_pick_timer = 0.0
+	auto_pick_target = null
+	right_stick_hold_time = 0.0
+	right_stick_long_press_fired = false
 	visual_root.position = Vector3.ZERO
 	visual_root.rotation = Vector3.ZERO
 	for wheel_state in wheel_nodes:
 		var wheel := wheel_state["node"] as Node3D
 		wheel_state["spin"] = 0.0
 		wheel.basis = wheel_state["rest_basis"]
+	selected_joint_index = 0
 	_select_pose("home")
 	_set_gripper(false)
 
@@ -971,7 +1566,7 @@ func _make_joint(joint_name: String, position: Vector3, rest_rotation: Vector3, 
 	return joint
 
 
-func _load_visual(paths: Array, fallback_mesh: Mesh, fallback_material: Material, local_scale: Vector3) -> Node3D:
+func _load_visual(paths: Array, fallback_mesh: Mesh, fallback_material: Material, local_scale: Vector3, override_material := true) -> Node3D:
 	for path in paths:
 		if not FileAccess.file_exists(path) and not ResourceLoader.exists(path):
 			continue
@@ -981,7 +1576,8 @@ func _load_visual(paths: Array, fallback_mesh: Mesh, fallback_material: Material
 				var stl_instance := MeshInstance3D.new()
 				stl_instance.mesh = stl_mesh
 				stl_instance.scale = local_scale
-				stl_instance.material_override = fallback_material
+				if override_material:
+					stl_instance.material_override = fallback_material
 				return stl_instance
 		var resource: Resource = load(path)
 		if resource is PackedScene:
@@ -989,18 +1585,21 @@ func _load_visual(paths: Array, fallback_mesh: Mesh, fallback_material: Material
 			var scene: Node = packed_scene.instantiate()
 			if scene is Node3D:
 				scene.scale = local_scale
-				_apply_material_to_meshes(scene, fallback_material)
+				if override_material:
+					_apply_material_to_meshes(scene, fallback_material)
 				return scene
 			var wrapper := Node3D.new()
 			wrapper.scale = local_scale
 			wrapper.add_child(scene)
-			_apply_material_to_meshes(wrapper, fallback_material)
+			if override_material:
+				_apply_material_to_meshes(wrapper, fallback_material)
 			return wrapper
 		if resource is Mesh:
 			var mesh_instance := MeshInstance3D.new()
 			mesh_instance.mesh = resource
 			mesh_instance.scale = local_scale
-			mesh_instance.material_override = fallback_material
+			if override_material:
+				mesh_instance.material_override = fallback_material
 			return mesh_instance
 	var fallback := MeshInstance3D.new()
 	fallback.name = "FallbackMesh"
@@ -1162,6 +1761,46 @@ func _deadzone_axis(value: float, deadzone: float) -> float:
 	return sign(value) * clamp(scaled, 0.0, 1.0)
 
 
+func _read_web_axis(index: int, deadzone: float) -> float:
+	if index < 0 or index >= web_gamepad_axes.size():
+		return 0.0
+	return _deadzone_axis(float(web_gamepad_axes[index]), deadzone)
+
+
+func _web_button_pressed(index: int) -> bool:
+	return _web_button_value_from_array(web_gamepad_buttons, index) > 0.5
+
+
+func _web_button_just_pressed(index: int) -> bool:
+	if index < 0 or index >= web_gamepad_button_edges.size():
+		return false
+	return bool(web_gamepad_button_edges[index])
+
+
+func _web_dpad_pressed() -> bool:
+	return _web_button_pressed(12) or _web_button_pressed(13) or _web_button_pressed(14) or _web_button_pressed(15)
+
+
+func _native_dpad_pressed(joypad_id: int) -> bool:
+	return (
+		Input.is_joy_button_pressed(joypad_id, JOY_BUTTON_DPAD_UP)
+		or Input.is_joy_button_pressed(joypad_id, JOY_BUTTON_DPAD_DOWN)
+		or Input.is_joy_button_pressed(joypad_id, JOY_BUTTON_DPAD_LEFT)
+		or Input.is_joy_button_pressed(joypad_id, JOY_BUTTON_DPAD_RIGHT)
+	)
+
+
+func _web_button_value_from_array(buttons: Array, index: int) -> float:
+	if index < 0 or index >= buttons.size():
+		return 0.0
+	var value = buttons[index]
+	if typeof(value) == TYPE_BOOL:
+		return 1.0 if bool(value) else 0.0
+	if typeof(value) == TYPE_DICTIONARY:
+		return float(value.get("value", 0.0))
+	return float(value)
+
+
 func _follow_alpha(rate: float, delta: float) -> float:
 	return 1.0 - exp(-rate * delta)
 
@@ -1230,8 +1869,27 @@ func _run_self_test() -> void:
 		errors.append("office map collision coverage is unexpectedly low")
 	if find_child("OfficeWallNorthA", true, false) == null:
 		errors.append("office map did not load")
+	if abs(_sample_track_height(Vector3(0.0, 0.0, -5.35))) > 0.001:
+		errors.append("track height should stay flat")
 	if ros_bridge == null or ros_bridge.last_cmd_vel.is_empty():
 		errors.append("ROS2 bridge placeholder did not receive cmd_vel")
+	if pickable_objects.size() < 7:
+		errors.append("expected pickable bottles and balls in the showcase map")
+	var nearest_pickable: RigidBody3D = _find_nearest_pickable()
+	if nearest_pickable == null:
+		errors.append("auto-pick target search did not find a pickable object")
+	else:
+		var solved_pose: Array = _solve_aubo_pick_pose(nearest_pickable.global_position)
+		if solved_pose.size() != ARM_JOINT_NAMES.size():
+			errors.append("auto-pick IK returned %d joints" % solved_pose.size())
+		auto_pick_state = "navigate"
+		auto_pick_target = nearest_pickable
+		auto_pick_nav_goal = _approach_goal_for_pickable(nearest_pickable)
+		var drive_command: Vector2 = _auto_pick_drive_targets()
+		if drive_command.length() < 0.001:
+			errors.append("auto-pick navigation generated a zero drive command")
+		auto_pick_state = "idle"
+		auto_pick_target = null
 
 	if errors.is_empty():
 		print("Arachne Godot self-test passed: travel=%.2f m, meshes=%d, backend=%s" % [travel, _count_mesh_instances(robot_root), backend_label])

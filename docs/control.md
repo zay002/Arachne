@@ -153,15 +153,21 @@ Run the lightweight RViz-only view:
 DEMO_MODE=rviz ./scripts/switch_demo.sh
 ```
 
-The current Gazebo pass focuses on promotional driving physics and real mesh visualization in a single Gazebo window. The world uses a lighter physics step, disabled shadows, a static ramp, Gazebo DiffDrive, Gazebo `/gz/odom`, high-rate `/gui/track` camera messages, a demo Aubo trajectory bridge, and explicit MS42DC finger position controllers. Full arm and gripper physics control should be moved to ros2_control controllers later.
+The current Gazebo pass focuses on promotional driving physics and real mesh visualization in a single Gazebo window. The world uses a lighter physics step, disabled shadows, a flat showroom floor, Gazebo DiffDrive, Gazebo `/gz/odom`, high-rate `/gui/track` camera messages, a demo Aubo trajectory bridge, and explicit MS42DC finger position controllers. Full arm and gripper physics control should be moved to ros2_control controllers later.
 
 ## Godot Showcase Frontend
 
-`godot/arachne_showcase` is a separate Godot 4.x frontend for high-FPS third-person visualization and teleoperation feel. It loads existing Scout, Aubo i5, MS42DC, AG95, and prop meshes through generated links under `assets/vendor/`, then uses an office-style initial map, collision-aware character-body movement, proportional skid-steer controls, pushable rigid-body props, camera damping, visual suspension, and visual arm/gripper interpolation.
+`godot/arachne_showcase` is a separate Godot 4.x frontend for high-FPS third-person visualization and teleoperation feel. It loads existing Scout, Aubo i5, MS42DC, AG95, and prop meshes through generated links under `assets/vendor/`, then uses a larger flat office-style initial map, collision-aware character-body movement, proportional skid-steer controls, pushable rigid-body props, pickable bottles/balls, camera damping, visual suspension, visual arm/gripper interpolation, and manual Aubo joint nudging.
 
-In WSL2, `scripts/godot_showcase.sh` forces `GALLIUM_DRIVER=d3d12` and the OpenGL compatibility renderer because the Vulkan path can fall back to CPU `llvmpipe`. Native Linux can keep Forward+ unless a different renderer is requested.
+In WSL2, `scripts/godot_showcase.sh` forces `GALLIUM_DRIVER=d3d12` and the OpenGL compatibility renderer because the Vulkan path can fall back to CPU `llvmpipe`. It also starts `scripts/godot_gamepad_bridge.py`, a browser Gamepad API bridge for controllers paired to Windows. Native Linux can keep Forward+ and use native Godot joystick input unless the web bridge is explicitly enabled with `GODOT_GAMEPAD_BRIDGE=true`.
+
+The robot visual mesh chain is kept aligned with Gazebo by reusing the same Scout/Aubo/MS42DC asset sources and the same mount/pivot constants. Godot still uses simplified collision proxies and its own office map, so it is a showcase layer rather than the authoritative contact model.
+
+Base driving deliberately reads only `WASD` and the left stick. D-pad up/down is reserved for the selected arm joint, so discrete arm commands cannot accidentally drive the Scout.
 
 The right-stick camera reader auto-selects the strongest axis among common right-stick mappings. If a controller needs manual mapping, set `ARACHNE_CAMERA_AXIS=<axis>`.
+
+Long-pressing the right-stick button, pressing `P`, or clicking the browser bridge `Auto Pick` button starts a lightweight pick demo. Godot searches the nearest pickable object, computes a nearby approach goal, drives the Scout with simple obstacle repulsion, interpolates an Aubo pick pose, closes the MS42DC, attaches the object visually, lifts, and returns the arm to `home`. This is a portfolio/research placeholder; the production path should later be replaced by MoveIt2 planning and a real ROS2 bridge.
 
 The bridge layer is intentionally a placeholder:
 
@@ -172,4 +178,4 @@ The bridge layer is intentionally a placeholder:
 
 The bridge defaults to standalone memory mode, and switches to UDP placeholder mode when a ROS2 environment is sourced. This keeps the showcase dependency-free while leaving a stable insertion point for a later ROS2, WebSocket, native Godot ROS2, MuJoCo, or other physics backend.
 
-Use `scripts/test_godot_showcase.sh` to run the headless Godot self-test. It links assets, loads the scene, drives a scripted route, checks basic movement/camera/mesh/bridge health, and exits nonzero on regressions.
+Use `scripts/fetch_godot_assets.sh` to download optional CC0 office furniture props, then `scripts/test_godot_showcase.sh` to run the headless Godot self-test. The test links assets, loads the scene, drives a scripted route, checks basic movement/camera/mesh/bridge health, verifies pickable target search and auto-pick drive/IK generation, and exits nonzero on regressions.

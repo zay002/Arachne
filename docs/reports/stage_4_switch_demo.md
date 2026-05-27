@@ -2,7 +2,7 @@
 
 ## Result
 
-Arachne now has an interactive demo path for a Nintendo Switch Pro Controller on both native Linux and WSL2. The default Gazebo showroom opens as a single playable window with body-relative Scout driving, a smoothed robot-following third-person camera, richer terrain props, Aubo joint nudging, MS42DC open/close control, and a diff-drive physics preview. RViz mode remains available for lightweight model inspection.
+Arachne now has an interactive demo path for a Nintendo Switch Pro Controller on both native Linux and WSL2. The default Gazebo showroom opens as a single playable window with body-relative Scout driving on a flat floor, a smoothed robot-following third-person camera, Aubo joint nudging, MS42DC open/close control, and a diff-drive physics preview. RViz mode remains available for lightweight model inspection.
 
 The Switch Pro axes default to `FORWARD_AXIS_SIGN=-1.0` and `LATERAL_AXIS_SIGN=1.0`, matching the observed Scout front and turn direction in Gazebo. Left-stick input uses polar arcade drive: the X/Y circle radius controls instantaneous speed, and the direction splits that speed into body-frame linear and angular velocity.
 
@@ -15,7 +15,7 @@ The Switch Pro axes default to `FORWARD_AXIS_SIGN=-1.0` and `LATERAL_AXIS_SIGN=1
 - `arachne_demo/web_gamepad_bridge.py`: exposes a local browser Gamepad API bridge for WSL2.
 - `launch/switch_rviz_demo.launch.py`: starts RViz, base simulation, gripper simulation, the selected input backend, view control, and Switch teleop.
 - `launch/switch_gazebo_demo.launch.py`: starts Gazebo without RViz, spawns Arachne with Gazebo-safe Scout wheel and MS42DC settings, bridges `/gz/odom`, and reuses the same Switch teleop path.
-- `worlds/arachne_showroom.sdf`: physics-enabled demo world with floor, lighting, ramp, speed bumps, low platform, slalom markers, work table, and movable props.
+- `worlds/arachne_showroom.sdf`: physics-enabled demo world with a flat floor, lighting, slalom markers, work table, and movable props.
 - `urdf/gazebo/arachne_gazebo_plugins.xacro`: Gazebo DiffDrive, joint-state, Aubo trajectory, and MS42DC finger position plugins for the demo model.
 - `scripts/switch_demo.sh`: one-command helper that defaults to Gazebo showroom mode and keeps RViz mode available through `DEMO_MODE=rviz`.
 

@@ -16,7 +16,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `src/arachne_demo`：Nintendo Switch Pro 手柄遥控、RViz demo 启动和 Gazebo 展示世界。
 - `src/arachne_gazebo`：Gazebo 专用辅助节点，用于更流畅的 GUI 相机跟随，以及 demo 中的机械臂/夹爪控制桥。
 - `src/arachne_hardware`：预留真机驱动包，包含空的夹具串口、底盘串口、Aubo TCP/IP 驱动文件。
-- `godot/arachne_showcase`：Godot 4.x 高帧率展示前端，包含视觉 teleop、跟随相机、机械臂预设姿态和 ROS2 bridge 占位接口。
+- `godot/arachne_showcase`：Godot 4.x 高帧率展示前端，包含视觉 teleop、跟随相机、机械臂预设姿态、可拾取物体 demo 逻辑和 ROS2 bridge 占位接口。
 - `scripts`：环境安装、第三方模型下载、可视化启动、URDF 检查和夹爪仿真测试脚本。
 - `docs`：硬件、建模、控制、标定说明，以及阶段报告。
 - `docs/demo/arachne.png`：项目首页宣传图。
@@ -35,7 +35,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - RViz 通过 `scripts/view_model.sh` 启动，会自动清理旧的可视化节点，并打开底盘遥控、机械臂关节滑条、夹爪仿真和 Open/Close 控制窗。
 - 机械臂滑条 GUI 默认从当前用户确认的展示姿态启动；点击 `Center` 会回到这个姿态。
 - `scripts/switch_demo.sh` 默认启动 Gazebo 展厅 demo，可以用 Nintendo Switch Pro 手柄控制底盘、平滑第三人称视角、Aubo 关节和夹爪。Gazebo 会使用专门的 Scout 轮子物理姿态，确保前进输入时四个轮子同向驱动。
-- `scripts/godot_showcase.sh` 可启动单独的 Godot 4.x 第三人称展示前端，包含可碰撞底盘运动、涂装材质、视觉悬挂、平滑跟随相机、机械臂预设姿态和 ROS2/UDP bridge 占位接口。
+- `scripts/godot_showcase.sh` 可启动单独的 Godot 4.x 第三人称展示前端，包含可碰撞底盘运动、涂装材质、视觉悬挂、平滑跟随相机、机械臂手动微调、夹爪开闭、可拾取水瓶/小球和 ROS2/UDP bridge 占位接口。
 
 ## Roadmap
 
@@ -168,23 +168,26 @@ GRIPPER_CLOSED_POSITION=0.58 ./scripts/view_model.sh
 
 ## Godot 展示前端
 
-Godot 前端用于高帧率第三人称演示和宣传视频，不替代 Gazebo 物理仿真。它通过本地链接复用现有 Scout 2.0、Aubo i5、MS42DC、AG95 和场景物件 mesh，并提供办公室初始地图、键盘/手柄比例控制、可碰撞 Scout 运动、可推动物件、视觉悬挂、平滑跟随相机、MS42DC 开闭动画和 Aubo 预设姿态插值。
+Godot 前端用于高帧率第三人称演示和宣传视频，不替代 Gazebo 物理仿真。它通过本地链接复用现有 Scout 2.0、Aubo i5、MS42DC、AG95 和场景物件 mesh，并提供平地办公室地图、键盘/手柄比例控制、可碰撞 Scout 运动、可推动物件、视觉悬挂、平滑跟随相机、MS42DC 开闭动画、Aubo 预设姿态插值和手动关节微调。Aubo 在 Godot 中使用橘色机身和黑色关节涂装，场景会以固定随机种子撒布可拾取水瓶和小球。
 
 ```bash
 ./scripts/install_godot4.sh   # 如果已经安装 godot4，可以跳过
 ./scripts/fetch_third_party.sh
+./scripts/fetch_godot_assets.sh   # 可选：下载 CC0 办公室道具
 ./scripts/godot_showcase.sh
 ```
 
-如果 Godot 不在 `PATH` 中，可以设置 `GODOT_BIN=/path/to/godot4`。启动脚本会先准备本地 mesh 链接和生成的 GLB 缓存文件，再打开 Godot；如果当前 shell 已 source ROS2 环境，会自动使用 UDP bridge 占位模式。控制方式和 bridge 说明见 `godot/arachne_showcase/README.md`。
+如果 Godot 不在 `PATH` 中，可以设置 `GODOT_BIN=/path/to/godot4`。启动脚本会先准备本地 mesh 链接和生成的 GLB 缓存文件，再打开 Godot；如果当前 shell 已 source ROS2 环境，会自动使用 UDP bridge 占位模式。机器人视觉 mesh 和安装尺寸来自 URDF/Gazebo 使用的同一批 Scout/Aubo/MS42DC 资源；Godot 为了流畅展示使用简化碰撞代理，并使用独立的办公室展示地图。
 
-在 WSL2 中，启动脚本会自动选择 Mesa D3D12 OpenGL 渲染，让窗口走 Windows GPU，而不是 CPU `llvmpipe`。如果想优先使用独显：
+在 WSL2 中，启动脚本会自动选择 Mesa D3D12 OpenGL 渲染，让窗口走 Windows GPU，而不是 CPU `llvmpipe`，并启动一个浏览器 Gamepad API 桥接页面，用于识别连接在 Windows 蓝牙侧的 Switch Pro 手柄。打开终端打印的 `http://127.0.0.1:8790` 页面并按一下手柄按钮即可。如果想优先使用独显：
 
 ```bash
 MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA ./scripts/godot_showcase.sh
 ```
 
-如果某个手柄的右摇杆不能转动视角，可以手动指定相机轴：
+控制方式：左摇杆或 `WASD` 控制底盘，右摇杆或 `Q/E` 环绕第三人称相机，`A/B` 或 `C/O` 闭合/打开夹爪，`1..5` 选择机械臂预设姿态，`LB/RB` 或 `H/K` 选择关节，D-pad 上/下或 `U/J` 微调当前 Aubo 关节。长按右摇杆按键、按 `P`，或点击浏览器桥接页的 `Auto Pick`，会运行最近物体拾取 demo：寻找目标、自动靠近、用轻量 IK/插值移动 Aubo、闭合夹爪、抬起并回到初始位。D-pad 不参与底盘运动。
+
+如果原生 Godot 手柄路径的相机轴映射异常，可以手动指定相机轴：
 
 ```bash
 ARACHNE_CAMERA_AXIS=2 ./scripts/godot_showcase.sh

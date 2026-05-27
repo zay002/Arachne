@@ -20,7 +20,7 @@ The current milestone is a reliable robot description plus interactive demos: on
 - `src/arachne_demo`: Nintendo Switch Pro controller teleop, RViz demo launch, and Gazebo showroom launch.
 - `src/arachne_gazebo`: Gazebo helper nodes for smooth GUI camera tracking and demo arm/gripper commands.
 - `src/arachne_hardware`: reserved real-hardware driver package with empty files for gripper serial, base serial, and Aubo TCP/IP drivers.
-- `godot/arachne_showcase`: Godot 4.x high-FPS showcase frontend with visual teleop, follow camera, arm presets, and ROS2 bridge placeholders.
+- `godot/arachne_showcase`: Godot 4.x high-FPS showcase frontend with visual teleop, follow camera, arm presets, pickable-object demo logic, and ROS2 bridge placeholders.
 - `scripts`: setup, third-party fetch, model visualization, URDF check, and gripper smoke-test helpers.
 - `docs`: hardware/modeling/control/calibration notes and stage reports.
 - `docs/demo/arachne.png`: project showcase image for the repository front page.
@@ -39,7 +39,7 @@ External model dependencies are restored by `scripts/fetch_third_party.sh`, with
 - RViz starts through `scripts/view_model.sh`, which cleans stale visualization nodes and launches base teleop, arm joint sliders, gripper simulator, and gripper Open/Close GUI.
 - The arm slider GUI starts from the current user-confirmed display pose; pressing `Center` returns to that pose.
 - `scripts/switch_demo.sh` starts an interactive Nintendo Switch Pro controller demo with Gazebo physics, a smoothed third-person camera, body-relative Scout driving, Aubo joint nudging, and gripper commands. Gazebo uses a physics-specific Scout wheel setup so forward input drives all four wheels in the same direction.
-- `scripts/godot_showcase.sh` starts a separate Godot 4.x third-person showcase with collision-aware driving, painted materials, visual suspension, smooth camera follow, arm presets, and ROS2/UDP bridge placeholders.
+- `scripts/godot_showcase.sh` starts a separate Godot 4.x third-person showcase with collision-aware driving, painted materials, visual suspension, smooth camera follow, manual arm nudging, gripper open/close, pickable bottles/balls, and ROS2/UDP bridge placeholders.
 
 ## Roadmap
 
@@ -173,23 +173,26 @@ GRIPPER_CLOSED_POSITION=0.58 ./scripts/view_model.sh
 
 ## Godot Showcase
 
-The Godot frontend is a high-FPS third-person playable demo for presentations and portfolio videos. It loads the existing Scout 2.0, Aubo i5, MS42DC, AG95, and prop meshes through local links, then runs an office-style map with proportional keyboard/gamepad driving, collision-aware Scout movement, pushable props, visual suspension, follow-camera smoothing, MS42DC open/close animation, and Aubo preset interpolation.
+The Godot frontend is a high-FPS third-person playable demo for presentations and portfolio videos. It loads the existing Scout 2.0, Aubo i5, MS42DC, AG95, and prop meshes through local links, then runs a flat office-style map with proportional keyboard/gamepad driving, collision-aware Scout movement, pushable props, visual suspension, follow-camera smoothing, MS42DC open/close animation, and Aubo preset interpolation. The Aubo arm uses an orange/black showcase finish, and the map includes reproducibly scattered pickable bottles and balls.
 
 ```bash
 ./scripts/install_godot4.sh   # optional if godot4 is already installed
 ./scripts/fetch_third_party.sh
+./scripts/fetch_godot_assets.sh   # optional CC0 office props
 ./scripts/godot_showcase.sh
 ```
 
-If Godot is not on `PATH`, set `GODOT_BIN=/path/to/godot4`. The launcher prepares local mesh links and generated GLB cache files before opening Godot. It automatically uses standalone mode, or UDP bridge mode when a ROS2 environment is sourced. See `godot/arachne_showcase/README.md` for controls and bridge notes.
+If Godot is not on `PATH`, set `GODOT_BIN=/path/to/godot4`. The launcher prepares local mesh links and generated GLB cache files before opening Godot. It automatically uses standalone mode, or UDP bridge mode when a ROS2 environment is sourced. The robot visual meshes and mount dimensions come from the same Scout/Aubo/MS42DC sources used by the URDF/Gazebo model; Godot uses simplified collision proxies and a separate showcase office map for performance.
 
-On WSL2, the launcher automatically selects Mesa D3D12 OpenGL rendering so the window uses the Windows GPU instead of CPU `llvmpipe`. To prefer a discrete GPU, set:
+On WSL2, the launcher automatically selects Mesa D3D12 OpenGL rendering so the window uses the Windows GPU instead of CPU `llvmpipe`, and starts a browser Gamepad API bridge for Switch Pro controllers connected on the Windows side. Open the printed `http://127.0.0.1:8790` page and press any controller button. To prefer a discrete GPU, set:
 
 ```bash
 MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA ./scripts/godot_showcase.sh
 ```
 
-If the right stick does not rotate the camera on a controller with unusual axis mapping, force the camera axis:
+Controls: left stick or `WASD` drives the Scout, right stick or `Q/E` orbits the third-person camera, `A/B` or `C/O` closes/opens the gripper, `1..5` selects arm presets, `LB/RB` or `H/K` selects a joint, and D-pad up/down or `U/J` nudges the selected Aubo joint. Hold the right-stick button, press `P`, or use the browser bridge `Auto Pick` button to run the nearest-object demo: select target, drive near it, move the Aubo through a lightweight IK/interpolation path, close the gripper, lift, and return home. The D-pad is deliberately not used for base motion.
+
+If the native Godot controller path reports an unusual camera axis, force the camera axis:
 
 ```bash
 ARACHNE_CAMERA_AXIS=2 ./scripts/godot_showcase.sh

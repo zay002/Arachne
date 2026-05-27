@@ -78,40 +78,6 @@
       </link>
     </model>
 
-    <model name="low_ramp">
-      <pose>2.1 0.7 0.12 0 0.18 0</pose>
-      <static>true</static>
-      <link name="ramp_link">
-        <inertial>
-          <mass>18</mass>
-          <inertia>
-            <ixx>0.9</ixx>
-            <iyy>1.8</iyy>
-            <izz>2.4</izz>
-          </inertia>
-        </inertial>
-        <collision name="collision">
-          <geometry>
-            <box>
-              <size>1.6 1.1 0.18</size>
-            </box>
-          </geometry>
-        </collision>
-        <visual name="visual">
-          <geometry>
-            <box>
-              <size>1.6 1.1 0.18</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>0.2 0.2 0.18 1</ambient>
-            <diffuse>0.63 0.60 0.51 1</diffuse>
-            <specular>0.05 0.05 0.04 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-
     <model name="demo_pedestal">
       <pose>-1.2 -1.4 0.25 0 0 0.2</pose>
       <static>false</static>
@@ -229,82 +195,6 @@
           <material>
             <ambient>0.92 0.92 0.80 1</ambient>
             <diffuse>0.92 0.92 0.80 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-
-    <model name="speed_bump_front">
-      <pose>-0.9 0.95 0.065 0 0 0</pose>
-      <static>true</static>
-      <link name="bump_link">
-        <collision name="collision">
-          <geometry>
-            <box>
-              <size>1.2 0.12 0.05</size>
-            </box>
-          </geometry>
-        </collision>
-        <visual name="visual">
-          <geometry>
-            <box>
-              <size>1.2 0.12 0.05</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>0.75 0.65 0.12 1</ambient>
-            <diffuse>0.95 0.78 0.14 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-
-    <model name="speed_bump_rear">
-      <pose>-0.45 0.95 0.065 0 0 0</pose>
-      <static>true</static>
-      <link name="bump_link">
-        <collision name="collision">
-          <geometry>
-            <box>
-              <size>1.2 0.12 0.05</size>
-            </box>
-          </geometry>
-        </collision>
-        <visual name="visual">
-          <geometry>
-            <box>
-              <size>1.2 0.12 0.05</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>0.75 0.65 0.12 1</ambient>
-            <diffuse>0.95 0.78 0.14 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-
-    <model name="low_step_platform">
-      <pose>3.0 -1.05 0.09 0 0 0</pose>
-      <static>true</static>
-      <link name="platform_link">
-        <collision name="collision">
-          <geometry>
-            <box>
-              <size>1.5 0.95 0.10</size>
-            </box>
-          </geometry>
-        </collision>
-        <visual name="visual">
-          <geometry>
-            <box>
-              <size>1.5 0.95 0.10</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>0.24 0.28 0.28 1</ambient>
-            <diffuse>0.42 0.48 0.46 1</diffuse>
-            <specular>0.04 0.04 0.04 1</specular>
           </material>
         </visual>
       </link>

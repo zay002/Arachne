@@ -69,6 +69,10 @@ link_first_existing \
   props \
   "${ROOT_DIR}/third_party/LARA_AUBOi5_AG95/lara_description/meshes/parts"
 
+link_first_existing \
+  kenney_furniture \
+  "${ROOT_DIR}/third_party/kenney/furniture-kit"
+
 convert_mesh() {
   local source="$1"
   local target="$2"
@@ -103,6 +107,15 @@ done
 for part in base mid left_finger right_finger; do
   convert_mesh "${VENDOR_DIR}/ms42dc/ms42dc_${part}.stl" "${GENERATED_DIR}/ms42dc/ms42dc_${part}.glb"
 done
+
+KENNEY_DAE_DIR="${VENDOR_DIR}/kenney_furniture/Models/DAE format"
+if [[ -d "${KENNEY_DAE_DIR}" ]]; then
+  for asset in \
+    desk chair chairDesk table bookcaseClosedWide bookcaseOpen pottedPlant loungeSofa \
+    computerScreen laptop cardboardBoxClosed rugRectangle lampRoundFloor; do
+    convert_mesh "${KENNEY_DAE_DIR}/${asset}.dae" "${GENERATED_DIR}/kenney/${asset}.glb"
+  done
+fi
 
 echo "Godot mesh links are ready in ${VENDOR_DIR}"
 echo "Godot generated mesh cache is ready in ${GENERATED_DIR}"

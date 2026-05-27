@@ -16,6 +16,7 @@ if [[ -r /proc/sys/kernel/osrelease ]] && grep -qi "microsoft\\|wsl" /proc/sys/k
 fi
 
 GODOT_ARGS=()
+START_GAMEPAD_BRIDGE=false
 if [[ "${IS_WSL}" == "true" ]]; then
   export LD_LIBRARY_PATH="/usr/lib/wsl/lib:${LD_LIBRARY_PATH:-}"
   export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-0}"
@@ -25,10 +26,20 @@ if [[ "${IS_WSL}" == "true" ]]; then
   fi
   export ARACHNE_GODOT_PROFILE="${ARACHNE_GODOT_PROFILE:-wsl}"
   GODOT_ARGS+=(--rendering-driver opengl3 --rendering-method gl_compatibility --render-thread "${GODOT_RENDER_THREAD:-safe}" --disable-vsync)
+  START_GAMEPAD_BRIDGE=true
 else
   export ARACHNE_GODOT_PROFILE="${ARACHNE_GODOT_PROFILE:-cinematic}"
   GODOT_ARGS+=(--render-thread "${GODOT_RENDER_THREAD:-safe}")
 fi
+
+case "${GODOT_GAMEPAD_BRIDGE:-auto}" in
+  1|true|TRUE|yes|YES|web|udp)
+    START_GAMEPAD_BRIDGE=true
+    ;;
+  0|false|FALSE|no|NO|off)
+    START_GAMEPAD_BRIDGE=false
+    ;;
+esac
 
 if [[ -n "${GODOT_MAX_FPS:-}" ]]; then
   GODOT_ARGS+=(--max-fps "${GODOT_MAX_FPS}")
@@ -46,4 +57,29 @@ if [[ -z "${GODOT_BIN}" ]]; then
   fi
 fi
 
-exec "${GODOT_BIN}" --path "${PROJECT_DIR}" "${GODOT_ARGS[@]}" "$@"
+BRIDGE_PID=""
+cleanup() {
+  if [[ -n "${BRIDGE_PID}" ]]; then
+    kill "${BRIDGE_PID}" >/dev/null 2>&1 || true
+  fi
+}
+
+if [[ "${START_GAMEPAD_BRIDGE}" == "true" ]]; then
+  export ARACHNE_GODOT_GAMEPAD="${ARACHNE_GODOT_GAMEPAD:-udp}"
+  export ARACHNE_GODOT_GAMEPAD_PORT="${ARACHNE_GODOT_GAMEPAD_PORT:-8791}"
+  WEB_GAMEPAD_HOST="${WEB_GAMEPAD_HOST:-127.0.0.1}"
+  WEB_GAMEPAD_PORT="${WEB_GAMEPAD_PORT:-8790}"
+  python3 "${ROOT_DIR}/scripts/godot_gamepad_bridge.py" \
+    --host "${WEB_GAMEPAD_HOST}" \
+    --port "${WEB_GAMEPAD_PORT}" \
+    --udp-port "${ARACHNE_GODOT_GAMEPAD_PORT}" &
+  BRIDGE_PID="$!"
+  trap cleanup EXIT
+  echo "Open http://${WEB_GAMEPAD_HOST}:${WEB_GAMEPAD_PORT} in a browser for Switch Pro / web gamepad control."
+fi
+
+if [[ -n "${BRIDGE_PID}" ]]; then
+  "${GODOT_BIN}" --path "${PROJECT_DIR}" "${GODOT_ARGS[@]}" "$@"
+else
+  exec "${GODOT_BIN}" --path "${PROJECT_DIR}" "${GODOT_ARGS[@]}" "$@"
+fi
