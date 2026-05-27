@@ -17,7 +17,7 @@ The current milestone is a reliable robot description and RViz demo: one connect
 - `src/arachne_description`: unified Xacro/URDF, RViz config, model variants, mount frames, sensor frames, and MS42DC/AG95 gripper adapters.
 - `src/arachne_sim`: RViz-oriented base simulation, `/cmd_vel` integration, odometry TF, wheel joint states, and a small base teleop GUI.
 - `src/arachne_gripper`: simulated gripper controller, joint-state mux, and a small `Open` / `Close` GUI.
-- `src/arachne_demo`: Nintendo Switch controller teleop, RViz demo launch, and Gazebo showroom launch.
+- `src/arachne_demo`: Nintendo Switch Pro controller teleop, RViz demo launch, and Gazebo showroom launch.
 - `src/arachne_hardware`: reserved real-hardware driver package with empty files for gripper serial, base serial, and Aubo TCP/IP drivers.
 - `scripts`: setup, third-party fetch, model visualization, URDF check, and gripper smoke-test helpers.
 - `docs`: hardware/modeling/control/calibration notes and stage reports.
@@ -35,7 +35,7 @@ External model dependencies are restored by `scripts/fetch_third_party.sh`, with
 - MS42DC close target is calibrated to `0.6 rad` by default.
 - RViz starts through `scripts/view_model.sh`, which cleans stale visualization nodes and launches base teleop, arm joint sliders, gripper simulator, and gripper Open/Close GUI.
 - The arm slider GUI starts from the current user-confirmed display pose; pressing `Center` returns to that pose.
-- `scripts/switch_demo.sh` starts an interactive Nintendo Switch controller demo for the base, follower view, Aubo joints, and gripper.
+- `scripts/switch_demo.sh` starts an interactive Nintendo Switch Pro controller demo for the base, follower view, Aubo joints, and gripper.
 
 ## Roadmap
 
@@ -95,7 +95,7 @@ GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
 
 ## Switch Demo
 
-Connect the Nintendo Switch controller over Bluetooth, then run:
+Connect the Nintendo Switch Pro Controller over Bluetooth, then run:
 
 ```bash
 ./scripts/switch_demo.sh
@@ -114,6 +114,8 @@ You can force an input backend when needed:
 INPUT_BACKEND=joy JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh
 INPUT_BACKEND=web ./scripts/switch_demo.sh
 ```
+
+For the Switch Pro Controller, the WSL2/browser backend is usually the most reliable path because the controller stays visible to Windows Bluetooth while the browser forwards its standard Gamepad state into ROS2.
 
 Default controls:
 

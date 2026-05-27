@@ -20,7 +20,7 @@ HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Arachne Gamepad Bridge</title>
+  <title>Arachne Switch Pro Bridge</title>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #101418; color: #f4f7f9; }
@@ -35,12 +35,12 @@ HTML = """<!doctype html>
 </head>
 <body>
 <main>
-  <h1>Arachne Gamepad Bridge</h1>
+  <h1>Arachne Switch Pro Bridge</h1>
   <div class="panel">
-    <div class="status" id="status">Press any gamepad button...</div>
-    <p>WSL2 cannot always read Bluetooth controllers as <code>/dev/input/js0</code>. Keep this page open; it forwards the browser Gamepad API to ROS2 <code>/joy</code>.</p>
+    <div class="status" id="status">Press any Switch Pro button...</div>
+    <p>WSL2 cannot always read the Switch Pro Controller as <code>/dev/input/js0</code>. Keep this page open; it forwards the browser Gamepad API to ROS2 <code>/joy</code>.</p>
     <p>Left stick drives the base. Right stick controls the demo view. B/A open and close the gripper.</p>
-    <p class="muted" id="detail">No gamepad detected yet.</p>
+    <p class="muted" id="detail">No controller detected yet.</p>
   </div>
 </main>
 <script>
@@ -81,8 +81,8 @@ async function sendJoy(payload) {
 function tick(ts) {
   const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
   if (pads.length === 0) {
-    statusEl.textContent = "Press any gamepad button...";
-    detailEl.textContent = "No gamepad detected yet.";
+    statusEl.textContent = "Press any Switch Pro button...";
+    detailEl.textContent = "No controller detected yet.";
     requestAnimationFrame(tick);
     return;
   }

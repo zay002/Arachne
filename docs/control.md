@@ -109,7 +109,7 @@ The control layer should remain split by hardware device while sharing the unifi
 
 ## Nintendo Switch Demo
 
-`src/arachne_demo` adds a controller-driven demo path:
+`src/arachne_demo` adds a Nintendo Switch Pro controller-driven demo path:
 
 - `switch_teleop.py`: maps `sensor_msgs/msg/Joy` to `/cmd_vel`, `/arachne/gui_joint_states`, and `/arachne/gripper/command`.
 - `camera_follow_controller.py`: maps the right stick to `arachne_view_frame`, which RViz follows from a robot-centered third-person view.
@@ -131,7 +131,7 @@ INPUT_BACKEND=joy JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh
 INPUT_BACKEND=web ./scripts/switch_demo.sh
 ```
 
-With the web backend, open `http://127.0.0.1:8787` in the browser and press any gamepad button. The left stick drives the base; the right stick controls the RViz follower view; `B` / `A` open and close the gripper; `ZL` + D-pad up/down moves the selected Aubo joint.
+With the web backend, open `http://127.0.0.1:8787` in the browser and press any Switch Pro button. The left stick drives the base; the right stick controls the RViz follower view; `B` / `A` open and close the gripper; `ZL` + D-pad up/down moves the selected Aubo joint.
 
 Run the Gazebo showroom preview:
 

@@ -13,7 +13,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `src/arachne_description`：统一的 Xacro/URDF 机器人模型、RViz 配置、模型变体、安装框架和传感器框架。
 - `src/arachne_sim`：面向 RViz 的底盘仿真，负责 `/cmd_vel` 积分、里程计 TF、轮子 joint state 和底盘遥控 GUI。
 - `src/arachne_gripper`：夹爪仿真控制器、joint-state mux，以及只有 `Open` / `Close` 的小型 GUI。
-- `src/arachne_demo`：Nintendo Switch 手柄遥控、RViz demo 启动和 Gazebo 展示世界。
+- `src/arachne_demo`：Nintendo Switch Pro 手柄遥控、RViz demo 启动和 Gazebo 展示世界。
 - `src/arachne_hardware`：预留真机驱动包，包含空的夹具串口、底盘串口、Aubo TCP/IP 驱动文件。
 - `scripts`：环境安装、第三方模型下载、可视化启动、URDF 检查和夹爪仿真测试脚本。
 - `docs`：硬件、建模、控制、标定说明，以及阶段报告。
@@ -31,7 +31,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - MS42DC 默认闭合角为 `0.6 rad`。
 - RViz 通过 `scripts/view_model.sh` 启动，会自动清理旧的可视化节点，并打开底盘遥控、机械臂关节滑条、夹爪仿真和 Open/Close 控制窗。
 - 机械臂滑条 GUI 默认从当前用户确认的展示姿态启动；点击 `Center` 会回到这个姿态。
-- `scripts/switch_demo.sh` 可以用 Nintendo Switch 手柄控制底盘、跟随视角、Aubo 关节和夹爪。
+- `scripts/switch_demo.sh` 可以用 Nintendo Switch Pro 手柄控制底盘、跟随视角、Aubo 关节和夹爪。
 
 ## Roadmap
 
@@ -90,7 +90,7 @@ GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
 
 ## Switch 手柄 Demo
 
-先通过蓝牙连接 Nintendo Switch 手柄，然后运行：
+先通过蓝牙连接 Nintendo Switch Pro 手柄，然后运行：
 
 ```bash
 ./scripts/switch_demo.sh
@@ -109,6 +109,8 @@ GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
 INPUT_BACKEND=joy JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh
 INPUT_BACKEND=web ./scripts/switch_demo.sh
 ```
+
+对于 Switch Pro 手柄，WSL2 下通常优先推荐浏览器桥接，因为手柄保持连接在 Windows 蓝牙侧，再由浏览器把标准 Gamepad 状态转发到 ROS2。
 
 默认按键：
 
