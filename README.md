@@ -71,15 +71,26 @@ If they are missing, run:
 
 ## Run The Model
 
-Build the description packages and launch RViz:
+Build the description packages and launch the default MS42DC model in RViz:
 
 ```bash
 cd Arachne
+./scripts/fetch_third_party.sh
+
+# If Conda is active, deactivate it before building ROS packages.
+conda deactivate 2>/dev/null || true
 source /opt/ros/jazzy/setup.bash
+
+# Recommended when switching model variants or after pulling updates.
+rm -rf build/aubo_description build/scout_description build/dh_ag95_description build/arachne_description \
+       install/aubo_description install/scout_description install/dh_ag95_description install/arachne_description
+
 colcon build --base-paths src --packages-select \
-  aubo_description scout_description arachne_description
+  aubo_description scout_description dh_ag95_description arachne_description \
+  --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
+
 source install/setup.bash
-ros2 launch arachne_description display.launch.py
+ros2 launch arachne_description display.launch.py gripper_type:=ms42dc
 ```
 
 For Ubuntu 22.04, source `/opt/ros/humble/setup.bash` instead.
@@ -89,6 +100,8 @@ If the RViz window opens before the robot appears, wait a few seconds. The model
 Quick relaunch after a previous build:
 
 ```bash
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
 ros2 launch arachne_description display.launch.py
 ```
 
@@ -106,13 +119,39 @@ ros2 launch arachne_description display.launch.py \
 To visualize the AG95 variant, build the optional AG95 description package once and launch with `gripper_type:=ag95`:
 
 ```bash
+source /opt/ros/jazzy/setup.bash
 colcon build --base-paths src --packages-select \
-  dh_ag95_description arachne_description
+  dh_ag95_description arachne_description \
+  --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 source install/setup.bash
 ros2 launch arachne_description display.launch.py gripper_type:=ag95
 ```
 
-If Conda is active and `dh_ag95_description` fails to find `catkin_pkg`, deactivate Conda or build with the system Python.
+If Conda is active and `dh_ag95_description` fails to find `catkin_pkg`, deactivate Conda or build with the system Python as shown above.
+
+## RViz Troubleshooting
+
+If RViz opens but the model is blank, first close stale visualization nodes and relaunch:
+
+```bash
+pkill -x rviz2 2>/dev/null || true
+pkill -x robot_state_publisher 2>/dev/null || true
+pkill -x joint_state_publisher 2>/dev/null || true
+
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+ros2 launch arachne_description display.launch.py gripper_type:=ms42dc
+```
+
+In RViz, check that `Global Status` is `Ok`, `RobotModel` is enabled, and `Fixed Frame` is `base_link`. Click `Reset` in the lower-left corner or zoom out if the camera is looking at empty space.
+
+To confirm the model is being published:
+
+```bash
+ros2 topic echo /robot_description --once --qos-durability transient_local
+ros2 topic echo /joint_states --once
+ros2 run tf2_ros tf2_echo base_link ms42dc_body_link
+```
 
 ## Validate
 
