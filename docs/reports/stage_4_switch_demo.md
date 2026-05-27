@@ -4,7 +4,7 @@
 
 Arachne now has an interactive demo path for a Nintendo Switch Pro Controller on both native Linux and WSL2. The default Gazebo showroom opens as a single playable window with body-relative Scout driving, a smoothed robot-following third-person camera, richer terrain props, Aubo joint nudging, MS42DC open/close control, and a diff-drive physics preview. RViz mode remains available for lightweight model inspection.
 
-The Switch Pro left-stick Y axis defaults to `FORWARD_AXIS_SIGN=-1.0`, matching the observed Scout front direction in Gazebo. Left-stick vertical and horizontal travel proportionally control body-frame linear and angular velocity.
+The Switch Pro axes default to `FORWARD_AXIS_SIGN=-1.0` and `LATERAL_AXIS_SIGN=1.0`, matching the observed Scout front and turn direction in Gazebo. Left-stick input uses polar arcade drive: the X/Y circle radius controls instantaneous speed, and the direction splits that speed into body-frame linear and angular velocity.
 
 ## Core Files
 

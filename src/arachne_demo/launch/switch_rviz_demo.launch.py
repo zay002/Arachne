@@ -75,6 +75,8 @@ def generate_launch_description():
                     LaunchConfiguration("lateral_axis_multiplier"), value_type=float
                 ),
                 "odom_topic": LaunchConfiguration("odom_topic"),
+                "reset_topic": LaunchConfiguration("reset_topic"),
+                "base_reset_service": LaunchConfiguration("base_reset_service"),
                 "joint_velocity_scale": ParameterValue(
                     LaunchConfiguration("joint_velocity_scale"), value_type=float
                 ),
@@ -123,6 +125,8 @@ def generate_launch_description():
             DeclareLaunchArgument("forward_axis_multiplier", default_value="-1.0"),
             DeclareLaunchArgument("lateral_axis_multiplier", default_value="1.0"),
             DeclareLaunchArgument("odom_topic", default_value="/odom"),
+            DeclareLaunchArgument("reset_topic", default_value="/arachne/demo/reset"),
+            DeclareLaunchArgument("base_reset_service", default_value="/arachne/base/reset"),
             DeclareLaunchArgument("joint_velocity_scale", default_value="0.85"),
             DeclareLaunchArgument("gazebo_gui_camera", default_value="false"),
             DeclareLaunchArgument("gazebo_camera_distance", default_value="2.0"),

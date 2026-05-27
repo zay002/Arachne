@@ -36,7 +36,7 @@ External model dependencies are restored by `scripts/fetch_third_party.sh`, with
 - MS42DC close target is calibrated to `0.6 rad` by default.
 - RViz starts through `scripts/view_model.sh`, which cleans stale visualization nodes and launches base teleop, arm joint sliders, gripper simulator, and gripper Open/Close GUI.
 - The arm slider GUI starts from the current user-confirmed display pose; pressing `Center` returns to that pose.
-- `scripts/switch_demo.sh` starts an interactive Nintendo Switch Pro controller demo with Gazebo physics, a smoothed third-person camera, body-relative Scout driving, Aubo joint nudging, and gripper commands. The Aubo side is treated as the Scout front, and Gazebo uses a physics-specific Scout wheel setup so forward input drives all four wheels in the same direction.
+- `scripts/switch_demo.sh` starts an interactive Nintendo Switch Pro controller demo with Gazebo physics, a smoothed third-person camera, body-relative Scout driving, Aubo joint nudging, and gripper commands. Gazebo uses a physics-specific Scout wheel setup so forward input drives all four wheels in the same direction.
 
 ## Roadmap
 
@@ -130,12 +130,12 @@ DEMO_MODE=rviz ./scripts/switch_demo.sh
 
 Default controls:
 
-- Left stick: proportional body-frame driving; vertical stick travel controls forward/back speed, horizontal travel controls turn speed, and pushing up moves toward the Aubo arm side.
+- Left stick: proportional body-frame driving; joystick radius controls instantaneous speed, vertical direction controls forward/back, and horizontal direction controls turning.
 - Right stick: orbit the smoothed Gazebo chase camera around the robot.
 - Hold `ZL` + D-pad up/down: move the selected Aubo joint.
 - `L` / `R`: select previous/next Aubo joint.
 - `B`: open gripper. `A`: close gripper.
-- `+`: reset arm to the display pose. `-`: stop base motion.
+- `+` or the browser `RESET` button: reset the base, arm, gripper, and Gazebo demo pose. `-`: stop base motion.
 
 The default Gazebo version opens only the Gazebo showroom window: it uses the real robot meshes, a lighter physics world, dynamic props, a diff-drive physics plugin, Gazebo `/gz/odom`, a controller-driven third-person camera, and direct demo bridges for Aubo joint nudging plus MS42DC open/close control. RViz remains available as a separate lightweight control view while the full ros2_control/Gazebo stack is developed.
 

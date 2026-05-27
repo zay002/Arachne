@@ -9,7 +9,8 @@ from nav_msgs.msg import Odometry
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import Joy, JointState
-from std_msgs.msg import Float64, String
+from std_msgs.msg import Empty, Float64, String
+from std_srvs.srv import Trigger
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,8 @@ class SwitchTeleop(Node):
         self.declare_parameter("close_button", 1)
         self.declare_parameter("reset_pose_button", 9)
         self.declare_parameter("stop_button", 8)
+        self.declare_parameter("reset_topic", "/arachne/demo/reset")
+        self.declare_parameter("base_reset_service", "/arachne/base/reset")
         self.declare_parameter(
             "joint_names",
             [
@@ -81,6 +84,8 @@ class SwitchTeleop(Node):
         odom_topic = self.get_parameter("odom_topic").value
         arm_topic = self.get_parameter("arm_joint_state_topic").value
         gripper_topic = self.get_parameter("gripper_command_topic").value
+        reset_topic = str(self.get_parameter("reset_topic").value)
+        base_reset_service = str(self.get_parameter("base_reset_service").value)
         publish_rate = float(self.get_parameter("publish_rate").value)
         self.joy_timeout = float(self.get_parameter("joy_timeout").value)
         self.deadzone = float(self.get_parameter("deadzone").value)
@@ -131,13 +136,15 @@ class SwitchTeleop(Node):
         self.cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
         self.arm_pub = self.create_publisher(JointState, arm_topic, 10)
         self.gripper_pub = self.create_publisher(String, gripper_topic, 10)
+        self.reset_pub = self.create_publisher(Empty, reset_topic, 10)
+        self.base_reset_client = self.create_client(Trigger, base_reset_service)
         self.create_subscription(Joy, "joy", self._joy_callback, 10)
         self.create_subscription(Float64, camera_yaw_topic, self._camera_yaw_callback, 10)
         self.create_subscription(Odometry, odom_topic, self._odom_callback, 10)
         self.timer = self.create_timer(1.0 / max(publish_rate, 1.0), self._tick)
 
         self.get_logger().info(
-            "Switch teleop ready. Left stick drives proportional body-frame linear/angular velocity; "
+            "Switch teleop ready. Left stick uses polar arcade drive in robot coordinates; "
             "right stick controls the demo camera; "
             "hold ZL + D-pad up/down moves the selected Aubo joint; L/R select joint; "
             "B opens, A closes."
@@ -159,8 +166,7 @@ class SwitchTeleop(Node):
         if self.close_button in edges.pressed:
             self._publish_gripper_command("close")
         if self.reset_pose_button in edges.pressed:
-            self.positions = list(self.default_positions)
-            self.get_logger().info("Reset Aubo arm to demo pose")
+            self._reset_demo_pose()
         if self.stop_button in edges.pressed:
             self.active_twist = Twist()
             self.cmd_pub.publish(self.active_twist)
@@ -201,20 +207,7 @@ class SwitchTeleop(Node):
 
     def _drive_twist(self, joy: Joy, speed_multiplier: float) -> Twist:
         if self.drive_mode != "third_person":
-            twist = Twist()
-            twist.linear.x = (
-                self.forward_axis_multiplier
-                * self._axis(joy, self.linear_axis)
-                * self.linear_scale
-                * speed_multiplier
-            )
-            twist.angular.z = (
-                self.lateral_axis_multiplier
-                * self._axis(joy, self.angular_axis)
-                * self.angular_scale
-                * speed_multiplier
-            )
-            return twist
+            return self._body_drive_twist(joy, speed_multiplier)
 
         forward = self.forward_axis_multiplier * self._axis(joy, self.linear_axis)
         lateral = self.lateral_axis_multiplier * self._axis(joy, self.angular_axis)
@@ -241,6 +234,25 @@ class SwitchTeleop(Node):
             -self.angular_scale * speed_multiplier,
             self.angular_scale * speed_multiplier,
         )
+        return twist
+
+    def _body_drive_twist(self, joy: Joy, speed_multiplier: float) -> Twist:
+        forward_raw = self.forward_axis_multiplier * self._raw_axis(joy, self.linear_axis)
+        lateral_raw = self.lateral_axis_multiplier * self._raw_axis(joy, self.angular_axis)
+        raw_radius = math.hypot(forward_raw, lateral_raw)
+
+        twist = Twist()
+        if raw_radius < self.deadzone:
+            return twist
+
+        direction_radius = max(raw_radius, 1e-6)
+        speed_radius = min((min(raw_radius, 1.0) - self.deadzone) / max(1.0 - self.deadzone, 1e-6), 1.0)
+        speed_radius = (1.0 - self.axis_curve) * speed_radius + self.axis_curve * speed_radius * speed_radius
+
+        forward_unit = forward_raw / direction_radius
+        lateral_unit = lateral_raw / direction_radius
+        twist.linear.x = forward_unit * speed_radius * self.linear_scale * speed_multiplier
+        twist.angular.z = lateral_unit * speed_radius * self.angular_scale * speed_multiplier
         return twist
 
     def _smooth_twist(self, target: Twist, dt: float) -> Twist:
@@ -279,6 +291,17 @@ class SwitchTeleop(Node):
         self.gripper_pub.publish(msg)
         self.get_logger().info(f"Gripper command: {command}")
 
+    def _reset_demo_pose(self) -> None:
+        self.positions = list(self.default_positions)
+        self.active_twist = Twist()
+        self.cmd_pub.publish(self.active_twist)
+        self.reset_pub.publish(Empty())
+
+        if self.base_reset_client.service_is_ready():
+            self.base_reset_client.call_async(Trigger.Request())
+
+        self.get_logger().info("Reset demo pose: base, Aubo arm, and Gazebo demo state")
+
     def _select_joint(self, index: int) -> None:
         self.selected_joint_index = index % len(self.joint_names)
         self._log_selected_joint()
@@ -288,15 +311,18 @@ class SwitchTeleop(Node):
         self.get_logger().info(f"Selected arm joint: {joint}")
 
     def _axis(self, joy: Joy, index: int) -> float:
-        if index < 0 or index >= len(joy.axes):
-            return 0.0
-        value = float(joy.axes[index])
+        value = self._raw_axis(joy, index)
         magnitude = abs(value)
         if magnitude < self.deadzone:
             return 0.0
         scaled = min((magnitude - self.deadzone) / max(1.0 - self.deadzone, 1e-6), 1.0)
         curved = (1.0 - self.axis_curve) * scaled + self.axis_curve * scaled * scaled
         return math.copysign(curved, value)
+
+    def _raw_axis(self, joy: Joy, index: int) -> float:
+        if index < 0 or index >= len(joy.axes):
+            return 0.0
+        return self._clamp(float(joy.axes[index]), -1.0, 1.0)
 
     def _clamp(self, value: float, lower: float, upper: float) -> float:
         return min(max(value, lower), upper)

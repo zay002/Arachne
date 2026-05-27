@@ -111,7 +111,7 @@ The control layer should remain split by hardware device while sharing the unifi
 
 `src/arachne_demo` adds a Nintendo Switch Pro controller-driven demo path:
 
-- `switch_teleop.py`: maps `sensor_msgs/msg/Joy` to `/cmd_vel`, `/arachne/gui_joint_states`, and `/arachne/gripper/command`. In third-person mode it turns in place for strong side input and backs up for rearward input instead of always driving forward.
+- `switch_teleop.py`: maps `sensor_msgs/msg/Joy` to `/cmd_vel`, `/arachne/gui_joint_states`, `/arachne/gripper/command`, and `/arachne/demo/reset`. Body mode uses polar arcade drive: joystick radius controls instantaneous speed, while X/Y direction splits that speed into turning and forward/back motion.
 - `camera_follow_controller.py`: maps the right stick to a robot-relative orbit angle, publishes `/arachne/camera_yaw`, and publishes `arachne_view_frame` for the RViz-only third-person view.
 - `src/arachne_gazebo/gazebo_camera_track_bridge.cpp`: converts the ROS camera offset topic to Gazebo `/gui/track` messages, avoiding repeated `gz service` subprocess calls.
 - `src/arachne_gazebo/gazebo_demo_control_bridge.cpp`: mirrors MS42DC open/close commands into two Gazebo finger controllers and forwards Aubo joint-state targets to Gazebo joint trajectory commands.
@@ -133,9 +133,9 @@ INPUT_BACKEND=joy JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh
 INPUT_BACKEND=web ./scripts/switch_demo.sh
 ```
 
-With the web backend, open `http://127.0.0.1:8787` in the browser and press any Switch Pro button. The left stick drives the Scout in its own body frame: vertical stick travel controls forward/back speed, horizontal travel controls turn speed, and pushing up moves toward the Aubo arm side. The right stick orbits the Gazebo follower camera. `B` / `A` open and close the gripper; `ZL` + D-pad up/down moves the selected Aubo joint.
+With the web backend, open `http://127.0.0.1:8787` in the browser and press any Switch Pro button. The left stick drives the Scout in its own body frame: joystick radius controls instantaneous speed, vertical direction controls forward/back, and horizontal direction controls turning. The right stick orbits the Gazebo follower camera. `B` / `A` open and close the gripper; `ZL` + D-pad up/down moves the selected Aubo joint. `+` or the browser `RESET` button resets the base, arm, gripper, and Gazebo demo pose.
 
-The Switch Pro web-bridge default uses `forward_axis_multiplier=-1.0`. If another controller reports left-stick Y in the opposite direction, run `FORWARD_AXIS_SIGN=1.0 ./scripts/switch_demo.sh`.
+The Switch Pro web-bridge defaults use `forward_axis_multiplier=-1.0` and `lateral_axis_multiplier=1.0`. If another controller reports an axis in the opposite direction, run `FORWARD_AXIS_SIGN=1.0 ./scripts/switch_demo.sh` or `LATERAL_AXIS_SIGN=-1.0 ./scripts/switch_demo.sh`.
 
 The default camera distance is `2.0 m`; tune it with `GAZEBO_CAMERA_DISTANCE=1.7 ./scripts/switch_demo.sh` if a closer or wider capture is needed.
 

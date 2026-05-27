@@ -70,6 +70,8 @@ def launch_setup(context, *args, **kwargs):
             "web_gamepad_port": LaunchConfiguration("web_gamepad_port"),
             "forward_axis_multiplier": LaunchConfiguration("forward_axis_multiplier"),
             "lateral_axis_multiplier": LaunchConfiguration("lateral_axis_multiplier"),
+            "reset_topic": LaunchConfiguration("reset_topic"),
+            "base_reset_service": LaunchConfiguration("base_reset_service"),
             "with_base_sim": "false",
             "odom_topic": "/gz/odom",
             "gazebo_gui_camera": "true",
@@ -116,6 +118,8 @@ def launch_setup(context, *args, **kwargs):
         parameters=[
             {
                 "gripper_type": LaunchConfiguration("gripper_type"),
+                "reset_topic": LaunchConfiguration("reset_topic"),
+                "world_name": LaunchConfiguration("world_name"),
                 "gripper_closed_position": 0.6,
                 "arm_trajectory_topic": "/model/arachne/joint_trajectory",
             }
@@ -166,6 +170,8 @@ def generate_launch_description():
             DeclareLaunchArgument("web_gamepad_port", default_value="8787"),
             DeclareLaunchArgument("forward_axis_multiplier", default_value="-1.0"),
             DeclareLaunchArgument("lateral_axis_multiplier", default_value="1.0"),
+            DeclareLaunchArgument("reset_topic", default_value="/arachne/demo/reset"),
+            DeclareLaunchArgument("base_reset_service", default_value="/arachne/base/reset"),
             DeclareLaunchArgument("gazebo_camera_distance", default_value="2.0"),
             DeclareLaunchArgument(
                 "gazebo_camera_offset_topic",

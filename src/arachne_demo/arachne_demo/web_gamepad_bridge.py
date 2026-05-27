@@ -31,6 +31,8 @@ HTML = """<!doctype html>
     .panel { border: 1px solid #2b3540; border-radius: 8px; padding: 20px; background: #171d23; }
     .status { font-size: 18px; margin: 14px 0; color: #9dffbd; }
     .muted { color: #93a0ad; font-size: 14px; }
+    button { border: 1px solid #44515e; border-radius: 6px; padding: 9px 14px; background: #202a33; color: #f4f7f9; font: inherit; cursor: pointer; }
+    button:hover { background: #2a3642; }
   </style>
 </head>
 <body>
@@ -39,13 +41,15 @@ HTML = """<!doctype html>
   <div class="panel">
     <div class="status" id="status">Press any Switch Pro button...</div>
     <p>WSL2 cannot always read the Switch Pro Controller as <code>/dev/input/js0</code>. Keep this page open; it forwards the browser Gamepad API to ROS2 <code>/joy</code>.</p>
-    <p>Left stick proportionally drives body-frame forward/back speed and turn speed; the Aubo arm side is the front. Right stick orbits the Gazebo camera. B/A open and close the gripper.</p>
+    <p>Left stick uses radius-based body-frame driving. Right stick orbits the Gazebo camera. B/A open and close the gripper.</p>
+    <button id="resetBtn" type="button">RESET</button>
     <p class="muted" id="detail">No controller detected yet.</p>
   </div>
 </main>
 <script>
 const statusEl = document.getElementById("status");
 const detailEl = document.getElementById("detail");
+const resetBtn = document.getElementById("resetBtn");
 let lastSent = 0;
 
 function dz(v, deadzone = 0.06) {
@@ -78,6 +82,15 @@ async function sendJoy(payload) {
   });
 }
 
+async function sendButtonPulse(buttonIndex) {
+  const buttons = Array.from({length: 17}, () => 0);
+  buttons[buttonIndex] = 1;
+  await sendJoy({id: "web-reset", axes: [0, 0, 0, 0], buttons});
+  await new Promise(resolve => setTimeout(resolve, 120));
+  buttons[buttonIndex] = 0;
+  await sendJoy({id: "web-reset", axes: [0, 0, 0, 0], buttons});
+}
+
 function tick(ts) {
   const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
   if (pads.length === 0) {
@@ -107,6 +120,11 @@ function tick(ts) {
 
 window.addEventListener("gamepadconnected", event => {
   statusEl.textContent = "Connected: " + event.gamepad.id;
+});
+resetBtn.addEventListener("click", () => {
+  sendButtonPulse(9).catch(() => {
+    statusEl.textContent = "Bridge server is not reachable.";
+  });
 });
 requestAnimationFrame(tick);
 </script>
