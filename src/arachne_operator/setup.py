@@ -1,3 +1,5 @@
+from glob import glob
+
 from setuptools import find_packages, setup
 
 package_name = "arachne_operator"
@@ -9,7 +11,7 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
-        (f"share/{package_name}/launch", ["launch/operator_panel.launch.py"]),
+        (f"share/{package_name}/launch", glob("launch/*.launch.py")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -20,6 +22,7 @@ setup(
     entry_points={
         "console_scripts": [
             "operator_panel = arachne_operator.operator_panel:main",
+            "sequence_executor = arachne_operator.sequence_executor:main",
         ],
     },
 )

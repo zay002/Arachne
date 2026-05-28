@@ -116,6 +116,7 @@ GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
 ```bash
 ros2 launch arachne_hardware mock_bringup.launch.py
 ros2 launch arachne_operator operator_panel.launch.py
+ros2 launch arachne_operator sequence_executor.launch.py
 ```
 
 启动 ros2_control mock 控制器：
@@ -137,6 +138,8 @@ ros2 launch arachne_nav nav2_sim.launch.py
 ```
 
 默认会同时启动轻量底盘仿真和 mock `map -> odom` 变换，因此在 lidar/定位硬件尚未接入时 Nav2 也能进入 active。后续如果由真实定位或 SLAM 提供 `map -> odom`，启动时加 `with_mock_map_odom:=false`。
+
+`sequence_executor` 是一个轻量高层命令入口。它通过 `/arachne/sequence/command` 接收机械臂预设、夹爪命令、demo 序列和 Nav2 目标，例如 `ready`、`open`、`demo_pick` 或 `goto 1.0 0.0 0.0`。
 
 这些入口目前用于接口验证。下一轮需要在 RViz/Gazebo 中继续调 planning group、控制器行为、Nav2 costmap 和安全门控。
 

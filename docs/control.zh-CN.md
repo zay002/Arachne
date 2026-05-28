@@ -153,6 +153,7 @@ ros2 launch arachne_hardware real_bringup.launch.py \
 - `arachne_nav`：Scout 的 Nav2 起步参数，使用 `/cmd_vel`、`/odom`、`map -> odom -> base_link` 和 lidar scan 契约。
 - `arachne_hardware/mock_bringup.launch.py`：无真实设备时发布仿真硬件状态。
 - `arachne_operator`：Tk 状态面板，用于查看 safety、底盘/Aubo/夹爪状态、里程计，并提供停止和夹爪 Open/Close。
+- `arachne_operator/sequence_executor.py`：机械臂预设、夹爪命令、简单 demo 序列和 Nav2 目标的高层命令入口。
 
 运行仓库级检查：
 
@@ -165,6 +166,7 @@ ros2 launch arachne_hardware real_bringup.launch.py \
 ```bash
 ros2 launch arachne_hardware mock_bringup.launch.py
 ros2 launch arachne_operator operator_panel.launch.py
+ros2 launch arachne_operator sequence_executor.launch.py
 ```
 
 启动 ros2_control mock 硬件：
@@ -186,6 +188,14 @@ ros2 launch arachne_nav nav2_sim.launch.py
 ```
 
 默认启动方式面向无真机测试：它会启动运动学底盘仿真，并提供 mock `map -> odom` 变换。后续由定位或 SLAM 接管 `map -> odom` 时，使用 `with_mock_map_odom:=false` 关闭该 mock 变换。
+
+高层命令可以发送到 `/arachne/sequence/command`：
+
+```bash
+ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: ready}"
+ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: demo_pick}"
+ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: 'goto 1.0 0.0 0.0'}"
+```
 
 ## Nintendo Switch Demo
 

@@ -121,6 +121,7 @@ Mock hardware bringup:
 ```bash
 ros2 launch arachne_hardware mock_bringup.launch.py
 ros2 launch arachne_operator operator_panel.launch.py
+ros2 launch arachne_operator sequence_executor.launch.py
 ```
 
 ros2_control mock controller launch:
@@ -142,6 +143,8 @@ ros2 launch arachne_nav nav2_sim.launch.py
 ```
 
 By default this uses the lightweight base simulator and a mock `map -> odom` transform, so Nav2 can become active before lidar/localization hardware is available. When a real localization or SLAM stack provides `map -> odom`, launch with `with_mock_map_odom:=false`.
+
+The sequence executor is a small high-level command surface. It accepts arm presets, gripper commands, demo sequences, and Nav2 goals through `/arachne/sequence/command`; for example `ready`, `open`, `demo_pick`, or `goto 1.0 0.0 0.0`.
 
 These entries are intended for interface validation before real hardware arrives. The next tuning pass is to validate planning groups, controller behavior, Nav2 costmaps, and safety gating under RViz/Gazebo.
 

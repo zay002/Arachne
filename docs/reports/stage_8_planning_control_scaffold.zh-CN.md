@@ -12,12 +12,12 @@
 - `src/arachne_hardware/arachne_hardware/safety_state_machine.py`：manual/autonomous/disabled/estop 状态服务。
 - `src/arachne_hardware/arachne_hardware/safety_cmd_vel_gate.py`：可选 `/cmd_vel` 安全门控路径。
 - `src/arachne_hardware/arachne_hardware/hardware_mock.py`：无硬件时发布 odom、joint state 和硬件状态。
-- `src/arachne_operator/`：带 safety、stop 和夹爪控制的 Tk operator 状态面板。
+- `src/arachne_operator/`：Tk operator 状态面板，以及用于机械臂预设、夹爪命令、demo 序列和 Nav2 目标的 `sequence_executor.py`。
 - `scripts/check_workspace.sh`：一条命令完成语法、Xacro、SRDF、构建和 launch smoke check。
 
 ## 文件关系
 
-Mock 硬件会发布与真机 bringup 相同的高层状态。MoveIt2 和 ros2_control 共享 `arachne_description` 中的 Aubo 与夹爪关节名。Nav2 使用与 RViz、Gazebo 和真实 Scout bringup 相同的 `/cmd_vel` 与 `/odom` 契约；其仿真 launch 会在定位或 SLAM 接入前临时提供 mock `map -> odom` 变换。Operator 面板监听这些共享状态话题，因此可用于 mock、仿真或真机会话。
+Mock 硬件会发布与真机 bringup 相同的高层状态。MoveIt2 和 ros2_control 共享 `arachne_description` 中的 Aubo 与夹爪关节名。Nav2 使用与 RViz、Gazebo 和真实 Scout bringup 相同的 `/cmd_vel` 与 `/odom` 契约；其仿真 launch 会在定位或 SLAM 接入前临时提供 mock `map -> odom` 变换。Operator 面板监听这些共享状态话题，sequence executor 则把简单高层命令映射到同一套底层契约。
 
 ## 下一步
 

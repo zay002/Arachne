@@ -12,12 +12,12 @@ Prepare the parts that can be developed before real hardware arrives: MoveIt2, r
 - `src/arachne_hardware/arachne_hardware/safety_state_machine.py`: manual/autonomous/disabled/estop state services.
 - `src/arachne_hardware/arachne_hardware/safety_cmd_vel_gate.py`: optional gated `/cmd_vel` path.
 - `src/arachne_hardware/arachne_hardware/hardware_mock.py`: no-hardware publisher for odom, joint states, and hardware status.
-- `src/arachne_operator/`: Tk operator status panel with safety, stop, and gripper controls.
+- `src/arachne_operator/`: Tk operator status panel plus `sequence_executor.py` for arm presets, gripper commands, demo sequences, and Nav2 goals.
 - `scripts/check_workspace.sh`: one-command syntax, Xacro, SRDF, build, and launch smoke check.
 
 ## Relationships
 
-The mock hardware publishes the same high-level state expected from the real bringup. MoveIt2 and ros2_control share the Aubo and gripper joint names from `arachne_description`. Nav2 uses the same `/cmd_vel` and `/odom` contract as RViz, Gazebo, and real Scout bringup; its sim launch adds a mock `map -> odom` transform until localization or SLAM is connected. The operator panel watches these shared status topics, so it can be used in mock, simulated, or real sessions.
+The mock hardware publishes the same high-level state expected from the real bringup. MoveIt2 and ros2_control share the Aubo and gripper joint names from `arachne_description`. Nav2 uses the same `/cmd_vel` and `/odom` contract as RViz, Gazebo, and real Scout bringup; its sim launch adds a mock `map -> odom` transform until localization or SLAM is connected. The operator panel watches these shared status topics, and the sequence executor maps simple high-level commands onto the same low-level contracts.
 
 ## Next Work
 

@@ -153,6 +153,7 @@ The pre-hardware control skeleton is split into standard packages:
 - `arachne_nav`: Nav2 starter params for Scout using `/cmd_vel`, `/odom`, `map -> odom -> base_link`, and the lidar scan contract.
 - `arachne_hardware/mock_bringup.launch.py`: simulated hardware status and state output without real devices.
 - `arachne_operator`: Tk status panel for safety state, base/Aubo/gripper status, odometry, stop, and gripper Open/Close.
+- `arachne_operator/sequence_executor.py`: high-level command entry for arm presets, gripper commands, simple demo sequences, and Nav2 goals.
 
 Run all repository-level checks:
 
@@ -165,6 +166,7 @@ Launch mock hardware plus the operator panel:
 ```bash
 ros2 launch arachne_hardware mock_bringup.launch.py
 ros2 launch arachne_operator operator_panel.launch.py
+ros2 launch arachne_operator sequence_executor.launch.py
 ```
 
 Launch ros2_control with mock hardware:
@@ -186,6 +188,14 @@ ros2 launch arachne_nav nav2_sim.launch.py
 ```
 
 The default launch is self-contained for pre-hardware testing: it starts the kinematic base simulator and a mock `map -> odom` transform. Disable that transform with `with_mock_map_odom:=false` once localization or SLAM owns `map -> odom`.
+
+High-level commands can be sent through `/arachne/sequence/command`:
+
+```bash
+ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: ready}"
+ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: demo_pick}"
+ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: 'goto 1.0 0.0 0.0'}"
+```
 
 ## Nintendo Switch Demo
 
