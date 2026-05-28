@@ -12,24 +12,37 @@ The default hardware model is Scout 2.0 + Aubo i5 + Yizhua Robot MS42DC two-fing
 
 The current milestone is a reliable robot description plus interactive demos: one connected TF tree, real upstream Scout/Aubo/AG95 descriptions, a user-created movable MS42DC split mesh model, lightweight gripper open/close simulation, and a playable Gazebo showroom.
 
+## Manual Map
+
+- [What Is Included](#what-is-included): package-level project map.
+- [Current State](#current-state): what is already working.
+- [Roadmap](#roadmap): near-term engineering direction.
+- [Quick Start](#quick-start): build and open the default RViz model.
+- [Planning And Control Skeleton](#planning-and-control-skeleton): MoveIt2, Nav2, ros2_control, sequence execution, and VLA/WAM action chunks.
+- [Real Hardware ROS Bringup](#real-hardware-ros-bringup): Scout, MS42DC, and Aubo vendor ROS integration.
+- [Switch Demo](#switch-demo), [Gazebo Autonomous Pick](#gazebo-autonomous-pick), and [Godot Showcase](#godot-showcase): interactive demos.
+- [Useful Commands](#useful-commands), [Key Frames](#key-frames), and [Reports](#reports): maintenance references.
+
+Related documents: [modeling](docs/modeling.md), [control](docs/control.md), [hardware](docs/hardware.md), [calibration](docs/calibration.md), and [references](docs/references.md).
+
 ## What Is Included
 
-- `src/arachne_description`: unified Xacro/URDF, RViz config, model variants, mount frames, sensor frames, and MS42DC/AG95 gripper adapters.
-- `src/arachne_sim`: RViz-oriented base simulation, `/cmd_vel` integration, odometry TF, wheel joint states, and a small base teleop GUI.
-- `src/arachne_gripper`: simulated gripper controller, joint-state mux, and a small `Open` / `Close` GUI.
-- `src/arachne_demo`: Nintendo Switch Pro controller teleop, RViz demo launch, Gazebo showroom launch, and Gazebo autonomous pick validation.
-- `src/arachne_gazebo`: Gazebo helper nodes for smooth GUI camera tracking and demo arm/gripper commands.
-- `src/arachne_hardware`: real-hardware bringup wrapper package. It delegates device control to official/vendor ROS packages for Scout 2.0, Aubo i5, and MS42DC, while keeping Arachne-specific status and command bridges.
-- `src/arachne_control`: shared ros2_control controller names, mock controller launch, and sim/mock/real hardware profiles.
-- `src/arachne_moveit_config`: MoveIt2 starter configuration for Aubo i5 with MS42DC or AG95 end-effectors.
-- `src/arachne_nav`: Nav2 starter configuration for Scout navigation over the shared `/cmd_vel` and `/odom` contract.
-- `src/arachne_operator`: lightweight Tk operator panel, sequence executor, and VLA/WAM action-chunk translator for safety state, hardware status, odometry, base stop, gripper Open/Close, and external policy integration.
-- `godot/arachne_showcase`: Godot 4.x high-FPS showcase frontend with visual teleop, follow camera, arm presets, pickable-object demo logic, and ROS2 bridge placeholders.
-- `scripts`: setup, third-party fetch, gripper switching, model visualization, URDF check, and gripper smoke-test helpers.
-- `docs`: hardware/modeling/control/calibration notes and stage reports, with matching `*.zh-CN.md` Chinese versions.
-- `docs/demo/arachne.png`: project showcase image for the repository front page.
-- `docs/demo/model_compare.png`: current MS42DC and AG95 model showcase.
-- `third_party/MS42DC.step` and `third_party/MS42DC_SPLIT/*.stl`: source CAD and user-created movable split parts for the MS42DC gripper.
+- [src/arachne_description](src/arachne_description): unified Xacro/URDF, RViz config, model variants, mount frames, sensor frames, and MS42DC/AG95 gripper adapters.
+- [src/arachne_sim](src/arachne_sim): RViz-oriented base simulation, `/cmd_vel` integration, odometry TF, wheel joint states, and a small base teleop GUI.
+- [src/arachne_gripper](src/arachne_gripper): simulated gripper controller, joint-state mux, and a small `Open` / `Close` GUI.
+- [src/arachne_demo](src/arachne_demo): Nintendo Switch Pro controller teleop, RViz demo launch, Gazebo showroom launch, and Gazebo autonomous pick validation.
+- [src/arachne_gazebo](src/arachne_gazebo): Gazebo helper nodes for smooth GUI camera tracking and demo arm/gripper commands.
+- [src/arachne_hardware](src/arachne_hardware): real-hardware bringup wrapper package. It delegates device control to official/vendor ROS packages for Scout 2.0, Aubo i5, and MS42DC, while keeping Arachne-specific status and command bridges.
+- [src/arachne_control](src/arachne_control): shared ros2_control controller names, mock controller launch, and sim/mock/real hardware profiles.
+- [src/arachne_moveit_config](src/arachne_moveit_config): MoveIt2 starter configuration for Aubo i5 with MS42DC or AG95 end-effectors.
+- [src/arachne_nav](src/arachne_nav): Nav2 starter configuration for Scout navigation over the shared `/cmd_vel` and `/odom` contract.
+- [src/arachne_operator](src/arachne_operator): lightweight Tk operator panel, sequence executor, and VLA/WAM action-chunk translator for safety state, hardware status, odometry, base stop, gripper Open/Close, and external policy integration.
+- [godot/arachne_showcase](godot/arachne_showcase): Godot 4.x high-FPS showcase frontend with visual teleop, follow camera, arm presets, pickable-object demo logic, and ROS2 bridge placeholders.
+- [scripts](scripts): setup, third-party fetch, gripper switching, model visualization, URDF check, and gripper smoke-test helpers.
+- [docs](docs): hardware/modeling/control/calibration notes and stage reports, with matching `*.zh-CN.md` Chinese versions.
+- [docs/demo/arachne.png](docs/demo/arachne.png): project showcase image for the repository front page.
+- [docs/demo/model_compare.png](docs/demo/model_compare.png): current MS42DC and AG95 model showcase.
+- [third_party/MS42DC.step](third_party/MS42DC.step) and [third_party/MS42DC_SPLIT](third_party/MS42DC_SPLIT): source CAD and user-created movable split parts for the MS42DC gripper.
 
 External dependencies are restored by `scripts/fetch_third_party.sh`, with pinned revisions for reproducible setup. `build/`, `install/`, and `log/` are standard colcon outputs generated during local builds.
 
@@ -125,6 +138,8 @@ The pre-hardware planning/control stack can be checked without any physical devi
 ./scripts/check_workspace.sh
 ```
 
+More detail lives in [docs/control.md](docs/control.md). The main code entry points are [prehardware_control.launch.py](src/arachne_control/launch/prehardware_control.launch.py), [sequence_executor.py](src/arachne_operator/arachne_operator/sequence_executor.py), and [action_chunk_translator.py](src/arachne_operator/arachne_operator/action_chunk_translator.py).
+
 One-command pre-hardware control bringup:
 
 ```bash
@@ -179,6 +194,8 @@ Arachne does not reimplement the low-level device protocols. The real-hardware p
 - MS42DC: vendor `step_motor` ROS2 package from the local MS42DC materials. Its `motor_node` owns the serial port; `ms42dc_official_bridge` maps `/arachne/gripper/command` to the vendor `motor_control` topic.
 - Aubo i5: `AuboRobot/aubo_ros2_driver`, launched with `aubo_type:=aubo_i5`, `robot_ip:=...`, and `use_fake_hardware:=false`.
 
+See [docs/hardware.md](docs/hardware.md), [real_bringup.launch.py](src/arachne_hardware/launch/real_bringup.launch.py), and [real_hardware.yaml](src/arachne_hardware/config/real_hardware.yaml) when wiring the physical devices.
+
 Prepare the vendor packages:
 
 ```bash
@@ -228,6 +245,8 @@ Connect the Nintendo Switch Pro Controller over Bluetooth, then run the playable
 ./scripts/switch_demo.sh
 ```
 
+Relevant files: [scripts/switch_demo.sh](scripts/switch_demo.sh), [switch_gazebo_demo.launch.py](src/arachne_demo/launch/switch_gazebo_demo.launch.py), [switch_teleop.py](src/arachne_demo/arachne_demo/switch_teleop.py), and [arachne_showroom.sdf](src/arachne_demo/worlds/arachne_showroom.sdf).
+
 On native Linux, `switch_demo.sh` uses `/dev/input/js0` when it exists. In WSL2, or when no joystick device is available, it automatically starts a browser bridge:
 
 ```bash
@@ -273,6 +292,8 @@ Run the known-world autonomy validation:
 ./scripts/gazebo_autopick_demo.sh
 ```
 
+Relevant files: [scripts/gazebo_autopick_demo.sh](scripts/gazebo_autopick_demo.sh), [gazebo_autopick_demo.launch.py](src/arachne_demo/launch/gazebo_autopick_demo.launch.py), and [gazebo_autopick_planner.py](src/arachne_demo/arachne_demo/gazebo_autopick_planner.py).
+
 This launches Gazebo without the manual teleop node. The planner uses the showroom's known obstacle map to continuously refresh a 2D A* route for Scout, follows it with a turn-then-drive pure-pursuit controller, parks the robot about `0.78 m` in front of the visible ground `pick_bottle` near `(3.4, -2.35)`, then computes Aubo joint targets every control tick with damped least-squares position IK from the current base-to-object pose. Arm commands are sent both as `/arachne/gui_joint_states` and as direct Gazebo joint-position topics bridged through `ros_gz_bridge`; MS42DC open/close still goes through the Gazebo demo bridge. It is a validation step toward MoveIt2 and full ros2_control, not the final hardware planner.
 
 <p align="center">
@@ -306,6 +327,8 @@ GRIPPER_CLOSED_POSITION=0.58 ./scripts/view_model.sh
 ## Godot Showcase
 
 The Godot frontend is a high-FPS third-person playable demo for presentations and portfolio videos. It loads the existing Scout 2.0, Aubo i5, MS42DC, AG95, and prop meshes through local links, then runs a flat office-style map with proportional keyboard/gamepad driving, collision-aware Scout movement, pushable props, visual suspension, follow-camera smoothing, MS42DC open/close animation, and Aubo preset interpolation. The Aubo arm uses an orange/black showcase finish, and the map includes reproducibly scattered pickable bottles and balls.
+
+Relevant files: [godot/arachne_showcase](godot/arachne_showcase), [scripts/godot_showcase.sh](scripts/godot_showcase.sh), [scripts/fetch_godot_assets.sh](scripts/fetch_godot_assets.sh), and [scripts/test_godot_showcase.sh](scripts/test_godot_showcase.sh).
 
 <p align="center">
   <img src="docs/demo/godot.png" alt="Arachne Godot showcase frontend" width="900">
@@ -393,14 +416,14 @@ base_link
 
 ## Reports
 
-- `docs/reports/stage_0_repository_foundation.md`
-- `docs/reports/stage_1_unified_robot_model.md`
-- `docs/reports/stage_2_gripper_sim_control.md`
-- `docs/reports/stage_3_joint_sim_control.md`
-- `docs/reports/stage_4_switch_demo.md`
-- `docs/reports/stage_5_godot_showcase.md`
-- `docs/reports/stage_6_gazebo_autonomy.md`
-- `docs/reports/stage_7_real_hardware_ros_bringup.md`
-- `docs/reports/stage_8_planning_control_scaffold.md`
+- [stage 0: repository foundation](docs/reports/stage_0_repository_foundation.md)
+- [stage 1: unified robot model](docs/reports/stage_1_unified_robot_model.md)
+- [stage 2: gripper sim control](docs/reports/stage_2_gripper_sim_control.md)
+- [stage 3: joint sim control](docs/reports/stage_3_joint_sim_control.md)
+- [stage 4: Switch demo](docs/reports/stage_4_switch_demo.md)
+- [stage 5: Godot showcase](docs/reports/stage_5_godot_showcase.md)
+- [stage 6: Gazebo autonomy](docs/reports/stage_6_gazebo_autonomy.md)
+- [stage 7: real hardware ROS bringup](docs/reports/stage_7_real_hardware_ros_bringup.md)
+- [stage 8: planning/control scaffold](docs/reports/stage_8_planning_control_scaffold.md)
 
 Chinese versions are stored beside each maintained document as `*.zh-CN.md`.
