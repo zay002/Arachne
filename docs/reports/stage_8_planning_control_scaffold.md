@@ -17,7 +17,7 @@ Prepare the parts that can be developed before real hardware arrives: MoveIt2, r
 
 ## Relationships
 
-The combined prehardware launch starts mock hardware, Nav2, MoveIt2, the sequence executor, and the optional operator panel. MoveIt2 and ros2_control share the Aubo and gripper joint names from `arachne_description`. Nav2 uses the same `/cmd_vel` and `/odom` contract as RViz, Gazebo, and real Scout bringup; its sim launch adds a mock `map -> odom` transform until localization or SLAM is connected. The operator panel watches these shared status topics, and the sequence executor maps simple high-level commands onto the same low-level contracts.
+The combined prehardware launch starts mock hardware, Nav2, MoveIt2, the sequence executor, and the optional operator panel. MoveIt2 and ros2_control share the Aubo and gripper joint names from `arachne_description`. Nav2 uses the same `/cmd_vel` and `/odom` contract as RViz, Gazebo, and real Scout bringup; its sim launch adds a mock `map -> odom` transform until localization or SLAM is connected. The operator panel watches these shared status topics, and the sequence executor maps high-level task commands onto the same low-level contracts with status, stop, timeout, and Nav2 result handling.
 
 ## Next Work
 

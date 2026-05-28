@@ -153,7 +153,7 @@ The pre-hardware control skeleton is split into standard packages:
 - `arachne_nav`: Nav2 starter params for Scout using `/cmd_vel`, `/odom`, `map -> odom -> base_link`, and the lidar scan contract.
 - `arachne_hardware/mock_bringup.launch.py`: simulated hardware status and state output without real devices.
 - `arachne_operator`: Tk status panel for safety state, base/Aubo/gripper status, odometry, stop, and gripper Open/Close.
-- `arachne_operator/sequence_executor.py`: high-level command entry for arm presets, gripper commands, simple demo sequences, and Nav2 goals.
+- `arachne_operator/sequence_executor.py`: high-level task executor for arm presets, gripper commands, demo sequences, and Nav2 goals, with status, stop, timeout, and Nav2 result handling.
 - `arachne_control/prehardware_control.launch.py`: combined mock bringup for Nav2, MoveIt2, sequence execution, and optional operator panel.
 
 Run all repository-level checks:
@@ -201,8 +201,11 @@ High-level commands can be sent through `/arachne/sequence/command`:
 ```bash
 ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: ready}"
 ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: demo_pick}"
+ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: demo_nav_pick}"
 ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: 'goto 1.0 0.0 0.0'}"
 ```
+
+Task progress is published on `/arachne/sequence/status`. The `stop` command cancels the current task, stops `/cmd_vel`, commands the gripper to stop, and attempts to cancel an active Nav2 goal.
 
 ## Nintendo Switch Demo
 

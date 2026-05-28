@@ -153,7 +153,7 @@ ros2 launch arachne_hardware real_bringup.launch.py \
 - `arachne_nav`：Scout 的 Nav2 起步参数，使用 `/cmd_vel`、`/odom`、`map -> odom -> base_link` 和 lidar scan 契约。
 - `arachne_hardware/mock_bringup.launch.py`：无真实设备时发布仿真硬件状态。
 - `arachne_operator`：Tk 状态面板，用于查看 safety、底盘/Aubo/夹爪状态、里程计，并提供停止和夹爪 Open/Close。
-- `arachne_operator/sequence_executor.py`：机械臂预设、夹爪命令、简单 demo 序列和 Nav2 目标的高层命令入口。
+- `arachne_operator/sequence_executor.py`：机械臂预设、夹爪命令、demo 序列和 Nav2 目标的高层任务执行器，带状态、停止、超时和 Nav2 结果处理。
 - `arachne_control/prehardware_control.launch.py`：组合启动 Nav2、MoveIt2、sequence executor 和可选 operator 面板的 mock bringup。
 
 运行仓库级检查：
@@ -201,8 +201,11 @@ ros2 launch arachne_nav nav2_sim.launch.py
 ```bash
 ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: ready}"
 ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: demo_pick}"
+ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: demo_nav_pick}"
 ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: 'goto 1.0 0.0 0.0'}"
 ```
+
+任务进度发布在 `/arachne/sequence/status`。`stop` 命令会取消当前任务、停止 `/cmd_vel`、向夹爪发送 stop，并尝试取消正在执行的 Nav2 goal。
 
 ## Nintendo Switch Demo
 

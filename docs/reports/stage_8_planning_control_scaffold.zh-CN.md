@@ -17,7 +17,7 @@
 
 ## 文件关系
 
-组合 prehardware launch 会启动 mock 硬件、Nav2、MoveIt2、sequence executor 和可选 operator 面板。MoveIt2 和 ros2_control 共享 `arachne_description` 中的 Aubo 与夹爪关节名。Nav2 使用与 RViz、Gazebo 和真实 Scout bringup 相同的 `/cmd_vel` 与 `/odom` 契约；其仿真 launch 会在定位或 SLAM 接入前临时提供 mock `map -> odom` 变换。Operator 面板监听这些共享状态话题，sequence executor 则把简单高层命令映射到同一套底层契约。
+组合 prehardware launch 会启动 mock 硬件、Nav2、MoveIt2、sequence executor 和可选 operator 面板。MoveIt2 和 ros2_control 共享 `arachne_description` 中的 Aubo 与夹爪关节名。Nav2 使用与 RViz、Gazebo 和真实 Scout bringup 相同的 `/cmd_vel` 与 `/odom` 契约；其仿真 launch 会在定位或 SLAM 接入前临时提供 mock `map -> odom` 变换。Operator 面板监听这些共享状态话题，sequence executor 则用带状态、停止、超时和 Nav2 结果处理的方式，把高层任务命令映射到同一套底层契约。
 
 ## 下一步
 
