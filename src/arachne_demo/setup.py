@@ -23,6 +23,7 @@ setup(
     entry_points={
         "console_scripts": [
             "camera_follow_controller = arachne_demo.camera_follow_controller:main",
+            "gazebo_autopick_planner = arachne_demo.gazebo_autopick_planner:main",
             "switch_teleop = arachne_demo.switch_teleop:main",
             "web_gamepad_bridge = arachne_demo.web_gamepad_bridge:main",
         ],

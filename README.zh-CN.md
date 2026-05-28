@@ -13,7 +13,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `src/arachne_description`：统一的 Xacro/URDF 机器人模型、RViz 配置、模型变体、安装框架和传感器框架。
 - `src/arachne_sim`：面向 RViz 的底盘仿真，负责 `/cmd_vel` 积分、里程计 TF、轮子 joint state 和底盘遥控 GUI。
 - `src/arachne_gripper`：夹爪仿真控制器、joint-state mux，以及只有 `Open` / `Close` 的小型 GUI。
-- `src/arachne_demo`：Nintendo Switch Pro 手柄遥控、RViz demo 启动和 Gazebo 展示世界。
+- `src/arachne_demo`：Nintendo Switch Pro 手柄遥控、RViz demo 启动、Gazebo 展示世界和 Gazebo 自主拾取验证。
 - `src/arachne_gazebo`：Gazebo 专用辅助节点，用于更流畅的 GUI 相机跟随，以及 demo 中的机械臂/夹爪控制桥。
 - `src/arachne_hardware`：预留真机驱动包，包含空的夹具串口、底盘串口、Aubo TCP/IP 驱动文件。
 - `godot/arachne_showcase`：Godot 4.x 高帧率展示前端，包含视觉 teleop、跟随相机、机械臂预设姿态、可拾取物体 demo 逻辑和 ROS2 bridge 占位接口。
@@ -35,16 +35,18 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - RViz 通过 `scripts/view_model.sh` 启动，会自动清理旧的可视化节点，并打开底盘遥控、机械臂关节滑条、夹爪仿真和 Open/Close 控制窗。
 - 机械臂滑条 GUI 默认从当前用户确认的展示姿态启动；点击 `Center` 会回到这个姿态。
 - `scripts/switch_demo.sh` 默认启动 Gazebo 展厅 demo，可以用 Nintendo Switch Pro 手柄控制底盘、平滑第三人称视角、Aubo 关节和夹爪。Gazebo 会使用专门的 Scout 轮子物理姿态，确保前进输入时四个轮子同向驱动。
+- `scripts/gazebo_autopick_demo.sh` 会启动 Gazebo 自主拾取验证：Scout 根据已知展厅障碍物规划路线，靠近可见地面目标，并实时计算 Aubo/MS42DC 拾取控制。
 - `scripts/godot_showcase.sh` 可启动单独的 Godot 4.x 第三人称展示前端，包含可碰撞底盘运动、涂装材质、视觉悬挂、平滑跟随相机、机械臂手动微调、夹爪开闭、可拾取水瓶/小球和 ROS2/UDP bridge 占位接口。
 
 ## Roadmap
 
 1. 完成物理标定：末端转接板、传感器位姿和用于规划的简化碰撞模型。
 2. 为 Aubo + MS42DC/AG95 两种末端配置 MoveIt2。
-3. 将 Gazebo demo 升级为主要物理预演后端，接入 ros2_control 机械臂和夹爪控制器。
-4. 通过已预留的 bridge 接口，把 Godot 展示前端连接到 ROS2 或 MuJoCo。
-5. 真机材料到齐后，实现 Aubo TCP/IP、Scout 串口、MS42DC 串口硬件接口。
-6. 在模型、控制器和 launch 接口稳定后，再构建 Web 操作界面。
+3. 用 MoveIt2 和 ros2_control 替换当前 Gazebo 自主拾取验证中的轻量规划器。
+4. 将物体抓取从命令级验证升级为 Gazebo 接触验证或 attach-aware 任务。
+5. 通过已预留的 bridge 接口，把 Godot 展示前端连接到 ROS2 或 MuJoCo。
+6. 真机材料到齐后，实现 Aubo TCP/IP、Scout 串口、MS42DC 串口硬件接口。
+7. 在模型、控制器和 launch 接口稳定后，再构建 Web 操作界面。
 
 ## 快速启动
 
@@ -137,6 +139,16 @@ DEMO_MODE=rviz ./scripts/switch_demo.sh
 - `+` 或浏览器 `RESET` 按钮：重置底盘、机械臂、夹爪和 Gazebo demo 位姿。`-`：底盘停止。
 
 默认 Gazebo 版本只打开 Gazebo 展厅窗口，不启动 RViz：它加载真实机器人 mesh、轻量化物理展厅、可碰撞物体、diff-drive 物理插件、Gazebo `/gz/odom`、手柄控制的第三人称相机，以及 Aubo 关节微调和 MS42DC 开闭控制桥。完整 ros2_control/Gazebo 控制栈会在后续继续补齐。
+
+## Gazebo 自主拾取验证
+
+运行已知世界信息下的自主拾取验证：
+
+```bash
+./scripts/gazebo_autopick_demo.sh
+```
+
+这个入口不会启动手柄 teleop，避免和自治节点抢 `/cmd_vel`。当前规划器会读取硬编码的 Gazebo 展厅障碍物图，持续刷新 2D A* 路线，用“先转向再前进”的 pure-pursuit 控制 Scout 停到位于约 `(3.4, -2.35)` 的地面 `pick_bottle` 前方约 `0.78 m`，然后在每个控制 tick 根据当前底盘到目标物的相对位姿，用阻尼最小二乘位置 IK 实时计算 Aubo 关节目标。机械臂命令会同时走 `/arachne/gui_joint_states` 和 `ros_gz_bridge` 直连的 Gazebo 单关节位置话题；MS42DC 开闭仍由 Gazebo demo bridge 控制。它是通往 MoveIt2/ros2_control 的仿真验证层，不是真机最终规划器。
 
 <p align="center">
   <img src="docs/demo/gazebo.png" alt="Arachne Gazebo 展厅 demo" width="900">

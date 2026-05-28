@@ -511,6 +511,115 @@
       </link>
     </model>
 
+    <model name="pick_target_pad">
+      <pose>3.40 -2.35 0.047 0 0 0</pose>
+      <static>true</static>
+      <link name="pad_link">
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.28</radius>
+              <length>0.012</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.90 0.82 0.12 1</ambient>
+            <diffuse>1.0 0.92 0.18 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="pick_bottle">
+      <pose>3.40 -2.35 0.27 0 0 0</pose>
+      <static>false</static>
+      <link name="bottle_link">
+        <inertial>
+          <mass>0.20</mass>
+          <inertia>
+            <ixx>0.0040</ixx>
+            <iyy>0.0040</iyy>
+            <izz>0.0012</izz>
+          </inertia>
+        </inertial>
+        <collision name="body_collision">
+          <geometry>
+            <cylinder>
+              <radius>0.105</radius>
+              <length>0.44</length>
+            </cylinder>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1.4</mu>
+                <mu2>1.4</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="body_visual">
+          <geometry>
+            <cylinder>
+              <radius>0.105</radius>
+              <length>0.44</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.04 0.34 0.90 0.92</ambient>
+            <diffuse>0.08 0.58 1.0 0.92</diffuse>
+            <specular>0.28 0.35 0.42 1</specular>
+          </material>
+        </visual>
+        <visual name="cap_visual">
+          <pose>0 0 0.245 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.060</radius>
+              <length>0.060</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.02 0.03 0.04 1</ambient>
+            <diffuse>0.05 0.08 0.10 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="pick_ball">
+      <pose>3.85 -2.05 0.16 0 0 0</pose>
+      <static>false</static>
+      <link name="ball_link">
+        <inertial>
+          <mass>0.12</mass>
+          <inertia>
+            <ixx>0.0012</ixx>
+            <iyy>0.0012</iyy>
+            <izz>0.0012</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <sphere>
+              <radius>0.11</radius>
+            </sphere>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <sphere>
+              <radius>0.11</radius>
+            </sphere>
+          </geometry>
+          <material>
+            <ambient>0.82 0.48 0.05 1</ambient>
+            <diffuse>1.0 0.66 0.10 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
     <model name="camera_view_anchor">
       <static>true</static>
       <pose>0 0 0 0 0 0</pose>

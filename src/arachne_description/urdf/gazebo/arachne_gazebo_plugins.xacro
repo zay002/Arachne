@@ -18,10 +18,10 @@
 
   <xacro:macro name="arachne_gazebo_plugins" params="gripper_type">
     <xacro:arachne_gazebo_surface link="base_link" mu1="1.0" mu2="1.0"/>
-    <xacro:arachne_gazebo_surface link="front_left_wheel_link" mu1="1.2" mu2="1.2"/>
-    <xacro:arachne_gazebo_surface link="front_right_wheel_link" mu1="1.2" mu2="1.2"/>
-    <xacro:arachne_gazebo_surface link="rear_left_wheel_link" mu1="1.2" mu2="1.2"/>
-    <xacro:arachne_gazebo_surface link="rear_right_wheel_link" mu1="1.2" mu2="1.2"/>
+    <xacro:arachne_gazebo_surface link="front_left_wheel_link" mu1="1.2" mu2="0.25"/>
+    <xacro:arachne_gazebo_surface link="front_right_wheel_link" mu1="1.2" mu2="0.25"/>
+    <xacro:arachne_gazebo_surface link="rear_left_wheel_link" mu1="1.2" mu2="0.25"/>
+    <xacro:arachne_gazebo_surface link="rear_right_wheel_link" mu1="1.2" mu2="0.25"/>
 
     <gazebo>
       <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
@@ -90,6 +90,61 @@
         <position_d_gain>4</position_d_gain>
         <position_cmd_min>-40</position_cmd_min>
         <position_cmd_max>40</position_cmd_max>
+      </plugin>
+
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>aubo_shoulder_joint</joint_name>
+        <topic>/arachne/gazebo/aubo_shoulder_joint/command</topic>
+        <p_gain>80.0</p_gain>
+        <i_gain>0.0</i_gain>
+        <d_gain>8.0</d_gain>
+        <cmd_max>120.0</cmd_max>
+        <cmd_min>-120.0</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>aubo_upperArm_joint</joint_name>
+        <topic>/arachne/gazebo/aubo_upperArm_joint/command</topic>
+        <p_gain>100.0</p_gain>
+        <i_gain>0.0</i_gain>
+        <d_gain>10.0</d_gain>
+        <cmd_max>140.0</cmd_max>
+        <cmd_min>-140.0</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>aubo_foreArm_joint</joint_name>
+        <topic>/arachne/gazebo/aubo_foreArm_joint/command</topic>
+        <p_gain>90.0</p_gain>
+        <i_gain>0.0</i_gain>
+        <d_gain>9.0</d_gain>
+        <cmd_max>120.0</cmd_max>
+        <cmd_min>-120.0</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>aubo_wrist1_joint</joint_name>
+        <topic>/arachne/gazebo/aubo_wrist1_joint/command</topic>
+        <p_gain>50.0</p_gain>
+        <i_gain>0.0</i_gain>
+        <d_gain>5.0</d_gain>
+        <cmd_max>70.0</cmd_max>
+        <cmd_min>-70.0</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>aubo_wrist2_joint</joint_name>
+        <topic>/arachne/gazebo/aubo_wrist2_joint/command</topic>
+        <p_gain>50.0</p_gain>
+        <i_gain>0.0</i_gain>
+        <d_gain>5.0</d_gain>
+        <cmd_max>70.0</cmd_max>
+        <cmd_min>-70.0</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>aubo_wrist3_joint</joint_name>
+        <topic>/arachne/gazebo/aubo_wrist3_joint/command</topic>
+        <p_gain>40.0</p_gain>
+        <i_gain>0.0</i_gain>
+        <d_gain>4.0</d_gain>
+        <cmd_max>55.0</cmd_max>
+        <cmd_min>-55.0</cmd_min>
       </plugin>
 
       <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">

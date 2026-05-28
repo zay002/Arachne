@@ -40,6 +40,7 @@ public:
     this->declare_parameter("ms42dc_left_topic", "/arachne/gazebo/ms42dc_left_finger/command");
     this->declare_parameter("ms42dc_right_topic", "/arachne/gazebo/ms42dc_right_finger/command");
     this->declare_parameter("arm_trajectory_topic", "/model/arachne/joint_trajectory");
+    this->declare_parameter("arm_position_topic_prefix", "/arachne/gazebo");
     this->declare_parameter("publish_rate", 60.0);
 
     const auto gripperCommandTopic = this->get_parameter("gripper_command_topic").as_string();
@@ -58,11 +59,16 @@ public:
     const auto leftTopic = this->get_parameter("ms42dc_left_topic").as_string();
     const auto rightTopic = this->get_parameter("ms42dc_right_topic").as_string();
     const auto armTrajectoryTopic = this->get_parameter("arm_trajectory_topic").as_string();
+    const auto armPositionTopicPrefix = this->get_parameter("arm_position_topic_prefix").as_string();
     const auto publishRate = this->get_parameter("publish_rate").as_double();
 
     this->leftFingerPublisher = this->gzNode.Advertise<gz::msgs::Double>(leftTopic);
     this->rightFingerPublisher = this->gzNode.Advertise<gz::msgs::Double>(rightTopic);
     this->armTrajectoryPublisher = this->gzNode.Advertise<gz::msgs::JointTrajectory>(armTrajectoryTopic);
+    for (const auto & joint : this->armJoints()) {
+      const auto topic = armPositionTopicPrefix + "/" + joint + "/command";
+      this->armPositionPublishers[joint] = this->gzNode.Advertise<gz::msgs::Double>(topic);
+    }
 
     this->gripperPosition = this->gripperOpenPosition;
     this->gripperTarget = this->gripperPosition;
@@ -88,13 +94,27 @@ public:
 
     RCLCPP_INFO(
       this->get_logger(),
-      "Gazebo demo control bridge ready: gripper=%s, arm trajectory=%s, reset=%s",
+      "Gazebo demo control bridge ready: gripper=%s, arm trajectory=%s, arm position prefix=%s, reset=%s",
       this->gripperType.c_str(),
       armTrajectoryTopic.c_str(),
+      armPositionTopicPrefix.c_str(),
       resetTopic.c_str());
   }
 
 private:
+  static const std::vector<std::string> & armJoints()
+  {
+    static const std::vector<std::string> joints = {
+      "aubo_shoulder_joint",
+      "aubo_upperArm_joint",
+      "aubo_foreArm_joint",
+      "aubo_wrist1_joint",
+      "aubo_wrist2_joint",
+      "aubo_wrist3_joint",
+    };
+    return joints;
+  }
+
   void onGripperCommand(const std_msgs::msg::String::SharedPtr msg)
   {
     const auto command = msg->data;
@@ -115,15 +135,6 @@ private:
       return;
     }
 
-    static const std::vector<std::string> armJoints = {
-      "aubo_shoulder_joint",
-      "aubo_upperArm_joint",
-      "aubo_foreArm_joint",
-      "aubo_wrist1_joint",
-      "aubo_wrist2_joint",
-      "aubo_wrist3_joint",
-    };
-
     std::unordered_map<std::string, double> positions;
     for (size_t i = 0; i < msg->name.size() && i < msg->position.size(); ++i) {
       positions[msg->name[i]] = msg->position[i];
@@ -131,7 +142,7 @@ private:
 
     gz::msgs::JointTrajectory trajectory;
     auto * point = trajectory.add_points();
-    for (const auto & joint : armJoints) {
+    for (const auto & joint : this->armJoints()) {
       const auto found = positions.find(joint);
       if (found == positions.end()) {
         return;
@@ -141,6 +152,7 @@ private:
     }
     point->mutable_time_from_start()->set_nsec(120000000);
     this->armTrajectoryPublisher.Publish(trajectory);
+    this->publishArmPositionCommands(positions);
   }
 
   void onReset(const std_msgs::msg::Empty::SharedPtr)
@@ -184,27 +196,39 @@ private:
 
   void publishArmTrajectory(const std::vector<double> & positions)
   {
-    static const std::vector<std::string> armJoints = {
-      "aubo_shoulder_joint",
-      "aubo_upperArm_joint",
-      "aubo_foreArm_joint",
-      "aubo_wrist1_joint",
-      "aubo_wrist2_joint",
-      "aubo_wrist3_joint",
-    };
-
-    if (positions.size() != armJoints.size()) {
+    if (positions.size() != this->armJoints().size()) {
       return;
     }
 
     gz::msgs::JointTrajectory trajectory;
     auto * point = trajectory.add_points();
-    for (size_t i = 0; i < armJoints.size(); ++i) {
-      trajectory.add_joint_names(armJoints[i]);
+    std::unordered_map<std::string, double> positionMap;
+    for (size_t i = 0; i < this->armJoints().size(); ++i) {
+      trajectory.add_joint_names(this->armJoints()[i]);
       point->add_positions(positions[i]);
+      positionMap[this->armJoints()[i]] = positions[i];
     }
     point->mutable_time_from_start()->set_nsec(120000000);
     this->armTrajectoryPublisher.Publish(trajectory);
+    this->publishArmPositionCommands(positionMap);
+  }
+
+  void publishArmPositionCommands(const std::unordered_map<std::string, double> & positions)
+  {
+    for (const auto & joint : this->armJoints()) {
+      const auto foundPosition = positions.find(joint);
+      const auto foundPublisher = this->armPositionPublishers.find(joint);
+      if (foundPosition == positions.end() || foundPublisher == this->armPositionPublishers.end()) {
+        return;
+      }
+      gz::msgs::Double command;
+      command.set_data(foundPosition->second);
+      foundPublisher->second.Publish(command);
+    }
+    if (!this->havePublishedArmPosition) {
+      this->havePublishedArmPosition = true;
+      RCLCPP_INFO(this->get_logger(), "Publishing direct Gazebo arm joint position commands");
+    }
   }
 
   void resetGazeboModel()
@@ -259,6 +283,7 @@ private:
   gz::transport::Node::Publisher leftFingerPublisher;
   gz::transport::Node::Publisher rightFingerPublisher;
   gz::transport::Node::Publisher armTrajectoryPublisher;
+  std::unordered_map<std::string, gz::transport::Node::Publisher> armPositionPublishers;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr gripperSub;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr resetSub;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr armSub;
@@ -276,6 +301,7 @@ private:
   double gripperMaxVelocity{1.2};
   double gripperPosition{0.0};
   double gripperTarget{0.0};
+  bool havePublishedArmPosition{false};
   std::vector<double> defaultArmPositions{1.664, 0.034, -1.324, 0.034, -1.732, 0.0};
 };
 

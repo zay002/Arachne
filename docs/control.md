@@ -155,6 +155,14 @@ DEMO_MODE=rviz ./scripts/switch_demo.sh
 
 The current Gazebo pass focuses on promotional driving physics and real mesh visualization in a single Gazebo window. The world uses a lighter physics step, disabled shadows, a flat showroom floor, Gazebo DiffDrive, Gazebo `/gz/odom`, high-rate `/gui/track` camera messages, a demo Aubo trajectory bridge, and explicit MS42DC finger position controllers. Full arm and gripper physics control should be moved to ros2_control controllers later.
 
+## Gazebo Autonomous Pick Validation
+
+`scripts/gazebo_autopick_demo.sh` launches a Gazebo-only autonomy check without the manual Switch teleop node. `gazebo_autopick_demo.launch.py` spawns the same Arachne robot, bridges `/cmd_vel`, `/gz/odom`, and the six direct Aubo joint-position command topics, starts the Gazebo demo arm/gripper bridge, and runs `gazebo_autopick_planner`.
+
+The planner uses the known SDF showroom layout as a deterministic map. It inflates table, marker, crate, and pedestal obstacles by the Scout footprint, continuously refreshes 2D A* to a ground-target approach pose, smooths the route, and tracks it with a turn-then-drive pure-pursuit controller. After arrival, it aligns the chassis toward the visible `pick_bottle` near `(3.4, -2.35)`, computes pre-grasp/grasp/lift Cartesian targets in the base frame, solves Aubo position IK online with a damped least-squares Jacobian, and sends the result through both `/arachne/gui_joint_states` and direct Gazebo joint-position topics. MS42DC open/close still goes through `/arachne/gripper/command`.
+
+This is deliberately a validation layer: it proves the launch/control interfaces, route generation, realtime base/arm coordination, and Gazebo command paths. The next implementation step is replacing the local position-only IK with MoveIt2 pose IK/path planning, then replacing demo bridges with ros2_control controllers.
+
 ## Godot Showcase Frontend
 
 `godot/arachne_showcase` is a separate Godot 4.x frontend for high-FPS third-person visualization and teleoperation feel. It loads existing Scout, Aubo i5, MS42DC, AG95, and prop meshes through generated links under `assets/vendor/`, then uses a larger flat office-style initial map, collision-aware character-body movement, proportional skid-steer controls, pushable rigid-body props, pickable bottles/balls, camera damping, visual suspension, visual arm/gripper interpolation, and manual Aubo joint nudging.

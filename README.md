@@ -17,7 +17,7 @@ The current milestone is a reliable robot description plus interactive demos: on
 - `src/arachne_description`: unified Xacro/URDF, RViz config, model variants, mount frames, sensor frames, and MS42DC/AG95 gripper adapters.
 - `src/arachne_sim`: RViz-oriented base simulation, `/cmd_vel` integration, odometry TF, wheel joint states, and a small base teleop GUI.
 - `src/arachne_gripper`: simulated gripper controller, joint-state mux, and a small `Open` / `Close` GUI.
-- `src/arachne_demo`: Nintendo Switch Pro controller teleop, RViz demo launch, and Gazebo showroom launch.
+- `src/arachne_demo`: Nintendo Switch Pro controller teleop, RViz demo launch, Gazebo showroom launch, and Gazebo autonomous pick validation.
 - `src/arachne_gazebo`: Gazebo helper nodes for smooth GUI camera tracking and demo arm/gripper commands.
 - `src/arachne_hardware`: reserved real-hardware driver package with empty files for gripper serial, base serial, and Aubo TCP/IP drivers.
 - `godot/arachne_showcase`: Godot 4.x high-FPS showcase frontend with visual teleop, follow camera, arm presets, pickable-object demo logic, and ROS2 bridge placeholders.
@@ -39,16 +39,18 @@ External model dependencies are restored by `scripts/fetch_third_party.sh`, with
 - RViz starts through `scripts/view_model.sh`, which cleans stale visualization nodes and launches base teleop, arm joint sliders, gripper simulator, and gripper Open/Close GUI.
 - The arm slider GUI starts from the current user-confirmed display pose; pressing `Center` returns to that pose.
 - `scripts/switch_demo.sh` starts an interactive Nintendo Switch Pro controller demo with Gazebo physics, a smoothed third-person camera, body-relative Scout driving, Aubo joint nudging, and gripper commands. Gazebo uses a physics-specific Scout wheel setup so forward input drives all four wheels in the same direction.
+- `scripts/gazebo_autopick_demo.sh` starts a Gazebo validation run where the Scout plans around known showroom obstacles, approaches a visible ground target, and runs realtime Aubo/MS42DC pick control.
 - `scripts/godot_showcase.sh` starts a separate Godot 4.x third-person showcase with collision-aware driving, painted materials, visual suspension, smooth camera follow, manual arm nudging, gripper open/close, pickable bottles/balls, and ROS2/UDP bridge placeholders.
 
 ## Roadmap
 
 1. Finalize physical calibration: tool adapter pose, sensor poses, and collision simplification for planning.
 2. Add MoveIt2 configuration for the Aubo arm with interchangeable MS42DC and AG95 end-effectors.
-3. Upgrade the Gazebo demo into the main physics rehearsal backend with ros2_control arm and gripper controllers.
-4. Connect the Godot showcase to ROS2 or MuJoCo through the prepared bridge interface.
-5. Implement hardware-facing bridges for Aubo TCP/IP, Scout serial, and MS42DC serial after the remaining materials arrive.
-6. Build the operator Web UI after the model, controllers, and launch contracts are stable.
+3. Replace the Gazebo auto-pick validation planner with MoveIt2 and ros2_control controllers.
+4. Upgrade object grasping from command-level validation to contact-validated or attach-aware Gazebo tasks.
+5. Connect the Godot showcase to ROS2 or MuJoCo through the prepared bridge interface.
+6. Implement hardware-facing bridges for Aubo TCP/IP, Scout serial, and MS42DC serial after the remaining materials arrive.
+7. Build the operator Web UI after the model, controllers, and launch contracts are stable.
 
 ## Quick Start
 
@@ -142,6 +144,16 @@ Default controls:
 - `+` or the browser `RESET` button: reset the base, arm, gripper, and Gazebo demo pose. `-`: stop base motion.
 
 The default Gazebo version opens only the Gazebo showroom window: it uses the real robot meshes, a lighter physics world, dynamic props, a diff-drive physics plugin, Gazebo `/gz/odom`, a controller-driven third-person camera, and direct demo bridges for Aubo joint nudging plus MS42DC open/close control. RViz remains available as a separate lightweight control view while the full ros2_control/Gazebo stack is developed.
+
+## Gazebo Autonomous Pick
+
+Run the known-world autonomy validation:
+
+```bash
+./scripts/gazebo_autopick_demo.sh
+```
+
+This launches Gazebo without the manual teleop node. The planner uses the showroom's known obstacle map to continuously refresh a 2D A* route for Scout, follows it with a turn-then-drive pure-pursuit controller, parks the robot about `0.78 m` in front of the visible ground `pick_bottle` near `(3.4, -2.35)`, then computes Aubo joint targets every control tick with damped least-squares position IK from the current base-to-object pose. Arm commands are sent both as `/arachne/gui_joint_states` and as direct Gazebo joint-position topics bridged through `ros_gz_bridge`; MS42DC open/close still goes through the Gazebo demo bridge. It is a validation step toward MoveIt2 and full ros2_control, not the final hardware planner.
 
 <p align="center">
   <img src="docs/demo/gazebo.png" alt="Arachne Gazebo showroom demo" width="900">
