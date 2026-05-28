@@ -185,6 +185,8 @@ Launch Nav2:
 ros2 launch arachne_nav nav2_sim.launch.py
 ```
 
+The default launch is self-contained for pre-hardware testing: it starts the kinematic base simulator and a mock `map -> odom` transform. Disable that transform with `with_mock_map_odom:=false` once localization or SLAM owns `map -> odom`.
+
 ## Nintendo Switch Demo
 
 `src/arachne_demo` adds a Nintendo Switch Pro controller-driven demo path:

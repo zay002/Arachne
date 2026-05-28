@@ -185,6 +185,8 @@ ros2 launch arachne_moveit_config moveit_planning.launch.py gripper_type:=ms42dc
 ros2 launch arachne_nav nav2_sim.launch.py
 ```
 
+默认启动方式面向无真机测试：它会启动运动学底盘仿真，并提供 mock `map -> odom` 变换。后续由定位或 SLAM 接管 `map -> odom` 时，使用 `with_mock_map_odom:=false` 关闭该 mock 变换。
+
 ## Nintendo Switch Demo
 
 `src/arachne_demo` 提供 Nintendo Switch Pro 手柄 demo 路径：

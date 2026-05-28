@@ -141,6 +141,8 @@ Nav2 starter launch:
 ros2 launch arachne_nav nav2_sim.launch.py
 ```
 
+By default this uses the lightweight base simulator and a mock `map -> odom` transform, so Nav2 can become active before lidar/localization hardware is available. When a real localization or SLAM stack provides `map -> odom`, launch with `with_mock_map_odom:=false`.
+
 These entries are intended for interface validation before real hardware arrives. The next tuning pass is to validate planning groups, controller behavior, Nav2 costmaps, and safety gating under RViz/Gazebo.
 
 ## Real Hardware ROS Bringup

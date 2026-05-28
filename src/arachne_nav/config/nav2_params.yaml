@@ -4,6 +4,13 @@ amcl:
     base_frame_id: base_link
     odom_frame_id: odom
     global_frame_id: map
+    set_initial_pose: true
+    always_reset_initial_pose: false
+    initial_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0
 
 bt_navigator:
   ros__parameters:
@@ -11,7 +18,15 @@ bt_navigator:
     global_frame: map
     robot_base_frame: base_link
     odom_topic: /odom
-    default_nav_to_pose_bt_xml: navigate_w_replanning_and_recovery.xml
+    bt_loop_duration: 10
+    default_server_timeout: 20
+    wait_for_service_timeout: 1000
+    action_server_result_timeout: 900.0
+    navigators: ["navigate_to_pose", "navigate_through_poses"]
+    navigate_to_pose:
+      plugin: nav2_bt_navigator::NavigateToPoseNavigator
+    navigate_through_poses:
+      plugin: nav2_bt_navigator::NavigateThroughPosesNavigator
 
 controller_server:
   ros__parameters:
@@ -103,7 +118,7 @@ planner_server:
     expected_planner_frequency: 5.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: nav2_navfn_planner/NavfnPlanner
+      plugin: nav2_navfn_planner::NavfnPlanner
       tolerance: 0.5
       use_astar: true
       allow_unknown: true
@@ -124,24 +139,54 @@ behavior_server:
     global_footprint_topic: global_costmap/published_footprint
     behavior_plugins: ["spin", "backup", "drive_on_heading", "wait"]
     spin:
-      plugin: nav2_behaviors/Spin
+      plugin: nav2_behaviors::Spin
     backup:
-      plugin: nav2_behaviors/BackUp
+      plugin: nav2_behaviors::BackUp
     drive_on_heading:
-      plugin: nav2_behaviors/DriveOnHeading
+      plugin: nav2_behaviors::DriveOnHeading
     wait:
-      plugin: nav2_behaviors/Wait
+      plugin: nav2_behaviors::Wait
+    local_frame: odom
+    global_frame: map
+    robot_base_frame: base_link
+    transform_tolerance: 0.1
+    simulate_ahead_time: 2.0
 
 waypoint_follower:
   ros__parameters:
     use_sim_time: false
     loop_rate: 20
     stop_on_failure: true
+    waypoint_task_executor_plugin: wait_at_waypoint
+    wait_at_waypoint:
+      plugin: nav2_waypoint_follower::WaitAtWaypoint
+      enabled: true
+      waypoint_pause_duration: 200
+
+route_server:
+  ros__parameters:
+    boundary_radius_to_achieve_node: 1.0
+    radius_to_achieve_node: 2.0
+    smooth_corners: true
+    operations: ["AdjustSpeedLimit", "ReroutingService", "CollisionMonitor"]
+    ReroutingService:
+      plugin: nav2_route::ReroutingService
+    AdjustSpeedLimit:
+      plugin: nav2_route::AdjustSpeedLimit
+    CollisionMonitor:
+      plugin: nav2_route::CollisionMonitor
+      max_collision_dist: 3.0
+    edge_cost_functions: ["DistanceScorer", "CostmapScorer"]
+    DistanceScorer:
+      plugin: nav2_route::DistanceScorer
+    CostmapScorer:
+      plugin: nav2_route::CostmapScorer
 
 velocity_smoother:
   ros__parameters:
     use_sim_time: false
     smoothing_frequency: 20.0
+    stamp_smoothed_velocity_with_smoothing_time: false
     scale_velocities: false
     feedback: OPEN_LOOP
     max_velocity: [0.8, 0.0, 1.4]
@@ -149,3 +194,78 @@ velocity_smoother:
     max_accel: [0.6, 0.0, 1.2]
     max_decel: [-0.8, 0.0, -1.4]
     odom_topic: /odom
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0
+
+collision_monitor:
+  ros__parameters:
+    use_sim_time: false
+    base_frame_id: base_link
+    odom_frame_id: odom
+    cmd_vel_in_topic: cmd_vel_smoothed
+    cmd_vel_out_topic: cmd_vel
+    state_topic: collision_monitor_state
+    transform_tolerance: 0.2
+    source_timeout: 1.0
+    base_shift_correction: true
+    stop_pub_timeout: 2.0
+    polygons: ["FootprintApproach"]
+    FootprintApproach:
+      type: polygon
+      action_type: approach
+      footprint_topic: /local_costmap/published_footprint
+      time_before_collision: 1.2
+      simulation_time_step: 0.1
+      min_points: 6
+      visualize: false
+      enabled: true
+    observation_sources: ["scan"]
+    scan:
+      type: scan
+      topic: scan
+      min_height: 0.15
+      max_height: 2.0
+      enabled: true
+
+docking_server:
+  ros__parameters:
+    use_sim_time: false
+    controller_frequency: 50.0
+    initial_perception_timeout: 5.0
+    wait_charge_timeout: 5.0
+    dock_approach_timeout: 30.0
+    undock_linear_tolerance: 0.05
+    undock_angular_tolerance: 0.1
+    max_retries: 3
+    base_frame: base_link
+    fixed_frame: odom
+    dock_backwards: false
+    dock_prestaging_tolerance: 0.5
+    dock_plugins: ["simple_charging_dock"]
+    simple_charging_dock:
+      plugin: opennav_docking::SimpleChargingDock
+      docking_threshold: 0.05
+      staging_x_offset: -0.7
+      use_external_detection_pose: true
+      use_battery_status: false
+      use_stall_detection: false
+      external_detection_timeout: 1.0
+      external_detection_translation_x: -0.18
+      external_detection_translation_y: 0.0
+      external_detection_rotation_roll: -1.57
+      external_detection_rotation_pitch: -1.57
+      external_detection_rotation_yaw: 0.0
+      filter_coef: 0.1
+    controller:
+      k_phi: 3.0
+      k_delta: 2.0
+      v_linear_min: 0.15
+      v_linear_max: 0.15
+      use_collision_detection: true
+      costmap_topic: local_costmap/costmap_raw
+      footprint_topic: local_costmap/published_footprint
+      transform_tolerance: 0.1
+      projection_time: 5.0
+      simulation_step: 0.1
+      dock_collision_threshold: 0.3

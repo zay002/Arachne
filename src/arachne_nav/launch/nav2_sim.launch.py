@@ -38,6 +38,31 @@ def launch_setup(context, *args, **kwargs):
             output="screen",
             condition=IfCondition(LaunchConfiguration("with_base_sim")),
         ),
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="mock_map_to_odom",
+            arguments=[
+                "--x",
+                "0",
+                "--y",
+                "0",
+                "--z",
+                "0",
+                "--roll",
+                "0",
+                "--pitch",
+                "0",
+                "--yaw",
+                "0",
+                "--frame-id",
+                "map",
+                "--child-frame-id",
+                "odom",
+            ],
+            output="screen",
+            condition=IfCondition(LaunchConfiguration("with_mock_map_odom")),
+        ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(str(nav2_share / "launch" / "bringup_launch.py")),
             launch_arguments={
@@ -46,6 +71,7 @@ def launch_setup(context, *args, **kwargs):
                 "params_file": str(params_path),
                 "use_sim_time": "False",
                 "autostart": "True",
+                "use_composition": "False",
             }.items(),
         ),
     ]
@@ -56,6 +82,7 @@ def generate_launch_description():
         [
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
             DeclareLaunchArgument("with_base_sim", default_value="true"),
+            DeclareLaunchArgument("with_mock_map_odom", default_value="true"),
             DeclareLaunchArgument("with_robot_state_publisher", default_value="true"),
             OpaqueFunction(function=launch_setup),
         ]

@@ -136,6 +136,8 @@ ros2 launch arachne_moveit_config moveit_planning.launch.py gripper_type:=ms42dc
 ros2 launch arachne_nav nav2_sim.launch.py
 ```
 
+默认会同时启动轻量底盘仿真和 mock `map -> odom` 变换，因此在 lidar/定位硬件尚未接入时 Nav2 也能进入 active。后续如果由真实定位或 SLAM 提供 `map -> odom`，启动时加 `with_mock_map_odom:=false`。
+
 这些入口目前用于接口验证。下一轮需要在 RViz/Gazebo 中继续调 planning group、控制器行为、Nav2 costmap 和安全门控。
 
 ## 真机 ROS Bringup
