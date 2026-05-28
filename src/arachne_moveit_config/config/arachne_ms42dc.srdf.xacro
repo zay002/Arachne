@@ -1,0 +1,63 @@
+<?xml version="1.0"?>
+<robot name="arachne" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <group name="aubo_arm">
+    <chain base_link="aubo_base_link" tip_link="tool0"/>
+  </group>
+
+  <group name="ms42dc_gripper">
+    <joint name="ms42dc_left_finger_joint"/>
+    <joint name="ms42dc_right_finger_joint"/>
+  </group>
+
+  <group_state name="home" group="aubo_arm">
+    <joint name="aubo_shoulder_joint" value="1.664"/>
+    <joint name="aubo_upperArm_joint" value="0.034"/>
+    <joint name="aubo_foreArm_joint" value="-1.324"/>
+    <joint name="aubo_wrist1_joint" value="0.034"/>
+    <joint name="aubo_wrist2_joint" value="-1.732"/>
+    <joint name="aubo_wrist3_joint" value="0.0"/>
+  </group_state>
+  <group_state name="ready" group="aubo_arm">
+    <joint name="aubo_shoulder_joint" value="1.50"/>
+    <joint name="aubo_upperArm_joint" value="-0.30"/>
+    <joint name="aubo_foreArm_joint" value="-1.10"/>
+    <joint name="aubo_wrist1_joint" value="0.40"/>
+    <joint name="aubo_wrist2_joint" value="-1.55"/>
+    <joint name="aubo_wrist3_joint" value="0.0"/>
+  </group_state>
+  <group_state name="reach" group="aubo_arm">
+    <joint name="aubo_shoulder_joint" value="1.35"/>
+    <joint name="aubo_upperArm_joint" value="-0.65"/>
+    <joint name="aubo_foreArm_joint" value="-0.85"/>
+    <joint name="aubo_wrist1_joint" value="0.55"/>
+    <joint name="aubo_wrist2_joint" value="-1.35"/>
+    <joint name="aubo_wrist3_joint" value="0.0"/>
+  </group_state>
+  <group_state name="lift" group="aubo_arm">
+    <joint name="aubo_shoulder_joint" value="1.60"/>
+    <joint name="aubo_upperArm_joint" value="-0.20"/>
+    <joint name="aubo_foreArm_joint" value="-1.25"/>
+    <joint name="aubo_wrist1_joint" value="0.35"/>
+    <joint name="aubo_wrist2_joint" value="-1.55"/>
+    <joint name="aubo_wrist3_joint" value="0.0"/>
+  </group_state>
+
+  <group_state name="open" group="ms42dc_gripper">
+    <joint name="ms42dc_left_finger_joint" value="0.0"/>
+    <joint name="ms42dc_right_finger_joint" value="0.0"/>
+  </group_state>
+  <group_state name="close" group="ms42dc_gripper">
+    <joint name="ms42dc_left_finger_joint" value="0.6"/>
+    <joint name="ms42dc_right_finger_joint" value="-0.6"/>
+  </group_state>
+
+  <end_effector name="ms42dc" parent_link="tool0" group="ms42dc_gripper" parent_group="aubo_arm"/>
+
+  <disable_collisions link1="base_link" link2="arm_mount_link" reason="Adjacent"/>
+  <disable_collisions link1="arm_mount_link" link2="aubo_base_link" reason="Adjacent"/>
+  <disable_collisions link1="tool0" link2="gripper_adapter_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_adapter_link" link2="ms42dc_body_link" reason="Adjacent"/>
+  <disable_collisions link1="ms42dc_body_link" link2="ms42dc_base_link" reason="Adjacent"/>
+  <disable_collisions link1="ms42dc_base_link" link2="ms42dc_left_finger_link" reason="Adjacent"/>
+  <disable_collisions link1="ms42dc_base_link" link2="ms42dc_right_finger_link" reason="Adjacent"/>
+</robot>

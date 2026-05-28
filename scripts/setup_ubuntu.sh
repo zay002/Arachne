@@ -43,6 +43,14 @@ ROS_PACKAGES=(
   "ros-${ROS_DISTRO}-ros-gz"
   "ros-${ROS_DISTRO}-ros-gz-sim"
   "ros-${ROS_DISTRO}-ros-gz-bridge"
+  "ros-${ROS_DISTRO}-controller-manager"
+  "ros-${ROS_DISTRO}-joint-state-broadcaster"
+  "ros-${ROS_DISTRO}-joint-trajectory-controller"
+  "ros-${ROS_DISTRO}-diff-drive-controller"
+  "ros-${ROS_DISTRO}-forward-command-controller"
+  "ros-${ROS_DISTRO}-position-controllers"
+  "ros-${ROS_DISTRO}-moveit"
+  "ros-${ROS_DISTRO}-nav2-bringup"
 )
 
 if [[ "${ROS_DISTRO}" == "jazzy" ]]; then

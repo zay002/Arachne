@@ -20,9 +20,13 @@ The current milestone is a reliable robot description plus interactive demos: on
 - `src/arachne_demo`: Nintendo Switch Pro controller teleop, RViz demo launch, Gazebo showroom launch, and Gazebo autonomous pick validation.
 - `src/arachne_gazebo`: Gazebo helper nodes for smooth GUI camera tracking and demo arm/gripper commands.
 - `src/arachne_hardware`: real-hardware bringup wrapper package. It delegates device control to official/vendor ROS packages for Scout 2.0, Aubo i5, and MS42DC, while keeping Arachne-specific status and command bridges.
+- `src/arachne_control`: shared ros2_control controller names, mock controller launch, and sim/mock/real hardware profiles.
+- `src/arachne_moveit_config`: MoveIt2 starter configuration for Aubo i5 with MS42DC or AG95 end-effectors.
+- `src/arachne_nav`: Nav2 starter configuration for Scout navigation over the shared `/cmd_vel` and `/odom` contract.
+- `src/arachne_operator`: lightweight Tk operator panel for safety state, hardware status, odometry, base stop, and gripper Open/Close.
 - `godot/arachne_showcase`: Godot 4.x high-FPS showcase frontend with visual teleop, follow camera, arm presets, pickable-object demo logic, and ROS2 bridge placeholders.
 - `scripts`: setup, third-party fetch, model visualization, URDF check, and gripper smoke-test helpers.
-- `docs`: hardware/modeling/control/calibration notes and stage reports.
+- `docs`: hardware/modeling/control/calibration notes and stage reports, with matching `*.zh-CN.md` Chinese versions.
 - `docs/demo/arachne.png`: project showcase image for the repository front page.
 - `docs/demo/model_compare.png`: current MS42DC and AG95 model showcase.
 - `third_party/MS42DC.step` and `third_party/MS42DC_SPLIT/*.stl`: source CAD and user-created movable split parts for the MS42DC gripper.
@@ -42,16 +46,18 @@ External dependencies are restored by `scripts/fetch_third_party.sh`, with pinne
 - `scripts/gazebo_autopick_demo.sh` starts a Gazebo validation run where the Scout plans around known showroom obstacles, approaches a visible ground target, and runs realtime Aubo/MS42DC pick control.
 - `scripts/godot_showcase.sh` starts a separate Godot 4.x third-person showcase with collision-aware driving, painted materials, visual suspension, smooth camera follow, manual arm nudging, gripper open/close, pickable bottles/balls, and ROS2/UDP bridge placeholders.
 - Real hardware is being aligned around ROS interfaces: AgileX `scout_ros2` controls Scout 2.0 over CAN, the local MS42DC vendor ROS2 package controls the gripper serial node, and `AuboRobot/aubo_ros2_driver` controls Aubo i5 over TCP/IP through ros2_control.
+- Pre-hardware development can now run against mock nodes, safety state services, ros2_control controller names, MoveIt2 planning config, and a Nav2 starter config.
 
 ## Roadmap
 
 1. Finalize physical calibration: tool adapter pose, sensor poses, and collision simplification for planning.
-2. Add MoveIt2 configuration for the Aubo arm with interchangeable MS42DC and AG95 end-effectors.
+2. Validate the new MoveIt2 and ros2_control starter configs in RViz/Gazebo.
 3. Replace the Gazebo auto-pick validation planner with MoveIt2 and ros2_control controllers.
-4. Upgrade object grasping from command-level validation to contact-validated or attach-aware Gazebo tasks.
-5. Connect the Godot showcase to ROS2 or MuJoCo through the prepared bridge interface.
-6. Validate real-hardware ROS bringup on the physical Scout, Aubo, and MS42DC after the remaining materials arrive.
-7. Build the operator Web UI after the model, controllers, and launch contracts are stable.
+4. Bring up Nav2 against the simulated Scout odometry, then later swap in real odometry/localization.
+5. Upgrade object grasping from command-level validation to contact-validated or attach-aware Gazebo tasks.
+6. Connect the Godot showcase to ROS2 or MuJoCo through the prepared bridge interface.
+7. Validate real-hardware ROS bringup on the physical Scout, Aubo, and MS42DC after the remaining materials arrive.
+8. Build the full operator Web UI after the model, controllers, and launch contracts are stable.
 
 ## Quick Start
 
@@ -71,7 +77,8 @@ source /opt/ros/jazzy/setup.bash  # use /opt/ros/humble/setup.bash on Ubuntu 22.
 
 colcon build --base-paths src --packages-select \
   aubo_description scout_description dh_ag95_description \
-  arachne_sim arachne_gripper arachne_hardware arachne_description arachne_gazebo arachne_demo \
+  arachne_sim arachne_gripper arachne_hardware arachne_control arachne_moveit_config \
+  arachne_nav arachne_operator arachne_description arachne_gazebo arachne_demo \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 
 source install/setup.bash
@@ -100,6 +107,41 @@ To view AG95 with the same Open/Close controls:
 ```bash
 GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
 ```
+
+## Planning And Control Skeleton
+
+The pre-hardware planning/control stack can be checked without any physical devices:
+
+```bash
+./scripts/check_workspace.sh
+```
+
+Mock hardware bringup:
+
+```bash
+ros2 launch arachne_hardware mock_bringup.launch.py
+ros2 launch arachne_operator operator_panel.launch.py
+```
+
+ros2_control mock controller launch:
+
+```bash
+ros2 launch arachne_control mock_ros2_control.launch.py gripper_type:=ms42dc
+```
+
+MoveIt2 starter launch:
+
+```bash
+ros2 launch arachne_moveit_config moveit_planning.launch.py gripper_type:=ms42dc
+```
+
+Nav2 starter launch:
+
+```bash
+ros2 launch arachne_nav nav2_sim.launch.py
+```
+
+These entries are intended for interface validation before real hardware arrives. The next tuning pass is to validate planning groups, controller behavior, Nav2 costmaps, and safety gating under RViz/Gazebo.
 
 ## Real Hardware ROS Bringup
 
@@ -327,3 +369,6 @@ base_link
 - `docs/reports/stage_5_godot_showcase.md`
 - `docs/reports/stage_6_gazebo_autonomy.md`
 - `docs/reports/stage_7_real_hardware_ros_bringup.md`
+- `docs/reports/stage_8_planning_control_scaffold.md`
+
+Chinese versions are stored beside each maintained document as `*.zh-CN.md`.

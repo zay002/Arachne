@@ -144,6 +144,47 @@ ros2 launch arachne_hardware real_bringup.launch.py \
 
 The control layer should remain split by hardware device while sharing `/cmd_vel`, `/joint_states`, `/odom`, and the gripper command surface.
 
+## Planning And Control Skeleton
+
+The pre-hardware control skeleton is split into standard packages:
+
+- `arachne_control`: ros2_control controller names and `mock_ros2_control.launch.py`.
+- `arachne_moveit_config`: MoveIt2 groups, named arm poses, gripper open/close states, KDL IK, OMPL planning, and controller mapping.
+- `arachne_nav`: Nav2 starter params for Scout using `/cmd_vel`, `/odom`, `map -> odom -> base_link`, and the lidar scan contract.
+- `arachne_hardware/mock_bringup.launch.py`: simulated hardware status and state output without real devices.
+- `arachne_operator`: Tk status panel for safety state, base/Aubo/gripper status, odometry, stop, and gripper Open/Close.
+
+Run all repository-level checks:
+
+```bash
+./scripts/check_workspace.sh
+```
+
+Launch mock hardware plus the operator panel:
+
+```bash
+ros2 launch arachne_hardware mock_bringup.launch.py
+ros2 launch arachne_operator operator_panel.launch.py
+```
+
+Launch ros2_control with mock hardware:
+
+```bash
+ros2 launch arachne_control mock_ros2_control.launch.py gripper_type:=ms42dc
+```
+
+Launch MoveIt2:
+
+```bash
+ros2 launch arachne_moveit_config moveit_planning.launch.py gripper_type:=ms42dc
+```
+
+Launch Nav2:
+
+```bash
+ros2 launch arachne_nav nav2_sim.launch.py
+```
+
 ## Nintendo Switch Demo
 
 `src/arachne_demo` adds a Nintendo Switch Pro controller-driven demo path:

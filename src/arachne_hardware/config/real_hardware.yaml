@@ -1,5 +1,7 @@
 arachne_real_hardware:
   ros_contract:
+    safety_state: /arachne/safety/state
+    gated_base_command: /arachne/cmd_vel_raw -> /cmd_vel
     base_command: /cmd_vel
     base_odom: /odom
     arm_controller: /joint_trajectory_controller/follow_joint_trajectory

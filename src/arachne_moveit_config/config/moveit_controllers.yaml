@@ -1,0 +1,30 @@
+moveit_simple_controller_manager:
+  controller_names:
+    - aubo_arm_controller
+    - ms42dc_gripper_controller
+    - ag95_gripper_controller
+
+  aubo_arm_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    joints:
+      - aubo_shoulder_joint
+      - aubo_upperArm_joint
+      - aubo_foreArm_joint
+      - aubo_wrist1_joint
+      - aubo_wrist2_joint
+      - aubo_wrist3_joint
+
+  ms42dc_gripper_controller:
+    type: GripperCommand
+    action_ns: gripper_cmd
+    joints:
+      - ms42dc_left_finger_joint
+
+  ag95_gripper_controller:
+    type: GripperCommand
+    action_ns: gripper_cmd
+    joints:
+      - left_outer_knuckle_joint
+
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager

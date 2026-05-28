@@ -1,23 +1,19 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>arachne_hardware</name>
+  <name>arachne_operator</name>
   <version>0.1.0</version>
-  <description>Real-hardware ROS bringup wrappers for Arachne.</description>
+  <description>Lightweight operator status panel for Arachne.</description>
   <maintainer email="maintainer@example.com">Arachne Maintainers</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_python</buildtool_depend>
 
-  <exec_depend>launch</exec_depend>
-  <exec_depend>launch_ros</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>python3-tk</exec_depend>
   <exec_depend>rclpy</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
-  <exec_depend>tf2_ros</exec_depend>
-  <exec_depend>trajectory_msgs</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

@@ -41,6 +41,20 @@ Run the environment checker before motion tests:
 ./scripts/check_real_hardware_env.sh
 ```
 
+## Mock Hardware
+
+Before physical devices are attached, `arachne_hardware mock_bringup.launch.py` publishes the same high-level status and state topics used by the real bringup:
+
+- `/odom`
+- `/joint_states`
+- `/arachne/hardware/base_status`
+- `/arachne/hardware/aubo_status`
+- `/arachne/hardware/gripper_status`
+- `/arachne/safety/state`
+- `/arachne/safety/enabled`
+
+This lets MoveIt2, Nav2, the operator panel, safety services, and future Web UI work against stable ROS contracts before Scout CAN, MS42DC serial, or Aubo TCP/IP are available.
+
 ## Measurements To Confirm
 
 - Exact Scout top-plate mounting holes and usable payload layout.

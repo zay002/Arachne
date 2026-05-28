@@ -16,9 +16,13 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `src/arachne_demo`：Nintendo Switch Pro 手柄遥控、RViz demo 启动、Gazebo 展示世界和 Gazebo 自主拾取验证。
 - `src/arachne_gazebo`：Gazebo 专用辅助节点，用于更流畅的 GUI 相机跟随，以及 demo 中的机械臂/夹爪控制桥。
 - `src/arachne_hardware`：真机 ROS bringup 集成包。底层控制交给 Scout 2.0、Aubo i5 和 MS42DC 对应的官方/厂家 ROS 包，Arachne 负责统一状态与命令桥接。
+- `src/arachne_control`：统一的 ros2_control 控制器命名、mock 控制器 launch，以及 sim/mock/real 硬件 profile。
+- `src/arachne_moveit_config`：Aubo i5 + MS42DC/AG95 两种末端的 MoveIt2 起步配置。
+- `src/arachne_nav`：基于 `/cmd_vel` 和 `/odom` 契约的 Scout Nav2 起步配置。
+- `src/arachne_operator`：轻量 Tk 操作员状态面板，用于查看 safety、硬件状态、里程计，并提供底盘停止和夹爪开闭按钮。
 - `godot/arachne_showcase`：Godot 4.x 高帧率展示前端，包含视觉 teleop、跟随相机、机械臂预设姿态、可拾取物体 demo 逻辑和 ROS2 bridge 占位接口。
 - `scripts`：环境安装、第三方模型下载、可视化启动、URDF 检查和夹爪仿真测试脚本。
-- `docs`：硬件、建模、控制、标定说明，以及阶段报告。
+- `docs`：硬件、建模、控制、标定说明，以及阶段报告；维护文档均提供同名 `*.zh-CN.md` 中文版。
 - `docs/demo/arachne.png`：项目首页宣传图。
 - `docs/demo/model_compare.png`：MS42DC 与 AG95 两套夹爪模型展示图。
 - `third_party/MS42DC.step`：MS42DC 原始 CAD。
@@ -38,16 +42,18 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `scripts/gazebo_autopick_demo.sh` 会启动 Gazebo 自主拾取验证：Scout 根据已知展厅障碍物规划路线，靠近可见地面目标，并实时计算 Aubo/MS42DC 拾取控制。
 - `scripts/godot_showcase.sh` 可启动单独的 Godot 4.x 第三人称展示前端，包含可碰撞底盘运动、涂装材质、视觉悬挂、平滑跟随相机、机械臂手动微调、夹爪开闭、可拾取水瓶/小球和 ROS2/UDP bridge 占位接口。
 - 真机控制路径已统一为 ROS 接口：Scout 2.0 使用 AgileX `scout_ros2` 通过 CAN 控制，MS42DC 使用本地厂家资料包自带 ROS2 串口节点，Aubo i5 使用 `AuboRobot/aubo_ros2_driver` 通过 TCP/IP 和 ros2_control 控制。
+- 没接真机时，也可以用 mock 节点、安全状态机、ros2_control 控制器命名、MoveIt2 起步配置和 Nav2 起步配置继续联调。
 
 ## Roadmap
 
 1. 完成物理标定：末端转接板、传感器位姿和用于规划的简化碰撞模型。
-2. 为 Aubo + MS42DC/AG95 两种末端配置 MoveIt2。
+2. 在 RViz/Gazebo 中验证新的 MoveIt2 和 ros2_control 起步配置。
 3. 用 MoveIt2 和 ros2_control 替换当前 Gazebo 自主拾取验证中的轻量规划器。
-4. 将物体抓取从命令级验证升级为 Gazebo 接触验证或 attach-aware 任务。
-5. 通过已预留的 bridge 接口，把 Godot 展示前端连接到 ROS2 或 MuJoCo。
-6. 真机材料到齐后，在物理 Scout、Aubo 和 MS42DC 上验证官方/厂家 ROS bringup。
-7. 在模型、控制器和 launch 接口稳定后，再构建 Web 操作界面。
+4. 先用仿真里程计跑通 Nav2，再在真机阶段替换真实定位和里程计。
+5. 将物体抓取从命令级验证升级为 Gazebo 接触验证或 attach-aware 任务。
+6. 通过已预留的 bridge 接口，把 Godot 展示前端连接到 ROS2 或 MuJoCo。
+7. 真机材料到齐后，在物理 Scout、Aubo 和 MS42DC 上验证官方/厂家 ROS bringup。
+8. 在模型、控制器和 launch 接口稳定后，再构建完整 Web 操作界面。
 
 ## 快速启动
 
@@ -66,7 +72,8 @@ source /opt/ros/jazzy/setup.bash  # Ubuntu 22.04 使用 /opt/ros/humble/setup.ba
 
 colcon build --base-paths src --packages-select \
   aubo_description scout_description dh_ag95_description \
-  arachne_sim arachne_gripper arachne_hardware arachne_description arachne_gazebo arachne_demo \
+  arachne_sim arachne_gripper arachne_hardware arachne_control arachne_moveit_config \
+  arachne_nav arachne_operator arachne_description arachne_gazebo arachne_demo \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 
 source install/setup.bash
@@ -95,6 +102,41 @@ ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
 ```bash
 GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
 ```
+
+## 规划与控制骨架
+
+不接真机也可以先检查规划/控制接口：
+
+```bash
+./scripts/check_workspace.sh
+```
+
+启动硬件 mock：
+
+```bash
+ros2 launch arachne_hardware mock_bringup.launch.py
+ros2 launch arachne_operator operator_panel.launch.py
+```
+
+启动 ros2_control mock 控制器：
+
+```bash
+ros2 launch arachne_control mock_ros2_control.launch.py gripper_type:=ms42dc
+```
+
+启动 MoveIt2 起步配置：
+
+```bash
+ros2 launch arachne_moveit_config moveit_planning.launch.py gripper_type:=ms42dc
+```
+
+启动 Nav2 起步配置：
+
+```bash
+ros2 launch arachne_nav nav2_sim.launch.py
+```
+
+这些入口目前用于接口验证。下一轮需要在 RViz/Gazebo 中继续调 planning group、控制器行为、Nav2 costmap 和安全门控。
 
 ## 真机 ROS Bringup
 

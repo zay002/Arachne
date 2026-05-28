@@ -1,0 +1,82 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    aubo_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    scout_diff_drive_controller:
+      type: diff_drive_controller/DiffDriveController
+
+    ms42dc_gripper_controller:
+      type: position_controllers/JointGroupPositionController
+
+    ag95_gripper_controller:
+      type: position_controllers/JointGroupPositionController
+
+aubo_arm_controller:
+  ros__parameters:
+    joints:
+      - aubo_shoulder_joint
+      - aubo_upperArm_joint
+      - aubo_foreArm_joint
+      - aubo_wrist1_joint
+      - aubo_wrist2_joint
+      - aubo_wrist3_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    allow_partial_joints_goal: false
+    constraints:
+      stopped_velocity_tolerance: 0.02
+      goal_time: 1.0
+      aubo_shoulder_joint: {trajectory: 0.1, goal: 0.05}
+      aubo_upperArm_joint: {trajectory: 0.1, goal: 0.05}
+      aubo_foreArm_joint: {trajectory: 0.1, goal: 0.05}
+      aubo_wrist1_joint: {trajectory: 0.1, goal: 0.05}
+      aubo_wrist2_joint: {trajectory: 0.1, goal: 0.05}
+      aubo_wrist3_joint: {trajectory: 0.1, goal: 0.05}
+
+scout_diff_drive_controller:
+  ros__parameters:
+    left_wheel_names:
+      - front_left_wheel
+      - rear_left_wheel
+    right_wheel_names:
+      - front_right_wheel
+      - rear_right_wheel
+    wheel_separation: 0.58306
+    wheel_radius: 0.16459
+    base_frame_id: base_link
+    odom_frame_id: odom
+    enable_odom_tf: true
+    cmd_vel_timeout: 0.5
+    publish_rate: 50.0
+    use_stamped_vel: false
+    linear.x.has_velocity_limits: true
+    linear.x.max_velocity: 0.8
+    angular.z.has_velocity_limits: true
+    angular.z.max_velocity: 1.4
+
+ms42dc_gripper_controller:
+  ros__parameters:
+    joints:
+      - ms42dc_left_finger_joint
+      - ms42dc_right_finger_joint
+    interface_name: position
+
+ag95_gripper_controller:
+  ros__parameters:
+    joints:
+      - left_outer_knuckle_joint
+      - right_outer_knuckle_joint
+      - left_finger_joint
+      - right_finger_joint
+      - left_inner_knuckle_joint
+      - right_inner_knuckle_joint
+    interface_name: position

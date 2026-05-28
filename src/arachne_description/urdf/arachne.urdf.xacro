@@ -15,9 +15,12 @@
   <xacro:include filename="materials.xacro"/>
   <xacro:include filename="common_inertials.xacro"/>
   <xacro:include filename="scout/scout_2_vendor.xacro"/>
+  <xacro:include filename="scout/scout_2_ros2_control.xacro"/>
   <xacro:include filename="aubo/aubo_i5_vendor.xacro"/>
   <xacro:include filename="aubo/aubo_i5_ros2_control.xacro"/>
   <xacro:include filename="gripper/ms42dc.urdf.xacro"/>
+  <xacro:include filename="gripper/ms42dc_ros2_control.xacro"/>
+  <xacro:include filename="gripper/ag95_ros2_control.xacro"/>
   <xacro:include filename="mounts/scout_aubo_mount.xacro"/>
   <xacro:include filename="mounts/aubo_ms42dc_adapter.xacro"/>
   <xacro:include filename="sensors/lidar.xacro"/>
@@ -50,7 +53,14 @@
   </xacro:if>
 
   <xacro:if value="$(arg with_ros2_control)">
+    <xacro:arachne_scout_2_ros2_control/>
     <xacro:arachne_aubo_i5_ros2_control prefix="aubo_"/>
+    <xacro:if value="${'$(arg gripper_type)' == 'ms42dc'}">
+      <xacro:arachne_ms42dc_ros2_control prefix="ms42dc_"/>
+    </xacro:if>
+    <xacro:if value="${'$(arg gripper_type)' == 'ag95'}">
+      <xacro:arachne_ag95_ros2_control/>
+    </xacro:if>
   </xacro:if>
 
   <xacro:if value="$(arg with_gazebo_plugins)">
