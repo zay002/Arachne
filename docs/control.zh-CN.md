@@ -68,6 +68,14 @@ ros2 launch arachne_description display.launch.py \
   gripper_sim_profile:=ag95
 ```
 
+日常工作建议使用统一夹具切换入口：
+
+```bash
+./scripts/use_gripper.sh ms42dc view
+./scripts/use_gripper.sh ag95 view
+./scripts/use_gripper.sh ms42dc prehardware launch_rviz:=false
+```
+
 MS42DC 使用 `third_party/MS42DC_SPLIT` 中由项目作者手动拆分的真实夹指 mesh。铰链轴为 CAD Z 轴，URDF 轴为 `0 0 -1`，右指以 multiplier `-1.0` mimic 左指，默认闭合角为 `0.6 rad`。Gazebo 会禁用 URDF mimic 标签，因为当前物理引擎不创建 mimic 约束；demo 会显式向左右夹指位置控制器发送镜像命令。
 
 手动滑条检查：
@@ -206,6 +214,43 @@ ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: 'got
 ```
 
 任务进度发布在 `/arachne/sequence/status`。`stop` 命令会取消当前任务、停止 `/cmd_vel`、向夹爪发送 stop，并尝试取消正在执行的 Nav2 goal。
+
+## VLA/WAM Action Chunk Translator
+
+`src/arachne_operator/arachne_operator/action_chunk_translator.py` 是预留给外部策略的入口。它从 `/arachne/vla/action_chunk` 接收 JSON chunk，并转换成 Arachne 内部一直使用的底层控制契约：
+
+- 底盘运动：`/cmd_vel` 上的 `geometry_msgs/msg/Twist`
+- 机械臂运动：`/aubo_arm_controller/joint_trajectory` 上的 `trajectory_msgs/msg/JointTrajectory`
+- 兼容 mock/旧接口的机械臂运动：`/joint_trajectory_controller/joint_trajectory`
+- 夹爪状态：`/arachne/gripper/command` 上的 `std_msgs/msg/String`
+
+单独启动：
+
+```bash
+ros2 launch arachne_operator action_chunk_translator.launch.py
+```
+
+也可以随未接真机联合控制环境一起启动：
+
+```bash
+ros2 launch arachne_control prehardware_control.launch.py launch_action_translator:=true
+```
+
+紧凑数组格式为 `[linear_x, angular_z, j1, j2, j3, j4, j5, j6, gripper]`。默认情况下机械臂 6 个值表示关节增量；如果要当作绝对关节角，可设置 `arm_mode`，或启动时使用 `array_arm_mode:=absolute`。
+
+```bash
+ros2 topic pub --once /arachne/vla/action_chunk std_msgs/msg/String \
+  "{data: '{\"action\":[0.15,0.0,0,0,0,0,0,0,1],\"duration\":0.3}'}"
+```
+
+对象格式更适合非数组策略：
+
+```bash
+ros2 topic pub --once /arachne/vla/action_chunk std_msgs/msg/String \
+  "{data: '{\"base\":{\"linear_x\":0.1,\"angular_z\":0.2},\"arm\":{\"preset\":\"ready\"},\"gripper\":\"open\",\"duration\":0.5}'}"
+```
+
+向同一话题发送 `stop`，或调用 `/arachne/vla/translator/stop`，即可取消当前 chunk 并向底盘发布零速度。
 
 ## Nintendo Switch Demo
 

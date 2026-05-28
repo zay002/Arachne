@@ -12,12 +12,13 @@
 - `src/arachne_hardware/arachne_hardware/safety_state_machine.py`：manual/autonomous/disabled/estop 状态服务。
 - `src/arachne_hardware/arachne_hardware/safety_cmd_vel_gate.py`：可选 `/cmd_vel` 安全门控路径。
 - `src/arachne_hardware/arachne_hardware/hardware_mock.py`：无硬件时发布 odom、joint state 和硬件状态。
-- `src/arachne_operator/`：Tk operator 状态面板，以及用于机械臂预设、夹爪命令、demo 序列和 Nav2 目标的 `sequence_executor.py`。
+- `src/arachne_operator/`：Tk operator 状态面板、用于高层任务命令的 `sequence_executor.py`，以及用于 VLA/WAM JSON chunk 的 `action_chunk_translator.py`。
+- `scripts/use_gripper.sh`：一条入口在可视化、demo、MoveIt2、ros2_control、Nav2 和 prehardware bringup 中切换 MS42DC/AG95。
 - `scripts/check_workspace.sh`：一条命令完成语法、Xacro、SRDF、构建和 launch smoke check。
 
 ## 文件关系
 
-组合 prehardware launch 会启动 mock 硬件、Nav2、MoveIt2、sequence executor 和可选 operator 面板。MoveIt2 和 ros2_control 共享 `arachne_description` 中的 Aubo 与夹爪关节名。Nav2 使用与 RViz、Gazebo 和真实 Scout bringup 相同的 `/cmd_vel` 与 `/odom` 契约；其仿真 launch 会在定位或 SLAM 接入前临时提供 mock `map -> odom` 变换。Operator 面板监听这些共享状态话题，sequence executor 则用带状态、停止、超时和 Nav2 结果处理的方式，把高层任务命令映射到同一套底层契约。
+组合 prehardware launch 会启动 mock 硬件、Nav2、MoveIt2、sequence executor、action chunk translator 和可选 operator 面板。MoveIt2 和 ros2_control 共享 `arachne_description` 中的 Aubo 与夹爪关节名。Nav2 使用与 RViz、Gazebo 和真实 Scout bringup 相同的 `/cmd_vel` 与 `/odom` 契约；其仿真 launch 会在定位或 SLAM 接入前临时提供 mock `map -> odom` 变换。Operator 面板监听这些共享状态话题，sequence executor 把高层任务命令映射到同一套底层契约，translator 则把外部 JSON action chunk 转成 `/cmd_vel`、Aubo 关节轨迹和 `/arachne/gripper/command`。
 
 ## 下一步
 

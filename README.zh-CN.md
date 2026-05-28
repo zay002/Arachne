@@ -19,9 +19,9 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `src/arachne_control`：统一的 ros2_control 控制器命名、mock 控制器 launch，以及 sim/mock/real 硬件 profile。
 - `src/arachne_moveit_config`：Aubo i5 + MS42DC/AG95 两种末端的 MoveIt2 起步配置。
 - `src/arachne_nav`：基于 `/cmd_vel` 和 `/odom` 契约的 Scout Nav2 起步配置。
-- `src/arachne_operator`：轻量 Tk 操作员状态面板，用于查看 safety、硬件状态、里程计，并提供底盘停止和夹爪开闭按钮。
+- `src/arachne_operator`：轻量 Tk 操作员状态面板、sequence executor 和 VLA/WAM action chunk translator，用于查看 safety、硬件状态、里程计，提供底盘停止、夹爪开闭按钮，以及外部策略接入入口。
 - `godot/arachne_showcase`：Godot 4.x 高帧率展示前端，包含视觉 teleop、跟随相机、机械臂预设姿态、可拾取物体 demo 逻辑和 ROS2 bridge 占位接口。
-- `scripts`：环境安装、第三方模型下载、可视化启动、URDF 检查和夹爪仿真测试脚本。
+- `scripts`：环境安装、第三方模型下载、夹具切换、可视化启动、URDF 检查和夹爪仿真测试脚本。
 - `docs`：硬件、建模、控制、标定说明，以及阶段报告；维护文档均提供同名 `*.zh-CN.md` 中文版。
 - `docs/demo/arachne.png`：项目首页宣传图。
 - `docs/demo/model_compare.png`：MS42DC 与 AG95 两套夹爪模型展示图。
@@ -41,6 +41,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `scripts/switch_demo.sh` 默认启动 Gazebo 展厅 demo，可以用 Nintendo Switch Pro 手柄控制底盘、平滑第三人称视角、Aubo 关节和夹爪。Gazebo 会使用专门的 Scout 轮子物理姿态，确保前进输入时四个轮子同向驱动。
 - `scripts/gazebo_autopick_demo.sh` 会启动 Gazebo 自主拾取验证：Scout 根据已知展厅障碍物规划路线，靠近可见地面目标，并实时计算 Aubo/MS42DC 拾取控制。
 - `scripts/godot_showcase.sh` 可启动单独的 Godot 4.x 第三人称展示前端，包含可碰撞底盘运动、涂装材质、视觉悬挂、平滑跟随相机、机械臂手动微调、夹爪开闭、可拾取水瓶/小球和 ROS2/UDP bridge 占位接口。
+- `scripts/use_gripper.sh` 是推荐的夹具切换入口，可在可视化、demo、MoveIt2、ros2_control、Nav2 和未接真机联合启动中统一选择 MS42DC 或 AG95。
 - 真机控制路径已统一为 ROS 接口：Scout 2.0 使用 AgileX `scout_ros2` 通过 CAN 控制，MS42DC 使用本地厂家资料包自带 ROS2 串口节点，Aubo i5 使用 `AuboRobot/aubo_ros2_driver` 通过 TCP/IP 和 ros2_control 控制。
 - 没接真机时，也可以用 mock 节点、安全状态机、ros2_control 控制器命名、MoveIt2 起步配置和 Nav2 起步配置继续联调。
 
@@ -100,7 +101,15 @@ ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
 查看 AG95 版本：
 
 ```bash
-GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
+./scripts/use_gripper.sh ag95 view
+```
+
+同一个入口也可以切换其他栈里的夹具：
+
+```bash
+./scripts/use_gripper.sh ms42dc prehardware launch_rviz:=false
+./scripts/use_gripper.sh ag95 moveit launch_rviz:=true
+./scripts/use_gripper.sh ms42dc gazebo
 ```
 
 ## 规划与控制骨架
@@ -146,6 +155,14 @@ ros2 launch arachne_nav nav2_sim.launch.py
 默认会同时启动轻量底盘仿真和 mock `map -> odom` 变换，因此在 lidar/定位硬件尚未接入时 Nav2 也能进入 active。后续如果由真实定位或 SLAM 提供 `map -> odom`，启动时加 `with_mock_map_odom:=false`。
 
 `sequence_executor` 是一个轻量高层命令入口。它通过 `/arachne/sequence/command` 执行带状态、超时、停止处理和 Nav2 结果检查的任务 step，例如 `ready`、`open`、`demo_pick`、`demo_nav_pick` 或 `goto 1.0 0.0 0.0`。
+
+外部 VLA/WAM 策略可以接入 action chunk translator。它从 `/arachne/vla/action_chunk` 接收 JSON，并把每个 step 转成 `/cmd_vel`、Aubo 关节轨迹和 `/arachne/gripper/command`：
+
+```bash
+ros2 launch arachne_operator action_chunk_translator.launch.py
+ros2 topic pub --once /arachne/vla/action_chunk std_msgs/msg/String \
+  "{data: '{\"action\":[0.15,0.0,0,0,0,0,0,0,1],\"duration\":0.3}'}"
+```
 
 这些入口目前用于接口验证。下一轮需要在 RViz/Gazebo 中继续调 planning group、控制器行为、Nav2 costmap 和安全门控。
 

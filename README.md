@@ -23,9 +23,9 @@ The current milestone is a reliable robot description plus interactive demos: on
 - `src/arachne_control`: shared ros2_control controller names, mock controller launch, and sim/mock/real hardware profiles.
 - `src/arachne_moveit_config`: MoveIt2 starter configuration for Aubo i5 with MS42DC or AG95 end-effectors.
 - `src/arachne_nav`: Nav2 starter configuration for Scout navigation over the shared `/cmd_vel` and `/odom` contract.
-- `src/arachne_operator`: lightweight Tk operator panel for safety state, hardware status, odometry, base stop, and gripper Open/Close.
+- `src/arachne_operator`: lightweight Tk operator panel, sequence executor, and VLA/WAM action-chunk translator for safety state, hardware status, odometry, base stop, gripper Open/Close, and external policy integration.
 - `godot/arachne_showcase`: Godot 4.x high-FPS showcase frontend with visual teleop, follow camera, arm presets, pickable-object demo logic, and ROS2 bridge placeholders.
-- `scripts`: setup, third-party fetch, model visualization, URDF check, and gripper smoke-test helpers.
+- `scripts`: setup, third-party fetch, gripper switching, model visualization, URDF check, and gripper smoke-test helpers.
 - `docs`: hardware/modeling/control/calibration notes and stage reports, with matching `*.zh-CN.md` Chinese versions.
 - `docs/demo/arachne.png`: project showcase image for the repository front page.
 - `docs/demo/model_compare.png`: current MS42DC and AG95 model showcase.
@@ -45,6 +45,7 @@ External dependencies are restored by `scripts/fetch_third_party.sh`, with pinne
 - `scripts/switch_demo.sh` starts an interactive Nintendo Switch Pro controller demo with Gazebo physics, a smoothed third-person camera, body-relative Scout driving, Aubo joint nudging, and gripper commands. Gazebo uses a physics-specific Scout wheel setup so forward input drives all four wheels in the same direction.
 - `scripts/gazebo_autopick_demo.sh` starts a Gazebo validation run where the Scout plans around known showroom obstacles, approaches a visible ground target, and runs realtime Aubo/MS42DC pick control.
 - `scripts/godot_showcase.sh` starts a separate Godot 4.x third-person showcase with collision-aware driving, painted materials, visual suspension, smooth camera follow, manual arm nudging, gripper open/close, pickable bottles/balls, and ROS2/UDP bridge placeholders.
+- `scripts/use_gripper.sh` is the preferred entry for switching between MS42DC and AG95 across visualization, demos, MoveIt2, ros2_control, Nav2, and pre-hardware launch flows.
 - Real hardware is being aligned around ROS interfaces: AgileX `scout_ros2` controls Scout 2.0 over CAN, the local MS42DC vendor ROS2 package controls the gripper serial node, and `AuboRobot/aubo_ros2_driver` controls Aubo i5 over TCP/IP through ros2_control.
 - Pre-hardware development can now run against mock nodes, safety state services, ros2_control controller names, MoveIt2 planning config, and a Nav2 starter config.
 
@@ -105,7 +106,15 @@ ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
 To view AG95 with the same Open/Close controls:
 
 ```bash
-GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
+./scripts/use_gripper.sh ag95 view
+```
+
+The same entry can switch the gripper for other stacks:
+
+```bash
+./scripts/use_gripper.sh ms42dc prehardware launch_rviz:=false
+./scripts/use_gripper.sh ag95 moveit launch_rviz:=true
+./scripts/use_gripper.sh ms42dc gazebo
 ```
 
 ## Planning And Control Skeleton
@@ -151,6 +160,14 @@ ros2 launch arachne_nav nav2_sim.launch.py
 By default this uses the lightweight base simulator and a mock `map -> odom` transform, so Nav2 can become active before lidar/localization hardware is available. When a real localization or SLAM stack provides `map -> odom`, launch with `with_mock_map_odom:=false`.
 
 The sequence executor is a small high-level command surface. It runs task steps with status, timeouts, stop handling, and Nav2 result checks through `/arachne/sequence/command`; for example `ready`, `open`, `demo_pick`, `demo_nav_pick`, or `goto 1.0 0.0 0.0`.
+
+External VLA/WAM policies can use the action-chunk translator. It accepts JSON on `/arachne/vla/action_chunk` and converts each step into `/cmd_vel`, Aubo joint trajectories, and `/arachne/gripper/command`:
+
+```bash
+ros2 launch arachne_operator action_chunk_translator.launch.py
+ros2 topic pub --once /arachne/vla/action_chunk std_msgs/msg/String \
+  "{data: '{\"action\":[0.15,0.0,0,0,0,0,0,0,1],\"duration\":0.3}'}"
+```
 
 These entries are intended for interface validation before real hardware arrives. The next tuning pass is to validate planning groups, controller behavior, Nav2 costmaps, and safety gating under RViz/Gazebo.
 

@@ -68,6 +68,14 @@ ros2 launch arachne_description display.launch.py \
   gripper_sim_profile:=ag95
 ```
 
+For day-to-day work, prefer the unified gripper switch entry:
+
+```bash
+./scripts/use_gripper.sh ms42dc view
+./scripts/use_gripper.sh ag95 view
+./scripts/use_gripper.sh ms42dc prehardware launch_rviz:=false
+```
+
 MS42DC uses user-created split finger meshes from `third_party/MS42DC_SPLIT`. The hinge axis is CAD Z with URDF axis `0 0 -1`, the right finger mimics the left with multiplier `-1.0`, and the default close target is `0.6 rad`. Gazebo disables the URDF mimic tag because the selected physics engine does not create mimic constraints; the demo instead sends explicit mirrored commands to the left and right finger position controllers.
 
 For manual slider inspection, launch:
@@ -206,6 +214,43 @@ ros2 topic pub --once /arachne/sequence/command std_msgs/msg/String "{data: 'got
 ```
 
 Task progress is published on `/arachne/sequence/status`. The `stop` command cancels the current task, stops `/cmd_vel`, commands the gripper to stop, and attempts to cancel an active Nav2 goal.
+
+## VLA/WAM Action Chunk Translator
+
+`src/arachne_operator/arachne_operator/action_chunk_translator.py` is the reserved external policy entry. It receives JSON chunks on `/arachne/vla/action_chunk` and translates them into the same low-level contracts used elsewhere in Arachne:
+
+- base motion: `geometry_msgs/msg/Twist` on `/cmd_vel`
+- arm motion: `trajectory_msgs/msg/JointTrajectory` on `/aubo_arm_controller/joint_trajectory`
+- legacy/mock arm motion: `/joint_trajectory_controller/joint_trajectory`
+- gripper state: `std_msgs/msg/String` on `/arachne/gripper/command`
+
+Launch it alone:
+
+```bash
+ros2 launch arachne_operator action_chunk_translator.launch.py
+```
+
+Or launch it as part of the pre-hardware stack:
+
+```bash
+ros2 launch arachne_control prehardware_control.launch.py launch_action_translator:=true
+```
+
+The compact array schema is `[linear_x, angular_z, j1, j2, j3, j4, j5, j6, gripper]`. Arm values are joint deltas by default; set `arm_mode` or the launch parameter `array_arm_mode:=absolute` to treat them as absolute positions.
+
+```bash
+ros2 topic pub --once /arachne/vla/action_chunk std_msgs/msg/String \
+  "{data: '{\"action\":[0.15,0.0,0,0,0,0,0,0,1],\"duration\":0.3}'}"
+```
+
+The object schema is easier to read for non-array policies:
+
+```bash
+ros2 topic pub --once /arachne/vla/action_chunk std_msgs/msg/String \
+  "{data: '{\"base\":{\"linear_x\":0.1,\"angular_z\":0.2},\"arm\":{\"preset\":\"ready\"},\"gripper\":\"open\",\"duration\":0.5}'}"
+```
+
+Send `stop` on the same topic or call `/arachne/vla/translator/stop` to cancel the active chunk and publish zero base velocity.
 
 ## Nintendo Switch Demo
 

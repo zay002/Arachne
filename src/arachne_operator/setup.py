@@ -21,6 +21,7 @@ setup(
     license="MIT",
     entry_points={
         "console_scripts": [
+            "action_chunk_translator = arachne_operator.action_chunk_translator:main",
             "operator_panel = arachne_operator.operator_panel:main",
             "sequence_executor = arachne_operator.sequence_executor:main",
         ],

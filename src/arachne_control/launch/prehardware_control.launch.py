@@ -21,6 +21,7 @@ def generate_launch_description():
     gripper_type = LaunchConfiguration("gripper_type")
     launch_rviz = LaunchConfiguration("launch_rviz")
     launch_operator = LaunchConfiguration("launch_operator")
+    launch_action_translator = LaunchConfiguration("launch_action_translator")
     use_safety_gate = LaunchConfiguration("use_safety_gate")
     with_mock_map_odom = LaunchConfiguration("with_mock_map_odom")
 
@@ -29,6 +30,7 @@ def generate_launch_description():
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
             DeclareLaunchArgument("launch_rviz", default_value="false"),
             DeclareLaunchArgument("launch_operator", default_value="true"),
+            DeclareLaunchArgument("launch_action_translator", default_value="true"),
             DeclareLaunchArgument("use_safety_gate", default_value="false"),
             DeclareLaunchArgument("with_mock_map_odom", default_value="true"),
             include_launch(
@@ -59,6 +61,13 @@ def generate_launch_description():
                 "arachne_operator",
                 "launch/sequence_executor.launch.py",
                 {},
+            ),
+            Node(
+                package="arachne_operator",
+                executable="action_chunk_translator",
+                name="arachne_action_chunk_translator",
+                output="screen",
+                condition=IfCondition(launch_action_translator),
             ),
             Node(
                 package="arachne_operator",

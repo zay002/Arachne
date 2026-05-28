@@ -12,12 +12,13 @@ Prepare the parts that can be developed before real hardware arrives: MoveIt2, r
 - `src/arachne_hardware/arachne_hardware/safety_state_machine.py`: manual/autonomous/disabled/estop state services.
 - `src/arachne_hardware/arachne_hardware/safety_cmd_vel_gate.py`: optional gated `/cmd_vel` path.
 - `src/arachne_hardware/arachne_hardware/hardware_mock.py`: no-hardware publisher for odom, joint states, and hardware status.
-- `src/arachne_operator/`: Tk operator status panel plus `sequence_executor.py` for arm presets, gripper commands, demo sequences, and Nav2 goals.
+- `src/arachne_operator/`: Tk operator status panel, `sequence_executor.py` for high-level task commands, and `action_chunk_translator.py` for VLA/WAM JSON chunks.
+- `scripts/use_gripper.sh`: one entry to switch MS42DC/AG95 across visualization, demos, MoveIt2, ros2_control, Nav2, and pre-hardware bringup.
 - `scripts/check_workspace.sh`: one-command syntax, Xacro, SRDF, build, and launch smoke check.
 
 ## Relationships
 
-The combined prehardware launch starts mock hardware, Nav2, MoveIt2, the sequence executor, and the optional operator panel. MoveIt2 and ros2_control share the Aubo and gripper joint names from `arachne_description`. Nav2 uses the same `/cmd_vel` and `/odom` contract as RViz, Gazebo, and real Scout bringup; its sim launch adds a mock `map -> odom` transform until localization or SLAM is connected. The operator panel watches these shared status topics, and the sequence executor maps high-level task commands onto the same low-level contracts with status, stop, timeout, and Nav2 result handling.
+The combined prehardware launch starts mock hardware, Nav2, MoveIt2, the sequence executor, the action chunk translator, and the optional operator panel. MoveIt2 and ros2_control share the Aubo and gripper joint names from `arachne_description`. Nav2 uses the same `/cmd_vel` and `/odom` contract as RViz, Gazebo, and real Scout bringup; its sim launch adds a mock `map -> odom` transform until localization or SLAM is connected. The operator panel watches these shared status topics, the sequence executor maps high-level task commands onto the same low-level contracts, and the translator maps external JSON action chunks to `/cmd_vel`, Aubo joint trajectories, and `/arachne/gripper/command`.
 
 ## Next Work
 
