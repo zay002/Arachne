@@ -111,6 +111,12 @@ GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
 ./scripts/check_workspace.sh
 ```
 
+一条命令启动未接真机时的联合控制环境：
+
+```bash
+ros2 launch arachne_control prehardware_control.launch.py launch_rviz:=false
+```
+
 启动硬件 mock：
 
 ```bash

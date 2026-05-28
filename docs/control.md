@@ -154,11 +154,18 @@ The pre-hardware control skeleton is split into standard packages:
 - `arachne_hardware/mock_bringup.launch.py`: simulated hardware status and state output without real devices.
 - `arachne_operator`: Tk status panel for safety state, base/Aubo/gripper status, odometry, stop, and gripper Open/Close.
 - `arachne_operator/sequence_executor.py`: high-level command entry for arm presets, gripper commands, simple demo sequences, and Nav2 goals.
+- `arachne_control/prehardware_control.launch.py`: combined mock bringup for Nav2, MoveIt2, sequence execution, and optional operator panel.
 
 Run all repository-level checks:
 
 ```bash
 ./scripts/check_workspace.sh
+```
+
+Launch the combined pre-hardware control stack:
+
+```bash
+ros2 launch arachne_control prehardware_control.launch.py launch_rviz:=false
 ```
 
 Launch mock hardware plus the operator panel:

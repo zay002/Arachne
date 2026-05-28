@@ -6,7 +6,7 @@
 
 ## 核心文件
 
-- `src/arachne_control/`：统一控制器命名、`ros2_controllers.yaml`、sim/mock/real profile，以及 `mock_ros2_control.launch.py`。
+- `src/arachne_control/`：统一控制器命名、`ros2_controllers.yaml`、sim/mock/real profile、`mock_ros2_control.launch.py`，以及组合启动用的 `prehardware_control.launch.py`。
 - `src/arachne_moveit_config/`：MS42DC 和 AG95 的 MoveIt2 起步 SRDF、Aubo 命名姿态、KDL IK、OMPL 规划和控制器映射。
 - `src/arachne_nav/`：Nav2 起步参数、空地图，以及带 mock 底盘和 mock `map -> odom` 支持的 `nav2_sim.launch.py`。
 - `src/arachne_hardware/arachne_hardware/safety_state_machine.py`：manual/autonomous/disabled/estop 状态服务。
@@ -17,7 +17,7 @@
 
 ## 文件关系
 
-Mock 硬件会发布与真机 bringup 相同的高层状态。MoveIt2 和 ros2_control 共享 `arachne_description` 中的 Aubo 与夹爪关节名。Nav2 使用与 RViz、Gazebo 和真实 Scout bringup 相同的 `/cmd_vel` 与 `/odom` 契约；其仿真 launch 会在定位或 SLAM 接入前临时提供 mock `map -> odom` 变换。Operator 面板监听这些共享状态话题，sequence executor 则把简单高层命令映射到同一套底层契约。
+组合 prehardware launch 会启动 mock 硬件、Nav2、MoveIt2、sequence executor 和可选 operator 面板。MoveIt2 和 ros2_control 共享 `arachne_description` 中的 Aubo 与夹爪关节名。Nav2 使用与 RViz、Gazebo 和真实 Scout bringup 相同的 `/cmd_vel` 与 `/odom` 契约；其仿真 launch 会在定位或 SLAM 接入前临时提供 mock `map -> odom` 变换。Operator 面板监听这些共享状态话题，sequence executor 则把简单高层命令映射到同一套底层契约。
 
 ## 下一步
 

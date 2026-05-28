@@ -154,11 +154,18 @@ ros2 launch arachne_hardware real_bringup.launch.py \
 - `arachne_hardware/mock_bringup.launch.py`：无真实设备时发布仿真硬件状态。
 - `arachne_operator`：Tk 状态面板，用于查看 safety、底盘/Aubo/夹爪状态、里程计，并提供停止和夹爪 Open/Close。
 - `arachne_operator/sequence_executor.py`：机械臂预设、夹爪命令、简单 demo 序列和 Nav2 目标的高层命令入口。
+- `arachne_control/prehardware_control.launch.py`：组合启动 Nav2、MoveIt2、sequence executor 和可选 operator 面板的 mock bringup。
 
 运行仓库级检查：
 
 ```bash
 ./scripts/check_workspace.sh
+```
+
+启动未接真机时的联合控制环境：
+
+```bash
+ros2 launch arachne_control prehardware_control.launch.py launch_rviz:=false
 ```
 
 启动 mock 硬件和 operator 面板：

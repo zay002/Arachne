@@ -116,6 +116,12 @@ The pre-hardware planning/control stack can be checked without any physical devi
 ./scripts/check_workspace.sh
 ```
 
+One-command pre-hardware control bringup:
+
+```bash
+ros2 launch arachne_control prehardware_control.launch.py launch_rviz:=false
+```
+
 Mock hardware bringup:
 
 ```bash

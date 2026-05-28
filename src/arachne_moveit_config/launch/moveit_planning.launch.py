@@ -47,6 +47,7 @@ def launch_setup(context, *args, **kwargs):
             executable="robot_state_publisher",
             parameters=[{"robot_description": robot_description}],
             output="screen",
+            condition=IfCondition(LaunchConfiguration("with_robot_state_publisher")),
         ),
         Node(
             package="moveit_ros_move_group",
@@ -69,6 +70,7 @@ def generate_launch_description():
         [
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
             DeclareLaunchArgument("launch_rviz", default_value="true"),
+            DeclareLaunchArgument("with_robot_state_publisher", default_value="true"),
             OpaqueFunction(function=launch_setup),
         ]
     )
