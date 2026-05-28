@@ -290,6 +290,10 @@ GRIPPER_CLOSED_POSITION=0.58 ./scripts/view_model.sh
 
 The Godot frontend is a high-FPS third-person playable demo for presentations and portfolio videos. It loads the existing Scout 2.0, Aubo i5, MS42DC, AG95, and prop meshes through local links, then runs a flat office-style map with proportional keyboard/gamepad driving, collision-aware Scout movement, pushable props, visual suspension, follow-camera smoothing, MS42DC open/close animation, and Aubo preset interpolation. The Aubo arm uses an orange/black showcase finish, and the map includes reproducibly scattered pickable bottles and balls.
 
+<p align="center">
+  <img src="docs/demo/godot.png" alt="Arachne Godot showcase frontend" width="900">
+</p>
+
 ```bash
 ./scripts/install_godot4.sh   # optional if godot4 is already installed
 ./scripts/fetch_third_party.sh

@@ -285,6 +285,10 @@ GRIPPER_CLOSED_POSITION=0.58 ./scripts/view_model.sh
 
 Godot 前端用于高帧率第三人称演示和宣传视频，不替代 Gazebo 物理仿真。它通过本地链接复用现有 Scout 2.0、Aubo i5、MS42DC、AG95 和场景物件 mesh，并提供平地办公室地图、键盘/手柄比例控制、可碰撞 Scout 运动、可推动物件、视觉悬挂、平滑跟随相机、MS42DC 开闭动画、Aubo 预设姿态插值和手动关节微调。Aubo 在 Godot 中使用橘色机身和黑色关节涂装，场景会以固定随机种子撒布可拾取水瓶和小球。
 
+<p align="center">
+  <img src="docs/demo/godot.png" alt="Arachne Godot 展示前端" width="900">
+</p>
+
 ```bash
 ./scripts/install_godot4.sh   # 如果已经安装 godot4，可以跳过
 ./scripts/fetch_third_party.sh
