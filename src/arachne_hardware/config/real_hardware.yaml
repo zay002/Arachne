@@ -1,0 +1,30 @@
+arachne_real_hardware:
+  ros_contract:
+    base_command: /cmd_vel
+    base_odom: /odom
+    arm_controller: /joint_trajectory_controller/follow_joint_trajectory
+    gripper_command: /arachne/gripper/command
+    joint_states: /joint_states
+  scout_2:
+    official_package: scout_base
+    upstream: https://github.com/agilexrobotics/scout_ros2
+    dependency: https://github.com/agilexrobotics/ugv_sdk
+    interface: can
+    port_name: can0
+    bitrate: 500000
+    launch: ros2 launch scout_base scout_base.launch.py port_name:=can0
+  ms42dc:
+    vendor_package: step_motor
+    source: third_party/MS42DC.../5.ROS例程与教程/源码/ROS2.zip
+    serial_node: ros2 run step_motor motor_node
+    serial_port_parameter: usart_port_name
+    default_port: /dev/motor_serial
+    command_topic: motor_control
+    state_topic: motor_state
+    arachne_bridge: ms42dc_official_bridge
+  aubo_i5:
+    official_package: aubo_ros2_driver
+    upstream: https://github.com/AuboRobot/aubo_ros2_driver
+    transport: tcp_ip
+    robot_ip: 192.168.127.128
+    launch: ros2 launch aubo_ros2_driver aubo_control.launch.py aubo_type:=aubo_i5 robot_ip:=192.168.127.128 use_fake_hardware:=false

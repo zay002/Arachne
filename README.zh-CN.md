@@ -15,7 +15,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `src/arachne_gripper`：夹爪仿真控制器、joint-state mux，以及只有 `Open` / `Close` 的小型 GUI。
 - `src/arachne_demo`：Nintendo Switch Pro 手柄遥控、RViz demo 启动、Gazebo 展示世界和 Gazebo 自主拾取验证。
 - `src/arachne_gazebo`：Gazebo 专用辅助节点，用于更流畅的 GUI 相机跟随，以及 demo 中的机械臂/夹爪控制桥。
-- `src/arachne_hardware`：预留真机驱动包，包含空的夹具串口、底盘串口、Aubo TCP/IP 驱动文件。
+- `src/arachne_hardware`：真机 ROS bringup 集成包。底层控制交给 Scout 2.0、Aubo i5 和 MS42DC 对应的官方/厂家 ROS 包，Arachne 负责统一状态与命令桥接。
 - `godot/arachne_showcase`：Godot 4.x 高帧率展示前端，包含视觉 teleop、跟随相机、机械臂预设姿态、可拾取物体 demo 逻辑和 ROS2 bridge 占位接口。
 - `scripts`：环境安装、第三方模型下载、可视化启动、URDF 检查和夹爪仿真测试脚本。
 - `docs`：硬件、建模、控制、标定说明，以及阶段报告。
@@ -24,7 +24,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `third_party/MS42DC.step`：MS42DC 原始 CAD。
 - `third_party/MS42DC_SPLIT/*.stl`：由项目作者手动拆分制作的 MS42DC 可动部件模型，用于真实开合可视化。
 
-外部模型依赖由 `scripts/fetch_third_party.sh` 按固定版本恢复，保证新环境可以复现。`build/`、`install/` 和 `log/` 是 colcon 在本地构建时生成的标准输出目录。
+外部依赖由 `scripts/fetch_third_party.sh` 按固定版本恢复，保证新环境可以复现。`build/`、`install/` 和 `log/` 是 colcon 在本地构建时生成的标准输出目录。
 
 ## 当前状态
 
@@ -37,6 +37,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `scripts/switch_demo.sh` 默认启动 Gazebo 展厅 demo，可以用 Nintendo Switch Pro 手柄控制底盘、平滑第三人称视角、Aubo 关节和夹爪。Gazebo 会使用专门的 Scout 轮子物理姿态，确保前进输入时四个轮子同向驱动。
 - `scripts/gazebo_autopick_demo.sh` 会启动 Gazebo 自主拾取验证：Scout 根据已知展厅障碍物规划路线，靠近可见地面目标，并实时计算 Aubo/MS42DC 拾取控制。
 - `scripts/godot_showcase.sh` 可启动单独的 Godot 4.x 第三人称展示前端，包含可碰撞底盘运动、涂装材质、视觉悬挂、平滑跟随相机、机械臂手动微调、夹爪开闭、可拾取水瓶/小球和 ROS2/UDP bridge 占位接口。
+- 真机控制路径已统一为 ROS 接口：Scout 2.0 使用 AgileX `scout_ros2` 通过 CAN 控制，MS42DC 使用本地厂家资料包自带 ROS2 串口节点，Aubo i5 使用 `AuboRobot/aubo_ros2_driver` 通过 TCP/IP 和 ros2_control 控制。
 
 ## Roadmap
 
@@ -45,7 +46,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 3. 用 MoveIt2 和 ros2_control 替换当前 Gazebo 自主拾取验证中的轻量规划器。
 4. 将物体抓取从命令级验证升级为 Gazebo 接触验证或 attach-aware 任务。
 5. 通过已预留的 bridge 接口，把 Godot 展示前端连接到 ROS2 或 MuJoCo。
-6. 真机材料到齐后，实现 Aubo TCP/IP、Scout 串口、MS42DC 串口硬件接口。
+6. 真机材料到齐后，在物理 Scout、Aubo 和 MS42DC 上验证官方/厂家 ROS bringup。
 7. 在模型、控制器和 launch 接口稳定后，再构建 Web 操作界面。
 
 ## 快速启动
@@ -93,6 +94,55 @@ ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
 
 ```bash
 GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
+```
+
+## 真机 ROS Bringup
+
+Arachne 不重复实现底层硬件协议，而是复用已有官方/厂家 ROS 包：
+
+- Scout 2.0：使用 AgileX `scout_ros2` 中的 `scout_base`，底层依赖 `ugv_sdk`，通过 `can0` 接收 `/cmd_vel` 并发布 `/odom` 与 Scout 状态。
+- MS42DC：使用本地 MS42DC 厂家资料包中的 `step_motor` ROS2 包。`motor_node` 独占串口，`ms42dc_official_bridge` 将 `/arachne/gripper/command` 映射为厂家 `motor_control` 话题。
+- Aubo i5：使用 `AuboRobot/aubo_ros2_driver`，以 `aubo_type:=aubo_i5`、`robot_ip:=...`、`use_fake_hardware:=false` 启动真机控制。
+
+准备真机相关 ROS 包：
+
+```bash
+./scripts/prepare_real_hardware_ros.sh
+```
+
+接真机前先检查主机环境：
+
+```bash
+./scripts/check_real_hardware_env.sh
+```
+
+这个检查脚本同时支持正常 Linux 和 WSL2。Aubo 走 TCP/IP，只要机器人网络可达，两边都可以用。MS42DC 串口和 Scout USB-CAN 需要 Linux 里能看到真实设备节点；在 WSL2 下，需要先用 `usbipd-win` 把 USB 串口或 USB-CAN 设备透传进 WSL2，再确认 `/dev/ttyUSB*` 或 `can0` 存在。
+
+构建核心真机 bringup 包：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+colcon build --base-paths src --packages-select \
+  ugv_sdk scout_msgs scout_base serial step_motor arachne_hardware \
+  --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
+```
+
+可以按当前已连接硬件选择启动子系统：
+
+```bash
+source install/setup.bash
+ros2 launch arachne_hardware real_bringup.launch.py \
+  use_scout:=true scout_port:=can0 \
+  use_ms42dc:=true ms42dc_port:=/dev/motor_serial \
+  use_aubo:=false
+```
+
+Aubo 官方驱动和 SDK 依赖安装完成后，再启用机械臂：
+
+```bash
+ros2 launch arachne_hardware real_bringup.launch.py \
+  use_scout:=true use_ms42dc:=true use_aubo:=true \
+  aubo_robot_ip:=192.168.127.128
 ```
 
 ## Switch 手柄 Demo

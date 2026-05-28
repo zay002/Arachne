@@ -2,11 +2,17 @@
 <package format="3">
   <name>arachne_hardware</name>
   <version>0.1.0</version>
-  <description>Reserved hardware driver package for Arachne.</description>
+  <description>Real-hardware ROS bringup wrappers for Arachne.</description>
   <maintainer email="maintainer@example.com">Arachne Maintainers</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

@@ -42,6 +42,14 @@ fetch_repo scout_ros2 \
   https://github.com/agilexrobotics/scout_ros2.git \
   bdbb90471613831fb0b2ec01fecac043445313c4
 
+fetch_repo ugv_sdk \
+  https://github.com/agilexrobotics/ugv_sdk.git \
+  c3dfaf444f9bae10757e546acae055aaf4a13de7
+
+fetch_repo aubo_ros2_driver \
+  https://github.com/AuboRobot/aubo_ros2_driver.git \
+  85684075d6ff06c5385e39611208e99ebf0f94c6
+
 fetch_repo dh_ag95_gripper_ros2 \
   https://github.com/ian-chuang/dh_ag95_gripper_ros2.git \
   fc4f80fdfb3acae5626df4359aec1401cb71a9a3
@@ -50,4 +58,4 @@ ln -sfn ../../third_party/aubo_description "${ROOT_DIR}/src/vendor/aubo_descript
 ln -sfn ../../third_party/dh_ag95_gripper_ros2/dh_ag95_description "${ROOT_DIR}/src/vendor/dh_ag95_description"
 ln -sfn ../../third_party/scout_ros2/scout_description "${ROOT_DIR}/src/vendor/scout_description"
 
-echo "Third-party model packages are ready at pinned revisions."
+echo "Third-party model and hardware ROS packages are ready at pinned revisions."

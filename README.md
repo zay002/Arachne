@@ -19,7 +19,7 @@ The current milestone is a reliable robot description plus interactive demos: on
 - `src/arachne_gripper`: simulated gripper controller, joint-state mux, and a small `Open` / `Close` GUI.
 - `src/arachne_demo`: Nintendo Switch Pro controller teleop, RViz demo launch, Gazebo showroom launch, and Gazebo autonomous pick validation.
 - `src/arachne_gazebo`: Gazebo helper nodes for smooth GUI camera tracking and demo arm/gripper commands.
-- `src/arachne_hardware`: reserved real-hardware driver package with empty files for gripper serial, base serial, and Aubo TCP/IP drivers.
+- `src/arachne_hardware`: real-hardware bringup wrapper package. It delegates device control to official/vendor ROS packages for Scout 2.0, Aubo i5, and MS42DC, while keeping Arachne-specific status and command bridges.
 - `godot/arachne_showcase`: Godot 4.x high-FPS showcase frontend with visual teleop, follow camera, arm presets, pickable-object demo logic, and ROS2 bridge placeholders.
 - `scripts`: setup, third-party fetch, model visualization, URDF check, and gripper smoke-test helpers.
 - `docs`: hardware/modeling/control/calibration notes and stage reports.
@@ -27,7 +27,7 @@ The current milestone is a reliable robot description plus interactive demos: on
 - `docs/demo/model_compare.png`: current MS42DC and AG95 model showcase.
 - `third_party/MS42DC.step` and `third_party/MS42DC_SPLIT/*.stl`: source CAD and user-created movable split parts for the MS42DC gripper.
 
-External model dependencies are restored by `scripts/fetch_third_party.sh`, with pinned revisions for reproducible setup. `build/`, `install/`, and `log/` are standard colcon outputs generated during local builds.
+External dependencies are restored by `scripts/fetch_third_party.sh`, with pinned revisions for reproducible setup. `build/`, `install/`, and `log/` are standard colcon outputs generated during local builds.
 
 ## Current State
 
@@ -41,6 +41,7 @@ External model dependencies are restored by `scripts/fetch_third_party.sh`, with
 - `scripts/switch_demo.sh` starts an interactive Nintendo Switch Pro controller demo with Gazebo physics, a smoothed third-person camera, body-relative Scout driving, Aubo joint nudging, and gripper commands. Gazebo uses a physics-specific Scout wheel setup so forward input drives all four wheels in the same direction.
 - `scripts/gazebo_autopick_demo.sh` starts a Gazebo validation run where the Scout plans around known showroom obstacles, approaches a visible ground target, and runs realtime Aubo/MS42DC pick control.
 - `scripts/godot_showcase.sh` starts a separate Godot 4.x third-person showcase with collision-aware driving, painted materials, visual suspension, smooth camera follow, manual arm nudging, gripper open/close, pickable bottles/balls, and ROS2/UDP bridge placeholders.
+- Real hardware is being aligned around ROS interfaces: AgileX `scout_ros2` controls Scout 2.0 over CAN, the local MS42DC vendor ROS2 package controls the gripper serial node, and `AuboRobot/aubo_ros2_driver` controls Aubo i5 over TCP/IP through ros2_control.
 
 ## Roadmap
 
@@ -49,7 +50,7 @@ External model dependencies are restored by `scripts/fetch_third_party.sh`, with
 3. Replace the Gazebo auto-pick validation planner with MoveIt2 and ros2_control controllers.
 4. Upgrade object grasping from command-level validation to contact-validated or attach-aware Gazebo tasks.
 5. Connect the Godot showcase to ROS2 or MuJoCo through the prepared bridge interface.
-6. Implement hardware-facing bridges for Aubo TCP/IP, Scout serial, and MS42DC serial after the remaining materials arrive.
+6. Validate real-hardware ROS bringup on the physical Scout, Aubo, and MS42DC after the remaining materials arrive.
 7. Build the operator Web UI after the model, controllers, and launch contracts are stable.
 
 ## Quick Start
@@ -98,6 +99,55 @@ To view AG95 with the same Open/Close controls:
 
 ```bash
 GRIPPER_TYPE=ag95 GRIPPER_SIM_PROFILE=ag95 ./scripts/view_model.sh
+```
+
+## Real Hardware ROS Bringup
+
+Arachne does not reimplement the low-level device protocols. The real-hardware path uses the available official/vendor ROS packages and keeps this repository as the integration layer:
+
+- Scout 2.0: `scout_base` from AgileX `scout_ros2`, backed by `ugv_sdk`, with `/cmd_vel` in and `/odom` plus Scout status out over `can0`.
+- MS42DC: vendor `step_motor` ROS2 package from the local MS42DC materials. Its `motor_node` owns the serial port; `ms42dc_official_bridge` maps `/arachne/gripper/command` to the vendor `motor_control` topic.
+- Aubo i5: `AuboRobot/aubo_ros2_driver`, launched with `aubo_type:=aubo_i5`, `robot_ip:=...`, and `use_fake_hardware:=false`.
+
+Prepare the vendor packages:
+
+```bash
+./scripts/prepare_real_hardware_ros.sh
+```
+
+Check the host before connecting real hardware:
+
+```bash
+./scripts/check_real_hardware_env.sh
+```
+
+The check supports both native Linux and WSL2. Aubo TCP/IP works in either environment when the robot network is reachable. MS42DC serial and Scout USB-CAN need normal Linux device nodes; on WSL2, attach the USB serial/CAN adapter with `usbipd-win` first, then verify `/dev/ttyUSB*` or `can0` inside WSL2.
+
+Build the core hardware bringup packages:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+colcon build --base-paths src --packages-select \
+  ugv_sdk scout_msgs scout_base serial step_motor arachne_hardware \
+  --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
+```
+
+Launch any available hardware subset by toggling components:
+
+```bash
+source install/setup.bash
+ros2 launch arachne_hardware real_bringup.launch.py \
+  use_scout:=true scout_port:=can0 \
+  use_ms42dc:=true ms42dc_port:=/dev/motor_serial \
+  use_aubo:=false
+```
+
+When the Aubo driver and its SDK dependencies are installed:
+
+```bash
+ros2 launch arachne_hardware real_bringup.launch.py \
+  use_scout:=true use_ms42dc:=true use_aubo:=true \
+  aubo_robot_ip:=192.168.127.128
 ```
 
 ## Switch Demo
@@ -274,3 +324,6 @@ base_link
 - `docs/reports/stage_2_gripper_sim_control.md`
 - `docs/reports/stage_3_joint_sim_control.md`
 - `docs/reports/stage_4_switch_demo.md`
+- `docs/reports/stage_5_godot_showcase.md`
+- `docs/reports/stage_6_gazebo_autonomy.md`
+- `docs/reports/stage_7_real_hardware_ros_bringup.md`

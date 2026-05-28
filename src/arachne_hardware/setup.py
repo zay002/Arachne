@@ -9,11 +9,20 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
+        (f"share/{package_name}/config", ["config/real_hardware.yaml"]),
+        (f"share/{package_name}/launch", ["launch/real_bringup.launch.py"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="Arachne Maintainers",
     maintainer_email="maintainer@example.com",
-    description="Reserved hardware driver package for Arachne.",
+    description="Real-hardware ROS bringup wrappers for Arachne.",
     license="MIT",
+    entry_points={
+        "console_scripts": [
+            "scout_official_status_bridge = arachne_hardware.base_serial_driver:main",
+            "ms42dc_official_bridge = arachne_hardware.gripper_serial_driver:main",
+            "aubo_official_status_probe = arachne_hardware.aubo_tcp_driver:main",
+        ],
+    },
 )

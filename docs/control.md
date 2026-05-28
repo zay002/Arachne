@@ -93,19 +93,56 @@ ros2 launch arachne_description display.launch.py \
   gripper_sim_profile:=ms42dc
 ```
 
-Planned controllers:
+## Real-Hardware ROS Control
 
-- `aubo_arm_controller`: joint trajectory controller for `aubo_shoulder_joint`, `aubo_upperArm_joint`, `aubo_foreArm_joint`, `aubo_wrist1_joint`, `aubo_wrist2_joint`, and `aubo_wrist3_joint`.
-- `scout_base_controller`: diff drive or native Scout driver bridge.
-- `ms42dc_gripper_controller`: hardware-facing wrapper after the MS42DC communication method and command range are confirmed.
+The real-hardware layer is now organized around official/vendor ROS packages rather than custom low-level protocol drivers:
 
-Reserved real-hardware files:
+- Scout 2.0 uses AgileX `scout_ros2` and `ugv_sdk`. `scout_base` subscribes to `/cmd_vel` and publishes `/odom`, `/scout_status`, and `/rc_status` over CAN.
+- MS42DC uses the vendor `step_motor` ROS2 package from the local gripper materials. `motor_node` owns the serial port and accepts `step_motor/msg/Motor` on `motor_control`; `ms42dc_official_bridge` converts `/arachne/gripper/command` (`open`, `close`, `home`, `stop`) into that vendor message.
+- Aubo i5 uses `AuboRobot/aubo_ros2_driver`. The official launch exposes ros2_control trajectory execution for the Aubo arm over TCP/IP.
 
-- `src/arachne_hardware/arachne_hardware/gripper_serial_driver.py`: MS42DC serial control placeholder.
-- `src/arachne_hardware/arachne_hardware/base_serial_driver.py`: Scout/base serial control placeholder.
-- `src/arachne_hardware/arachne_hardware/aubo_tcp_driver.py`: Aubo TCP/IP control placeholder.
+Prepare package links:
 
-The control layer should remain split by hardware device while sharing the unified robot state.
+```bash
+./scripts/prepare_real_hardware_ros.sh
+```
+
+Check native Linux or WSL2 hardware visibility before motion tests:
+
+```bash
+./scripts/check_real_hardware_env.sh
+```
+
+The check reports ROS setup, vendor package links, MS42DC serial candidates, Scout SocketCAN status, and Aubo TCP reachability. On WSL2, USB serial and USB-CAN adapters must be passed through from Windows with `usbipd-win` before Linux can expose `/dev/ttyUSB*`, `/dev/ttyACM*`, or `can0`.
+
+Build the core bringup packages:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+colcon build --base-paths src --packages-select \
+  ugv_sdk scout_msgs scout_base serial step_motor arachne_hardware \
+  --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
+```
+
+Launch a partial or full real-hardware session:
+
+```bash
+source install/setup.bash
+ros2 launch arachne_hardware real_bringup.launch.py \
+  use_scout:=true scout_port:=can0 \
+  use_ms42dc:=true ms42dc_port:=/dev/motor_serial \
+  use_aubo:=false
+```
+
+When the Aubo SDK dependencies and network are ready:
+
+```bash
+ros2 launch arachne_hardware real_bringup.launch.py \
+  use_scout:=true use_ms42dc:=true use_aubo:=true \
+  aubo_robot_ip:=192.168.127.128
+```
+
+The control layer should remain split by hardware device while sharing `/cmd_vel`, `/joint_states`, `/odom`, and the gripper command surface.
 
 ## Nintendo Switch Demo
 

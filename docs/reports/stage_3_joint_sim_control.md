@@ -11,7 +11,7 @@ Arachne now has a lightweight combined control demo in RViz. The base moves from
 - `arachne_sim/base_teleop_gui.py`: small Forward/Back/Left/Right/Stop GUI that publishes `/cmd_vel`.
 - `arachne_gripper/joint_state_mux.py`: merges default, GUI, base, and gripper joint streams into `/joint_states`.
 - `launch/display.launch.py`: starts base simulation, base GUI, arm sliders, gripper simulation, gripper GUI, robot state publisher, and RViz.
-- `src/arachne_hardware/`: reserved real-hardware package with empty driver files for MS42DC serial, base serial, and Aubo TCP/IP control.
+- `src/arachne_hardware/`: real-hardware integration package, later filled with official/vendor ROS bringup wrappers.
 
 ## Interfaces
 

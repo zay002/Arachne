@@ -58,6 +58,8 @@ sudo apt-get install -y \
   python3-colcon-common-extensions \
   python3-tk \
   assimp-utils \
+  can-utils \
+  usbutils \
   ros-dev-tools
 
 echo "source /opt/ros/${ROS_DISTRO}/setup.bash"
