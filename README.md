@@ -12,10 +12,16 @@ The default hardware model is Scout 2.0 + Aubo i5 + Yizhua Robot MS42DC two-fing
 
 The current milestone is a reliable robot description plus interactive demos: one connected TF tree, real upstream Scout/Aubo/AG95 descriptions, a user-created movable MS42DC split mesh model, lightweight gripper open/close simulation, and a playable Gazebo showroom.
 
-<p align="center">
-  <img src="docs/demo/realbot_1.jpg" alt="Arachne physical robot front view" width="430">
-  <img src="docs/demo/realbot_2.jpg" alt="Arachne physical robot side view" width="430">
-</p>
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/demo/realbot_1.jpg" alt="Arachne physical robot front view" width="100%">
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/demo/realbot_2.jpg" alt="Arachne physical robot side view" width="100%">
+    </td>
+  </tr>
+</table>
 
 ## Manual Map
 

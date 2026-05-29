@@ -10,10 +10,16 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 
 两套模型的底盘、机械臂、安装位姿、传感器占位、启动流程和夹爪控制接口都相同，唯一差异是 `gripper_adapter_link` 后面的夹爪模型。MS42DC 和 AG95 在演示界面里都只提供 `Open` / `Close` 两个状态。
 
-<p align="center">
-  <img src="docs/demo/realbot_1.jpg" alt="Arachne 实机正面照片" width="430">
-  <img src="docs/demo/realbot_2.jpg" alt="Arachne 实机侧面照片" width="430">
-</p>
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/demo/realbot_1.jpg" alt="Arachne 实机正面照片" width="100%">
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/demo/realbot_2.jpg" alt="Arachne 实机侧面照片" width="100%">
+    </td>
+  </tr>
+</table>
 
 ## 阅读地图
 
