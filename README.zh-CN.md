@@ -10,6 +10,11 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 
 两套模型的底盘、机械臂、安装位姿、传感器占位、启动流程和夹爪控制接口都相同，唯一差异是 `gripper_adapter_link` 后面的夹爪模型。MS42DC 和 AG95 在演示界面里都只提供 `Open` / `Close` 两个状态。
 
+<p align="center">
+  <img src="docs/demo/realbot_1.jpg" alt="Arachne 实机正面照片" width="430">
+  <img src="docs/demo/realbot_2.jpg" alt="Arachne 实机侧面照片" width="430">
+</p>
+
 ## 阅读地图
 
 - [我们提供了什么](#我们提供了什么)：按 package 理解项目结构。
@@ -39,6 +44,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - [scripts](scripts)：环境安装、第三方模型下载、夹具切换、可视化启动、URDF 检查和夹爪仿真测试脚本。
 - [docs](docs)：硬件、建模、控制、标定说明，以及阶段报告；维护文档均提供同名 `*.zh-CN.md` 中文版。
 - [docs/demo/arachne.png](docs/demo/arachne.png)：项目首页宣传图。
+- [docs/demo/realbot_1.jpg](docs/demo/realbot_1.jpg) 和 [docs/demo/realbot_2.jpg](docs/demo/realbot_2.jpg)：当前 Arachne 实机照片。
 - [docs/demo/model_compare.png](docs/demo/model_compare.png)：MS42DC 与 AG95 两套夹爪模型展示图。
 - [third_party/MS42DC.step](third_party/MS42DC.step)：MS42DC 原始 CAD。
 - [third_party/MS42DC_SPLIT](third_party/MS42DC_SPLIT)：由项目作者手动拆分制作的 MS42DC 可动部件模型，用于真实开合可视化。

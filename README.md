@@ -12,6 +12,11 @@ The default hardware model is Scout 2.0 + Aubo i5 + Yizhua Robot MS42DC two-fing
 
 The current milestone is a reliable robot description plus interactive demos: one connected TF tree, real upstream Scout/Aubo/AG95 descriptions, a user-created movable MS42DC split mesh model, lightweight gripper open/close simulation, and a playable Gazebo showroom.
 
+<p align="center">
+  <img src="docs/demo/realbot_1.jpg" alt="Arachne physical robot front view" width="430">
+  <img src="docs/demo/realbot_2.jpg" alt="Arachne physical robot side view" width="430">
+</p>
+
 ## Manual Map
 
 - [What Is Included](#what-is-included): package-level project map.
@@ -41,6 +46,7 @@ Related documents: [modeling](docs/modeling.md), [control](docs/control.md), [ha
 - [scripts](scripts): setup, third-party fetch, gripper switching, model visualization, URDF check, and gripper smoke-test helpers.
 - [docs](docs): hardware/modeling/control/calibration notes and stage reports, with matching `*.zh-CN.md` Chinese versions.
 - [docs/demo/arachne.png](docs/demo/arachne.png): project showcase image for the repository front page.
+- [docs/demo/realbot_1.jpg](docs/demo/realbot_1.jpg) and [docs/demo/realbot_2.jpg](docs/demo/realbot_2.jpg): current physical Arachne robot photos.
 - [docs/demo/model_compare.png](docs/demo/model_compare.png): current MS42DC and AG95 model showcase.
 - [third_party/MS42DC.step](third_party/MS42DC.step) and [third_party/MS42DC_SPLIT](third_party/MS42DC_SPLIT): source CAD and user-created movable split parts for the MS42DC gripper.
 
