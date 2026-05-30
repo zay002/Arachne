@@ -200,10 +200,10 @@ These entries are intended for interface validation before real hardware arrives
 
 ## Real Hardware ROS Bringup
 
-Arachne does not reimplement the low-level device protocols. The real-hardware path uses the available official/vendor ROS packages and keeps this repository as the integration layer:
+Arachne uses official/vendor ROS packages where they are stable and keeps this repository as the integration layer:
 
 - Scout 2.0: `scout_base` from AgileX `scout_ros2`, backed by `ugv_sdk`, with `/cmd_vel` in and `/odom` plus Scout status out over `can0`.
-- MS42DC: vendor `step_motor` ROS2 package from the local MS42DC materials. Its `motor_node` owns the serial port; `ms42dc_official_bridge` maps `/arachne/gripper/command` to the vendor `motor_control` topic.
+- MS42DC: default `ms42dc_direct_serial_driver`, which maps `/arachne/gripper/command` to the documented Type-C USB serial frames. The vendor `step_motor` path is still available with `ms42dc_driver:=vendor`.
 - Aubo i5: `AuboRobot/aubo_ros2_driver`, launched with `aubo_type:=aubo_i5`, `robot_ip:=...`, and `use_fake_hardware:=false`.
 
 See [docs/hardware.md](docs/hardware.md), [real_bringup.launch.py](src/arachne_hardware/launch/real_bringup.launch.py), and [real_hardware.yaml](src/arachne_hardware/config/real_hardware.yaml) when wiring the physical devices.
@@ -220,7 +220,9 @@ Check the host before connecting real hardware:
 ./scripts/check_real_hardware_env.sh
 ```
 
-The check supports both native Linux and WSL2. Aubo TCP/IP works in either environment when the robot network is reachable. MS42DC serial and Scout USB-CAN need normal Linux device nodes; on WSL2, attach the USB serial/CAN adapter with `usbipd-win` first, then verify `/dev/ttyUSB*` or `can0` inside WSL2.
+The check supports both native Linux and WSL2. Aubo TCP/IP works in either environment when the robot network is reachable. MS42DC Type-C serial should appear as `/dev/ttyACM*` or `/dev/ttyCH343USB*`; on WSL2, attach the CH9102 USB device with `usbipd-win` first and point `/dev/motor_serial` at it. Scout USB-CAN needs a normal SocketCAN `can0`.
+
+The MS42DC bringup defaults to a conservative `30 deg` relative open/close test at `6 rad/s`. The vendor full-stroke reference is `18720` tenths of a degree (`1872 deg`, about `5.2` turns), but it should only be used after physical travel and homing behavior are confirmed.
 
 Build the core hardware bringup packages:
 

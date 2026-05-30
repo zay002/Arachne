@@ -56,53 +56,95 @@ def _launch_setup(context, *args, **kwargs):
         )
 
     if enabled("use_ms42dc"):
-        actions.append(
-            Node(
-                package="step_motor",
-                executable="motor_node",
-                name="ms42dc_step_motor_node",
-                parameters=[
-                    {
-                        "usart_port_name": LaunchConfiguration("ms42dc_port"),
-                        "serial_baud_rate": ParameterValue(
-                            LaunchConfiguration("ms42dc_baudrate"), value_type=int
-                        ),
-                    }
-                ],
-                output="screen",
+        ms42dc_driver = LaunchConfiguration("ms42dc_driver").perform(context).strip().lower()
+        if ms42dc_driver in ("vendor", "official", "step_motor"):
+            actions.append(
+                Node(
+                    package="step_motor",
+                    executable="motor_node",
+                    name="ms42dc_step_motor_node",
+                    parameters=[
+                        {
+                            "usart_port_name": LaunchConfiguration("ms42dc_port"),
+                            "serial_baud_rate": ParameterValue(
+                                LaunchConfiguration("ms42dc_baudrate"), value_type=int
+                            ),
+                        }
+                    ],
+                    output="screen",
+                )
             )
-        )
 
-        actions.append(
-            Node(
-                package="arachne_hardware",
-                executable="ms42dc_official_bridge",
-                name="ms42dc_official_bridge",
-                parameters=[
-                    {
-                        "device_id": ParameterValue(
-                            LaunchConfiguration("ms42dc_device_id"), value_type=int
-                        ),
-                        "sub_divide": ParameterValue(
-                            LaunchConfiguration("ms42dc_sub_divide"), value_type=int
-                        ),
-                        "mode": ParameterValue(
-                            LaunchConfiguration("ms42dc_mode"), value_type=int
-                        ),
-                        "open_angle_tenths": ParameterValue(
-                            LaunchConfiguration("ms42dc_open_angle_tenths"), value_type=int
-                        ),
-                        "close_angle_tenths": ParameterValue(
-                            LaunchConfiguration("ms42dc_close_angle_tenths"), value_type=int
-                        ),
-                        "speed_tenths": ParameterValue(
-                            LaunchConfiguration("ms42dc_speed_tenths"), value_type=int
-                        ),
-                    }
-                ],
-                output="screen",
+            actions.append(
+                Node(
+                    package="arachne_hardware",
+                    executable="ms42dc_official_bridge",
+                    name="ms42dc_official_bridge",
+                    parameters=[
+                        {
+                            "device_id": ParameterValue(
+                                LaunchConfiguration("ms42dc_device_id"), value_type=int
+                            ),
+                            "sub_divide": ParameterValue(
+                                LaunchConfiguration("ms42dc_sub_divide"), value_type=int
+                            ),
+                            "mode": ParameterValue(
+                                LaunchConfiguration("ms42dc_mode"), value_type=int
+                            ),
+                            "open_angle_tenths": ParameterValue(
+                                LaunchConfiguration("ms42dc_open_angle_tenths"), value_type=int
+                            ),
+                            "close_angle_tenths": ParameterValue(
+                                LaunchConfiguration("ms42dc_close_angle_tenths"), value_type=int
+                            ),
+                            "speed_tenths": ParameterValue(
+                                LaunchConfiguration("ms42dc_speed_tenths"), value_type=int
+                            ),
+                        }
+                    ],
+                    output="screen",
+                )
             )
-        )
+        elif ms42dc_driver in ("direct", "serial", "arachne"):
+            actions.append(
+                Node(
+                    package="arachne_hardware",
+                    executable="ms42dc_direct_serial_driver",
+                    name="ms42dc_direct_serial_driver",
+                    parameters=[
+                        {
+                            "port": LaunchConfiguration("ms42dc_port"),
+                            "baudrate": ParameterValue(
+                                LaunchConfiguration("ms42dc_baudrate"), value_type=int
+                            ),
+                            "device_id": ParameterValue(
+                                LaunchConfiguration("ms42dc_device_id"), value_type=int
+                            ),
+                            "sub_divide": ParameterValue(
+                                LaunchConfiguration("ms42dc_sub_divide"), value_type=int
+                            ),
+                            "mode": ParameterValue(
+                                LaunchConfiguration("ms42dc_mode"), value_type=int
+                            ),
+                            "open_angle_tenths": ParameterValue(
+                                LaunchConfiguration("ms42dc_open_angle_tenths"), value_type=int
+                            ),
+                            "close_angle_tenths": ParameterValue(
+                                LaunchConfiguration("ms42dc_close_angle_tenths"), value_type=int
+                            ),
+                            "speed_tenths": ParameterValue(
+                                LaunchConfiguration("ms42dc_speed_tenths"), value_type=int
+                            ),
+                        }
+                    ],
+                    output="screen",
+                )
+            )
+        else:
+            raise RuntimeError(
+                "Unsupported ms42dc_driver value "
+                f"{ms42dc_driver!r}; use direct or vendor."
+            )
 
     if enabled("use_aubo"):
         actions.append(
@@ -143,14 +185,15 @@ def generate_launch_description():
             DeclareLaunchArgument("use_ms42dc", default_value="true"),
             DeclareLaunchArgument("use_aubo", default_value="true"),
             DeclareLaunchArgument("scout_port", default_value="can0"),
+            DeclareLaunchArgument("ms42dc_driver", default_value="direct"),
             DeclareLaunchArgument("ms42dc_port", default_value="/dev/motor_serial"),
             DeclareLaunchArgument("ms42dc_baudrate", default_value="115200"),
             DeclareLaunchArgument("ms42dc_device_id", default_value="1"),
             DeclareLaunchArgument("ms42dc_sub_divide", default_value="32"),
             DeclareLaunchArgument("ms42dc_mode", default_value="2"),
-            DeclareLaunchArgument("ms42dc_open_angle_tenths", default_value="18720"),
-            DeclareLaunchArgument("ms42dc_close_angle_tenths", default_value="18720"),
-            DeclareLaunchArgument("ms42dc_speed_tenths", default_value="200"),
+            DeclareLaunchArgument("ms42dc_open_angle_tenths", default_value="300"),
+            DeclareLaunchArgument("ms42dc_close_angle_tenths", default_value="300"),
+            DeclareLaunchArgument("ms42dc_speed_tenths", default_value="60"),
             DeclareLaunchArgument("aubo_robot_ip", default_value="192.168.127.128"),
             DeclareLaunchArgument("aubo_port", default_value="80"),
             OpaqueFunction(function=_launch_setup),

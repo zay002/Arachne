@@ -13,10 +13,10 @@ Arachne targets a Scout 2.0 mobile base, an Aubo i5 arm, and a Yizhua Robot MS42
 
 ## Real-Hardware ROS Path
 
-Arachne uses official or vendor ROS interfaces wherever available:
+Arachne uses official or vendor ROS interfaces wherever they are stable:
 
 - Scout 2.0: `scout_base` from AgileX `scout_ros2`, backed by `ugv_sdk`. The public ROS2 package controls Scout over CAN, normally `can0` at `500000` bitrate, with `/cmd_vel` as the velocity command input and `/odom`, `/scout_status`, and `/rc_status` as feedback.
-- MS42DC: `step_motor` from the local vendor ROS2 package under the MS42DC materials. `motor_node` owns the serial device and subscribes to `motor_control`; Arachne's `ms42dc_official_bridge` maps `/arachne/gripper/command` into the vendor `step_motor/msg/Motor` message.
+- MS42DC: Arachne defaults to `ms42dc_direct_serial_driver`, which keeps the ROS topic surface `/arachne/gripper/command` and writes the documented Type-C USB serial frames directly. The local vendor `step_motor` package remains available through `ms42dc_driver:=vendor`.
 - Aubo i5: `AuboRobot/aubo_ros2_driver`, using TCP/IP to the robot controller and ros2_control for trajectory execution. Arachne keeps only a status probe and launch integration around the official driver.
 
 Current physical wiring:
@@ -38,7 +38,7 @@ Each hardware component can be disabled independently with `use_scout:=false`, `
 The real-hardware ROS layer is designed to run on both native Linux and WSL2, but hardware visibility differs:
 
 - Aubo TCP/IP is network-based and works in either environment when the controller IP is reachable.
-- MS42DC serial requires a Linux serial device such as `/dev/motor_serial`, `/dev/ttyUSB*`, or `/dev/ttyACM*`. WSL2 users must pass the USB device through from Windows first.
+- MS42DC serial requires a Linux serial device such as `/dev/motor_serial`, `/dev/ttyACM*`, or `/dev/ttyCH343USB*`. WSL2 users must pass the CH9102 USB device through from Windows first.
 - Scout CAN requires a SocketCAN interface such as `can0`. On native Linux this is normally a `gs_usb` or similar USB-CAN adapter. On WSL2, the adapter must be attached with `usbipd-win`, and the WSL2 kernel must include the matching USB-CAN driver.
 
 Run the environment checker before motion tests:
@@ -75,8 +75,20 @@ source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ros2 launch arachne_hardware real_bringup.launch.py \
   scout_port:=can0 \
-  ms42dc_port:=/dev/ttyUSB0 \
+  ms42dc_port:=/dev/motor_serial \
   aubo_robot_ip:=192.168.127.128
+```
+
+For isolated MS42DC calibration, start with a small command before using the full factory stroke. The current safe default is `300` tenths of a degree (`30 deg`) at `60` tenths of rad/s (`6 rad/s`). The factory full open/close example is `18720` tenths of a degree, or `1872 deg = 5.2 turns`, and should only be used after physical travel and homing behavior are confirmed:
+
+```bash
+ros2 launch arachne_hardware real_bringup.launch.py \
+  use_scout:=false use_aubo:=false use_ms42dc:=true \
+  ms42dc_driver:=direct \
+  ms42dc_port:=/dev/motor_serial \
+  ms42dc_open_angle_tenths:=300 \
+  ms42dc_close_angle_tenths:=300 \
+  ms42dc_speed_tenths:=60
 ```
 
 Dry-run the test entry in another terminal:
