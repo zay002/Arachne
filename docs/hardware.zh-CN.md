@@ -16,12 +16,12 @@ Arachne 面向 Scout 2.0 移动底盘、Aubo i5 机械臂和易爪机器人 MS42
 Arachne 尽量使用稳定的官方或厂家 ROS 接口：
 
 - Scout 2.0：Arachne 默认使用 `scout_waveshare_serial_driver`，通过 Waveshare USB-CAN-A 的 CH340 串口封装直接发送 Scout v2 CAN 帧。它接收 `/cmd_vel`，将适配器配置为 `500000` bit/s 标准 CAN 帧，并发布 `/odom` 和 `/arachne/hardware/base_status`。AgileX 官方 `scout_base`/SocketCAN 路径仍然保留，可用 `scout_driver:=official` 切换。
-- MS42DC：默认使用 `ms42dc_direct_serial_driver`，保留 `/arachne/gripper/command` 这个 ROS 话题接口，并按说明书直接写入 Type-C USB 串口帧。本地厂家 `step_motor` 路径仍然保留，可用 `ms42dc_driver:=vendor` 切换。
+- MS42DC：默认使用 `ms42dc_direct_serial_driver`，保留 `/arachne/gripper/command` 这个 ROS 话题接口，并按说明书直接写入 Type-C USB 串口帧。夹具不是 CH340 设备，而是夹具控制板的 CH91xx/CH343 系列 USB 串口；当前实机可按你识别到的 CH9012 这一路处理，厂家资料里也常见 CH9102/`ttyCH343USB*` 命名。本地厂家 `step_motor` 路径仍然保留，可用 `ms42dc_driver:=vendor` 切换。
 - Aubo i5：使用 `AuboRobot/aubo_ros2_driver`，通过 TCP/IP 连接机器人控制器，并使用 ros2_control 进行轨迹执行。Arachne 只在官方驱动外提供状态探针和 launch 集成。
 
 当前实机接线：
 
-- MS42DC 夹具：USB Type-C 直连串口。
+- MS42DC 夹具：USB Type-C 直连串口，推荐稳定别名 `/dev/motor_serial`；这一路是夹具控制板的 CH91xx/CH343 系列设备，不是底盘的 CH340。
 - Scout 2.0：Waveshare USB-CAN-A 适配器，进入 Linux 后通常是 CH340 串口 `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0`。原生 Linux 的 SocketCAN `can0` 是可选备选路径。
 - Aubo 控制柜：网线连接。当前控制柜 MAC 识别提示为 `CC:82:7F:A3:E6:2E`；ROS 控制仍然使用配置的机器人 IP。
 
@@ -38,7 +38,7 @@ ros2 launch arachne_hardware real_bringup.launch.py
 真机 ROS 层设计为可在原生 Linux 和 WSL2 中运行，但硬件可见性不同：
 
 - Aubo TCP/IP 走网络，只要控制器 IP 可达，两种环境都能用。
-- MS42DC 串口需要 Linux 下存在 `/dev/motor_serial`、`/dev/ttyACM*` 或 `/dev/ttyCH343USB*`。WSL2 用户需要先从 Windows 侧透传 CH9102 USB 设备。
+- MS42DC 串口需要 Linux 下存在 `/dev/motor_serial`、`/dev/ttyACM*` 或 `/dev/ttyCH343USB*`。WSL2 用户需要先从 Windows 侧透传夹具的 CH91xx/CH343 系列 USB 串口设备。
 - Scout 默认走 Waveshare USB-CAN-A 串口模式，WSL2 下用 `usbipd-win` 透传 CH340 设备后即可使用。原生 Linux 用户也可以用 SocketCAN 适配器，并通过 `scout_driver:=official scout_port:=can0` 切换。
 
 推荐安装并使用 [hurry-porter](https://github.com/zay002/hurry-porter) 作为 WSL2/Windows 设备透传和串口诊断工具。它可以列出 Windows 侧 USB 设备、提示 `usbipd-win` attach 命令，并提供 `hurry waveshare-can-a` 来配置、发送和接收 Waveshare USB-CAN-A 的 CAN2.0A/B 帧。Arachne 不强依赖它，但实机排障时很方便。

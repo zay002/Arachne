@@ -13,6 +13,7 @@ arachne_real_hardware:
     upstream: https://github.com/agilexrobotics/scout_ros2
     dependency: https://github.com/agilexrobotics/ugv_sdk
     interface: waveshare_usb_can_a_serial
+    usb_serial_chip: CH340
     port_name: /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
     fallback_interface: socketcan
     fallback_port_name: can0
@@ -27,6 +28,7 @@ arachne_real_hardware:
     fallback_driver: step_motor + ms42dc_official_bridge
     serial_node: ros2 run step_motor motor_node
     serial_port_parameter: usart_port_name
+    usb_serial_chip: CH91xx/CH343 family
     default_port: /dev/motor_serial
     command_topic: motor_control
     state_topic: motor_state

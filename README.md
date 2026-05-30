@@ -69,7 +69,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `scripts/gazebo_autopick_demo.sh` 会启动 Gazebo 自主拾取验证：Scout 根据已知展厅障碍物规划路线，靠近可见地面目标，并实时计算 Aubo/MS42DC 拾取控制。
 - `scripts/godot_showcase.sh` 可启动单独的 Godot 4.x 第三人称展示前端，包含可碰撞底盘运动、涂装材质、视觉悬挂、平滑跟随相机、机械臂手动微调、夹爪开闭、可拾取水瓶/小球和 ROS2/UDP bridge 占位接口。
 - `scripts/use_gripper.sh` 是推荐的夹具切换入口，可在可视化、demo、MoveIt2、ros2_control、Nav2 和未接真机联合启动中统一选择 MS42DC 或 AG95。
-- 真机控制路径已统一为 ROS 接口：Scout 2.0 默认使用 Waveshare USB-CAN-A 串口桥接驱动，MS42DC 默认使用 Type-C USB 串口直连驱动，Aubo i5 预留 `AuboRobot/aubo_ros2_driver` 的 TCP/IP + ros2_control 路线。
+- 真机控制路径已统一为 ROS 接口：Scout 2.0 默认使用 Waveshare USB-CAN-A 的 CH340 串口桥接驱动，MS42DC 默认使用夹具 Type-C 控制板的 CH91xx/CH343 系列串口直连驱动，Aubo i5 预留 `AuboRobot/aubo_ros2_driver` 的 TCP/IP + ros2_control 路线。
 - 没接真机时，也可以用 mock 节点、安全状态机、ros2_control 控制器命名、MoveIt2 起步配置和 Nav2 起步配置继续联调。
 
 ## Roadmap
@@ -199,8 +199,8 @@ ros2 topic pub --once /arachne/vla/action_chunk std_msgs/msg/String \
 
 Arachne 优先复用官方/厂家 ROS 路线，同时为当前实机硬件提供必要集成层：
 
-- Scout 2.0：默认使用 `scout_waveshare_serial_driver`，把 `/cmd_vel` 转成 Scout v2 CAN 帧，并通过 Waveshare USB-CAN-A 的 CH340 串口发送。官方 AgileX `scout_base`/SocketCAN 路线仍然保留，可用 `scout_driver:=official` 启用。
-- MS42DC：默认使用 `ms42dc_direct_serial_driver`，把 `/arachne/gripper/command` 转成说明书中的 Type-C USB 串口帧。厂家 `step_motor` 路线仍然保留，可用 `ms42dc_driver:=vendor` 启用。
+- Scout 2.0：默认使用 `scout_waveshare_serial_driver`，把 `/cmd_vel` 转成 Scout v2 CAN 帧，并通过 Waveshare USB-CAN-A 的 CH340 串口发送。当前默认端口是 `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0`。官方 AgileX `scout_base`/SocketCAN 路线仍然保留，可用 `scout_driver:=official` 启用。
+- MS42DC：默认使用 `ms42dc_direct_serial_driver`，把 `/arachne/gripper/command` 转成说明书中的 Type-C USB 串口帧。夹具这一路不是 CH340，而是夹具控制板的 CH91xx/CH343 系列 USB 串口设备；你当前设备可按 CH9012 这一路处理，厂家资料里也常见 CH9102/`ttyCH343USB*` 的命名。Arachne 推荐统一建别名为 `/dev/motor_serial`。厂家 `step_motor` 路线仍然保留，可用 `ms42dc_driver:=vendor` 启用。
 - Aubo i5：使用 `AuboRobot/aubo_ros2_driver`，以 `aubo_type:=aubo_i5`、`robot_ip:=...`、`use_fake_hardware:=false` 启动真机控制。
 
 接线和真机 bringup 时主要看 [docs/hardware.zh-CN.md](docs/hardware.zh-CN.md)、[real_bringup.launch.py](src/arachne_hardware/launch/real_bringup.launch.py) 和 [real_hardware.yaml](src/arachne_hardware/config/real_hardware.yaml)。
@@ -217,7 +217,7 @@ Arachne 优先复用官方/厂家 ROS 路线，同时为当前实机硬件提供
 ./scripts/check_real_hardware_env.sh
 ```
 
-这个检查脚本同时支持正常 Linux 和 WSL2。Aubo 走 TCP/IP，只要机器人网络可达，两边都可以用。MS42DC Type-C 串口通常会显示为 `/dev/ttyACM*` 或 `/dev/ttyCH343USB*`；WSL2 下需要先用 `usbipd-win` 把 CH9102 USB 设备透传进 WSL2，再把 `/dev/motor_serial` 指向它。Scout 默认使用 Waveshare USB-CAN-A，它在 Linux 里显示为 CH340 串口；SocketCAN `can0` 仅作为原生 Linux CAN 适配器的可选路线。
+这个检查脚本同时支持正常 Linux 和 WSL2。Aubo 走 TCP/IP，只要机器人网络可达，两边都可以用。MS42DC Type-C 串口通常会显示为 `/dev/ttyACM*` 或 `/dev/ttyCH343USB*`，也可能在 Windows 侧显示为 CH91xx 系列设备；WSL2 下需要先用 `usbipd-win` 把夹具 USB 串口透传进 WSL2，再把 `/dev/motor_serial` 指向它。Scout 默认使用 Waveshare USB-CAN-A，它在 Linux 里显示为 CH340 串口；SocketCAN `can0` 仅作为原生 Linux CAN 适配器的可选路线。
 
 推荐工具：[hurry-porter](https://github.com/zay002/hurry-porter) 是可选但推荐的 WSL2/Windows 辅助工具，可用于 USB 透传、串口扫描和 Waveshare USB-CAN-A 诊断：
 

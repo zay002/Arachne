@@ -106,7 +106,7 @@ ros2 launch arachne_description display.launch.py \
 真机层围绕面向 ROS 的设备 wrapper 组织，同时保留适合当前硬件的官方/厂家路径：
 
 - Scout 2.0 默认使用 `scout_waveshare_serial_driver`，通过 Waveshare USB-CAN-A 的 CH340 串口发送 Scout v2 CAN 帧并发布 `/odom`。AgileX `scout_base`/SocketCAN 路径仍然保留，可用 `scout_driver:=official` 切换。
-- MS42DC 默认使用 `ms42dc_direct_serial_driver`，独占 Type-C USB 串口并把 `/arachne/gripper/command` 中的 `open`、`close`、`home`、`stop` 转成说明书中的电机帧。本地厂家 `step_motor` 路径仍然保留，可用 `ms42dc_driver:=vendor` 切换。
+- MS42DC 默认使用 `ms42dc_direct_serial_driver`，独占夹具 Type-C USB 串口并把 `/arachne/gripper/command` 中的 `open`、`close`、`home`、`stop` 转成说明书中的电机帧。夹具这一路是 CH91xx/CH343 系列设备，和底盘 CH340 不是同一个串口芯片；项目推荐通过 `/dev/motor_serial` 别名固定。本地厂家 `step_motor` 路径仍然保留，可用 `ms42dc_driver:=vendor` 切换。
 - Aubo i5 使用 `AuboRobot/aubo_ros2_driver`。官方 launch 通过 TCP/IP 暴露 Aubo 的 ros2_control 轨迹执行。
 
 准备包链接：
@@ -121,7 +121,7 @@ ros2 launch arachne_description display.launch.py \
 ./scripts/check_real_hardware_env.sh
 ```
 
-检查内容包括 ROS 环境、vendor 包链接、MS42DC 串口候选、Scout USB-CAN-A 或 SocketCAN 状态和 Aubo TCP 可达性。在 WSL2 下，USB 串口和 USB-CAN 适配器必须先通过 `usbipd-win` 从 Windows 透传进来，Linux 内才会出现 `/dev/ttyUSB*` 或 `/dev/ttyACM*`。[hurry-porter](https://github.com/zay002/hurry-porter) 推荐用于 USB 透传排查，以及 `hurry waveshare-can-a` 快速诊断。
+检查内容包括 ROS 环境、vendor 包链接、MS42DC 串口候选、Scout USB-CAN-A 或 SocketCAN 状态和 Aubo TCP 可达性。在 WSL2 下，USB 串口和 USB-CAN 适配器必须先通过 `usbipd-win` 从 Windows 透传进来，Linux 内才会出现 `/dev/ttyUSB*`、`/dev/ttyACM*` 或 `/dev/ttyCH*`。[hurry-porter](https://github.com/zay002/hurry-porter) 推荐用于 USB 透传排查，以及 `hurry waveshare-can-a` 快速诊断。
 
 构建核心 bringup 包：
 

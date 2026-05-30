@@ -16,12 +16,12 @@ Arachne targets a Scout 2.0 mobile base, an Aubo i5 arm, and a Yizhua Robot MS42
 Arachne uses official or vendor ROS interfaces wherever they are stable:
 
 - Scout 2.0: Arachne defaults to `scout_waveshare_serial_driver`, which writes Scout v2 CAN frames through a Waveshare USB-CAN-A CH340 serial adapter. It accepts `/cmd_vel`, configures the adapter for `500000` bit/s standard CAN frames, and publishes `/odom` plus `/arachne/hardware/base_status`. The official AgileX `scout_base`/SocketCAN path is still available with `scout_driver:=official`.
-- MS42DC: Arachne defaults to `ms42dc_direct_serial_driver`, which keeps the ROS topic surface `/arachne/gripper/command` and writes the documented Type-C USB serial frames directly. The local vendor `step_motor` package remains available through `ms42dc_driver:=vendor`.
+- MS42DC: Arachne defaults to `ms42dc_direct_serial_driver`, which keeps the ROS topic surface `/arachne/gripper/command` and writes the documented Type-C USB serial frames directly. This is not the CH340 device; it is the gripper controller's CH91xx/CH343-family USB serial path. Treat the current unit's CH9012 identification as this gripper path; vendor docs may also show CH9102 or `ttyCH343USB*`. The local vendor `step_motor` package remains available through `ms42dc_driver:=vendor`.
 - Aubo i5: `AuboRobot/aubo_ros2_driver`, using TCP/IP to the robot controller and ros2_control for trajectory execution. Arachne keeps only a status probe and launch integration around the official driver.
 
 Current physical wiring:
 
-- MS42DC gripper: direct USB Type-C serial connection.
+- MS42DC gripper: direct USB Type-C serial connection, preferably exposed through the stable `/dev/motor_serial` alias. This is the gripper controller's CH91xx/CH343-family path, not the base CH340.
 - Scout 2.0: Waveshare USB-CAN-A adapter exposed as a CH340 serial device, normally `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0`. Native SocketCAN `can0` is an optional alternate path.
 - Aubo controller cabinet: Ethernet. The current controller MAC hint is `CC:82:7F:A3:E6:2E`; ROS control still uses the configured robot IP.
 
@@ -38,7 +38,7 @@ Each hardware component can be disabled independently with `use_scout:=false`, `
 The real-hardware ROS layer is designed to run on both native Linux and WSL2, but hardware visibility differs:
 
 - Aubo TCP/IP is network-based and works in either environment when the controller IP is reachable.
-- MS42DC serial requires a Linux serial device such as `/dev/motor_serial`, `/dev/ttyACM*`, or `/dev/ttyCH343USB*`. WSL2 users must pass the CH9102 USB device through from Windows first.
+- MS42DC serial requires a Linux serial device such as `/dev/motor_serial`, `/dev/ttyACM*`, or `/dev/ttyCH343USB*`. WSL2 users must pass the gripper's CH91xx/CH343-family USB serial device through from Windows first.
 - Scout defaults to Waveshare USB-CAN-A serial mode, which works in WSL2 after the CH340 device is attached with `usbipd-win`. Native Linux users may instead use a SocketCAN adapter by launching with `scout_driver:=official scout_port:=can0`.
 
 [hurry-porter](https://github.com/zay002/hurry-porter) is recommended for WSL2/Windows device handoff and serial diagnostics. It can list Windows-side USB devices, suggest `usbipd-win` attach commands, and provides `hurry waveshare-can-a` for configuring, sending, and receiving Waveshare USB-CAN-A CAN2.0A/B frames. Arachne does not require it at runtime, but it is useful while bringing up real hardware.

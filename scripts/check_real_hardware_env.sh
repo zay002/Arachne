@@ -92,12 +92,12 @@ else
 fi
 
 shopt -s nullglob
-serial_candidates=(/dev/serial/by-id/* /dev/ttyUSB* /dev/ttyACM*)
+serial_candidates=(/dev/serial/by-id/* /dev/ttyUSB* /dev/ttyACM* /dev/ttyCH*)
 if (( ${#serial_candidates[@]} > 0 )); then
   ok "serial candidates:"
   printf '  %s\n' "${serial_candidates[@]}"
 else
-  warn "no /dev/serial/by-id, /dev/ttyUSB, or /dev/ttyACM devices found"
+  warn "no /dev/serial/by-id, /dev/ttyUSB, /dev/ttyACM, or /dev/ttyCH devices found"
 fi
 shopt -u nullglob
 
@@ -111,7 +111,7 @@ WSL2 serial note:
     usbipd attach --wsl --busid <BUSID>
   Then in WSL2:
     lsusb
-    ls /dev/ttyUSB* /dev/ttyACM*
+    ls /dev/ttyUSB* /dev/ttyACM* /dev/ttyCH*
 EOF
 fi
 echo

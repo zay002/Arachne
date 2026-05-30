@@ -71,7 +71,7 @@ External dependencies are restored by `scripts/fetch_third_party.sh`, with pinne
 - `scripts/gazebo_autopick_demo.sh` starts a Gazebo validation run where the Scout plans around known showroom obstacles, approaches a visible ground target, and runs realtime Aubo/MS42DC pick control.
 - `scripts/godot_showcase.sh` starts a separate Godot 4.x third-person showcase with collision-aware driving, painted materials, visual suspension, smooth camera follow, manual arm nudging, gripper open/close, pickable bottles/balls, and ROS2/UDP bridge placeholders.
 - `scripts/use_gripper.sh` is the preferred entry for switching between MS42DC and AG95 across visualization, demos, MoveIt2, ros2_control, Nav2, and pre-hardware launch flows.
-- Real hardware is being aligned around ROS interfaces: Scout 2.0 defaults to the Waveshare USB-CAN-A serial bridge driver, MS42DC defaults to the Type-C USB direct serial driver, and Aubo i5 keeps the `AuboRobot/aubo_ros2_driver` TCP/IP + ros2_control path.
+- Real hardware is being aligned around ROS interfaces: Scout 2.0 defaults to the Waveshare USB-CAN-A CH340 serial bridge driver, MS42DC defaults to the gripper controller's CH91xx/CH343-family Type-C USB direct serial driver, and Aubo i5 keeps the `AuboRobot/aubo_ros2_driver` TCP/IP + ros2_control path.
 - Pre-hardware development can now run against mock nodes, safety state services, ros2_control controller names, MoveIt2 planning config, and a Nav2 starter config.
 
 ## Roadmap
@@ -202,8 +202,8 @@ These entries are intended for interface validation before real hardware arrives
 
 Arachne uses official/vendor ROS packages where they are stable and keeps this repository as the integration layer:
 
-- Scout 2.0: default `scout_waveshare_serial_driver`, which maps `/cmd_vel` to Scout v2 CAN frames through a Waveshare USB-CAN-A CH340 serial adapter. The official AgileX `scout_base`/SocketCAN path remains available with `scout_driver:=official`.
-- MS42DC: default `ms42dc_direct_serial_driver`, which maps `/arachne/gripper/command` to the documented Type-C USB serial frames. The vendor `step_motor` path is still available with `ms42dc_driver:=vendor`.
+- Scout 2.0: default `scout_waveshare_serial_driver`, which maps `/cmd_vel` to Scout v2 CAN frames through a Waveshare USB-CAN-A CH340 serial adapter. The current default port is `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0`. The official AgileX `scout_base`/SocketCAN path remains available with `scout_driver:=official`.
+- MS42DC: default `ms42dc_direct_serial_driver`, which maps `/arachne/gripper/command` to the documented Type-C USB serial frames. This is not the CH340 device; it is the gripper controller's CH91xx/CH343-family USB serial path. Treat the current unit's CH9012 identification as this gripper path; vendor docs may also show CH9102 or `ttyCH343USB*`. Arachne recommends mapping it to `/dev/motor_serial`. The vendor `step_motor` path is still available with `ms42dc_driver:=vendor`.
 - Aubo i5: `AuboRobot/aubo_ros2_driver`, launched with `aubo_type:=aubo_i5`, `robot_ip:=...`, and `use_fake_hardware:=false`.
 
 See [docs/hardware.md](docs/hardware.md), [real_bringup.launch.py](src/arachne_hardware/launch/real_bringup.launch.py), and [real_hardware.yaml](src/arachne_hardware/config/real_hardware.yaml) when wiring the physical devices.
@@ -220,7 +220,7 @@ Check the host before connecting real hardware:
 ./scripts/check_real_hardware_env.sh
 ```
 
-The check supports both native Linux and WSL2. Aubo TCP/IP works in either environment when the robot network is reachable. MS42DC Type-C serial should appear as `/dev/ttyACM*` or `/dev/ttyCH343USB*`; on WSL2, attach the CH9102 USB device with `usbipd-win` first and point `/dev/motor_serial` at it. Scout uses the Waveshare USB-CAN-A as a CH340 serial device by default; SocketCAN `can0` is optional for Linux adapters supported by the kernel.
+The check supports both native Linux and WSL2. Aubo TCP/IP works in either environment when the robot network is reachable. MS42DC Type-C serial should appear as `/dev/ttyACM*` or `/dev/ttyCH343USB*`, and may appear on the Windows side as a CH91xx-family device; on WSL2, attach the gripper USB serial device with `usbipd-win` first and point `/dev/motor_serial` at it. Scout uses the Waveshare USB-CAN-A as a CH340 serial device by default; SocketCAN `can0` is optional for Linux adapters supported by the kernel.
 
 Recommended helper: [hurry-porter](https://github.com/zay002/hurry-porter) is optional but useful for WSL2/Windows USB handoff and Waveshare USB-CAN-A diagnostics:
 
