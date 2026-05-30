@@ -1,93 +1,91 @@
 <p align="center">
-  <img src="docs/demo/arachne.png" alt="Arachne robot system showcase" width="900">
+  <img src="docs/demo/arachne.png" alt="Arachne 机器人系统宣传图" width="900">
 </p>
 
-# Arachne
+# Arachne 中文说明
 
-[中文文档](README.zh-CN.md)
+[English README](README.en.md)
 
-Arachne is a ROS2 workspace for a Scout 2.0 mobile base carrying an Aubo i5 arm and a selectable gripper. The two model variants share the same base, arm, mount, sensor frames, launch flow, and gripper interface; the only model difference is the gripper.
+Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换夹爪的 ROS2 workspace。当前默认硬件模型是 Scout 2.0 + Aubo i5 + 易爪机器人二指柔性伺服电机夹爪（MS42DC）；AG95 作为开源夹爪模型保留，用于对比和演示。
 
-The default hardware model is Scout 2.0 + Aubo i5 + Yizhua Robot MS42DC two-finger flexible servo gripper. AG95 is kept as an open-source gripper variant for comparison and demos. Both grippers are exposed through the same `Open` / `Close` GUI and service interface.
-
-The current milestone is a reliable robot description plus interactive demos: one connected TF tree, real upstream Scout/Aubo/AG95 descriptions, a user-created movable MS42DC split mesh model, lightweight gripper open/close simulation, and a playable Gazebo showroom.
+两套模型的底盘、机械臂、安装位姿、传感器占位、启动流程和夹爪控制接口都相同，唯一差异是 `gripper_adapter_link` 后面的夹爪模型。MS42DC 和 AG95 在演示界面里都只提供 `Open` / `Close` 两个状态。
 
 <table>
   <tr>
     <td width="50%" align="center">
-      <img src="docs/demo/realbot_1.jpg" alt="Arachne physical robot front view" width="100%">
+      <img src="docs/demo/realbot_1.jpg" alt="Arachne 实机正面照片" width="100%">
     </td>
     <td width="50%" align="center">
-      <img src="docs/demo/realbot_2.jpg" alt="Arachne physical robot side view" width="100%">
+      <img src="docs/demo/realbot_2.jpg" alt="Arachne 实机侧面照片" width="100%">
     </td>
   </tr>
 </table>
 
-## Manual Map
+## 阅读地图
 
-- [What Is Included](#what-is-included): package-level project map.
-- [Current State](#current-state): what is already working.
-- [Roadmap](#roadmap): near-term engineering direction.
-- [Quick Start](#quick-start): build and open the default RViz model.
-- [Planning And Control Skeleton](#planning-and-control-skeleton): MoveIt2, Nav2, ros2_control, sequence execution, and VLA/WAM action chunks.
-- [Real Hardware ROS Bringup](#real-hardware-ros-bringup): Scout, MS42DC, and Aubo vendor ROS integration.
-- [Switch Demo](#switch-demo), [Gazebo Autonomous Pick](#gazebo-autonomous-pick), and [Godot Showcase](#godot-showcase): interactive demos.
-- [Useful Commands](#useful-commands), [Key Frames](#key-frames), and [Reports](#reports): maintenance references.
+- [我们提供了什么](#我们提供了什么)：按 package 理解项目结构。
+- [当前状态](#当前状态)：现在已经跑通的能力。
+- [Roadmap](#roadmap)：近期开发方向。
+- [快速启动](#快速启动)：构建并打开默认 RViz 模型。
+- [规划与控制骨架](#规划与控制骨架)：MoveIt2、Nav2、ros2_control、sequence executor 和 VLA/WAM action chunk。
+- [真机 ROS Bringup](#真机-ros-bringup)：Scout、MS42DC、Aubo 的厂家/官方 ROS 接入。
+- [Switch 手柄 Demo](#switch-手柄-demo)、[Gazebo 自主拾取验证](#gazebo-自主拾取验证)、[Godot 展示前端](#godot-展示前端)：交互式 demo。
+- [常用检查](#常用检查)、[关键坐标系](#关键坐标系)、[阶段报告](#阶段报告)：日常维护和回顾入口。
 
-Related documents: [modeling](docs/modeling.md), [control](docs/control.md), [hardware](docs/hardware.md), [calibration](docs/calibration.md), and [references](docs/references.md).
+相关文档：[建模](docs/modeling.zh-CN.md)、[控制](docs/control.zh-CN.md)、[硬件](docs/hardware.zh-CN.md)、[标定](docs/calibration.zh-CN.md)、[参考资料](docs/references.zh-CN.md)。
 
-## What Is Included
+## 我们提供了什么
 
-- [src/arachne_description](src/arachne_description): unified Xacro/URDF, RViz config, model variants, mount frames, sensor frames, and MS42DC/AG95 gripper adapters.
-- [src/arachne_sim](src/arachne_sim): RViz-oriented base simulation, `/cmd_vel` integration, odometry TF, wheel joint states, and a small base teleop GUI.
-- [src/arachne_gripper](src/arachne_gripper): simulated gripper controller, joint-state mux, and a small `Open` / `Close` GUI.
-- [src/arachne_demo](src/arachne_demo): Nintendo Switch Pro controller teleop, RViz demo launch, Gazebo showroom launch, and Gazebo autonomous pick validation.
-- [src/arachne_gazebo](src/arachne_gazebo): Gazebo helper nodes for smooth GUI camera tracking and demo arm/gripper commands.
-- [src/arachne_hardware](src/arachne_hardware): real-hardware bringup wrapper package. It delegates device control to official/vendor ROS packages for Scout 2.0, Aubo i5, and MS42DC, while keeping Arachne-specific status and command bridges.
-- [src/arachne_control](src/arachne_control): shared ros2_control controller names, mock controller launch, and sim/mock/real hardware profiles.
-- [src/arachne_moveit_config](src/arachne_moveit_config): MoveIt2 starter configuration for Aubo i5 with MS42DC or AG95 end-effectors.
-- [src/arachne_nav](src/arachne_nav): Nav2 starter configuration for Scout navigation over the shared `/cmd_vel` and `/odom` contract.
-- [src/arachne_operator](src/arachne_operator): lightweight Tk operator panel, sequence executor, and VLA/WAM action-chunk translator for safety state, hardware status, odometry, base stop, gripper Open/Close, and external policy integration.
-- [godot/arachne_showcase](godot/arachne_showcase): Godot 4.x high-FPS showcase frontend with visual teleop, follow camera, arm presets, pickable-object demo logic, and ROS2 bridge placeholders.
-- [scripts](scripts): setup, third-party fetch, gripper switching, model visualization, URDF check, and gripper smoke-test helpers.
-- [docs](docs): hardware/modeling/control/calibration notes and stage reports, with matching `*.zh-CN.md` Chinese versions.
-- [docs/demo/arachne.png](docs/demo/arachne.png): project showcase image for the repository front page.
-- [docs/demo/realbot_1.jpg](docs/demo/realbot_1.jpg) and [docs/demo/realbot_2.jpg](docs/demo/realbot_2.jpg): current physical Arachne robot photos.
-- [docs/demo/model_compare.png](docs/demo/model_compare.png): current MS42DC and AG95 model showcase.
-- [third_party/MS42DC.step](third_party/MS42DC.step) and [third_party/MS42DC_SPLIT](third_party/MS42DC_SPLIT): source CAD and user-created movable split parts for the MS42DC gripper.
+- [src/arachne_description](src/arachne_description)：统一的 Xacro/URDF 机器人模型、RViz 配置、模型变体、安装框架和传感器框架。
+- [src/arachne_sim](src/arachne_sim)：面向 RViz 的底盘仿真，负责 `/cmd_vel` 积分、里程计 TF、轮子 joint state 和底盘遥控 GUI。
+- [src/arachne_gripper](src/arachne_gripper)：夹爪仿真控制器、joint-state mux，以及只有 `Open` / `Close` 的小型 GUI。
+- [src/arachne_demo](src/arachne_demo)：Nintendo Switch Pro 手柄遥控、RViz demo 启动、Gazebo 展示世界和 Gazebo 自主拾取验证。
+- [src/arachne_gazebo](src/arachne_gazebo)：Gazebo 专用辅助节点，用于更流畅的 GUI 相机跟随，以及 demo 中的机械臂/夹爪控制桥。
+- [src/arachne_hardware](src/arachne_hardware)：真机 ROS bringup 集成包。底层控制交给 Scout 2.0、Aubo i5 和 MS42DC 对应的官方/厂家 ROS 包，Arachne 负责统一状态与命令桥接。
+- [src/arachne_control](src/arachne_control)：统一的 ros2_control 控制器命名、mock 控制器 launch，以及 sim/mock/real 硬件 profile。
+- [src/arachne_moveit_config](src/arachne_moveit_config)：Aubo i5 + MS42DC/AG95 两种末端的 MoveIt2 起步配置。
+- [src/arachne_nav](src/arachne_nav)：基于 `/cmd_vel` 和 `/odom` 契约的 Scout Nav2 起步配置。
+- [src/arachne_operator](src/arachne_operator)：轻量 Tk 操作员状态面板、sequence executor 和 VLA/WAM action chunk translator，用于查看 safety、硬件状态、里程计，提供底盘停止、夹爪开闭按钮，以及外部策略接入入口。
+- [godot/arachne_showcase](godot/arachne_showcase)：Godot 4.x 高帧率展示前端，包含视觉 teleop、跟随相机、机械臂预设姿态、可拾取物体 demo 逻辑和 ROS2 bridge 占位接口。
+- [scripts](scripts)：环境安装、第三方模型下载、夹具切换、可视化启动、URDF 检查和夹爪仿真测试脚本。
+- [docs](docs)：硬件、建模、控制、标定说明，以及阶段报告；维护文档均提供同名 `*.zh-CN.md` 中文版。
+- [docs/demo/arachne.png](docs/demo/arachne.png)：项目首页宣传图。
+- [docs/demo/realbot_1.jpg](docs/demo/realbot_1.jpg) 和 [docs/demo/realbot_2.jpg](docs/demo/realbot_2.jpg)：当前 Arachne 实机照片。
+- [docs/demo/model_compare.png](docs/demo/model_compare.png)：MS42DC 与 AG95 两套夹爪模型展示图。
+- [third_party/MS42DC.step](third_party/MS42DC.step)：MS42DC 原始 CAD。
+- [third_party/MS42DC_SPLIT](third_party/MS42DC_SPLIT)：由项目作者手动拆分制作的 MS42DC 可动部件模型，用于真实开合可视化。
 
-External dependencies are restored by `scripts/fetch_third_party.sh`, with pinned revisions for reproducible setup. `build/`, `install/`, and `log/` are standard colcon outputs generated during local builds.
+外部依赖由 `scripts/fetch_third_party.sh` 按固定版本恢复，保证新环境可以复现。`build/`、`install/` 和 `log/` 是 colcon 在本地构建时生成的标准输出目录。
 
-## Current State
+## 当前状态
 
-- Scout 2.0, Aubo i5, MS42DC, AG95, lidar, and optional end-effector camera are composed into one robot model.
-- The MS42DC and AG95 variants differ only at the gripper under `gripper_adapter_link`.
-- Aubo is mounted at the current intended Scout top-deck pose.
-- MS42DC uses user-created split CAD meshes with revolute left/right finger links.
-- MS42DC close target is calibrated to `0.6 rad` by default.
-- RViz starts through `scripts/view_model.sh`, which cleans stale visualization nodes and launches base teleop, arm joint sliders, gripper simulator, and gripper Open/Close GUI.
-- The arm slider GUI starts from the current user-confirmed display pose; pressing `Center` returns to that pose.
-- `scripts/switch_demo.sh` starts an interactive Nintendo Switch Pro controller demo with Gazebo physics, a smoothed third-person camera, body-relative Scout driving, Aubo joint nudging, and gripper commands. Gazebo uses a physics-specific Scout wheel setup so forward input drives all four wheels in the same direction.
-- `scripts/gazebo_autopick_demo.sh` starts a Gazebo validation run where the Scout plans around known showroom obstacles, approaches a visible ground target, and runs realtime Aubo/MS42DC pick control.
-- `scripts/godot_showcase.sh` starts a separate Godot 4.x third-person showcase with collision-aware driving, painted materials, visual suspension, smooth camera follow, manual arm nudging, gripper open/close, pickable bottles/balls, and ROS2/UDP bridge placeholders.
-- `scripts/use_gripper.sh` is the preferred entry for switching between MS42DC and AG95 across visualization, demos, MoveIt2, ros2_control, Nav2, and pre-hardware launch flows.
-- Real hardware is being aligned around ROS interfaces: AgileX `scout_ros2` controls Scout 2.0 over CAN, the local MS42DC vendor ROS2 package controls the gripper serial node, and `AuboRobot/aubo_ros2_driver` controls Aubo i5 over TCP/IP through ros2_control.
-- Pre-hardware development can now run against mock nodes, safety state services, ros2_control controller names, MoveIt2 planning config, and a Nav2 starter config.
+- 已完成 Scout 2.0 + Aubo i5 + MS42DC/AG95 的统一 `robot_description`。
+- Aubo 安装在当前硬件确认的 Scout 顶部位置。
+- MS42DC 使用作者手动拆分的真实 CAD 部件，左右夹指可以绕真实铰点开合。
+- MS42DC 默认闭合角为 `0.6 rad`。
+- RViz 通过 `scripts/view_model.sh` 启动，会自动清理旧的可视化节点，并打开底盘遥控、机械臂关节滑条、夹爪仿真和 Open/Close 控制窗。
+- 机械臂滑条 GUI 默认从当前用户确认的展示姿态启动；点击 `Center` 会回到这个姿态。
+- `scripts/switch_demo.sh` 默认启动 Gazebo 展厅 demo，可以用 Nintendo Switch Pro 手柄控制底盘、平滑第三人称视角、Aubo 关节和夹爪。Gazebo 会使用专门的 Scout 轮子物理姿态，确保前进输入时四个轮子同向驱动。
+- `scripts/gazebo_autopick_demo.sh` 会启动 Gazebo 自主拾取验证：Scout 根据已知展厅障碍物规划路线，靠近可见地面目标，并实时计算 Aubo/MS42DC 拾取控制。
+- `scripts/godot_showcase.sh` 可启动单独的 Godot 4.x 第三人称展示前端，包含可碰撞底盘运动、涂装材质、视觉悬挂、平滑跟随相机、机械臂手动微调、夹爪开闭、可拾取水瓶/小球和 ROS2/UDP bridge 占位接口。
+- `scripts/use_gripper.sh` 是推荐的夹具切换入口，可在可视化、demo、MoveIt2、ros2_control、Nav2 和未接真机联合启动中统一选择 MS42DC 或 AG95。
+- 真机控制路径已统一为 ROS 接口：Scout 2.0 默认使用 Waveshare USB-CAN-A 串口桥接驱动，MS42DC 默认使用 Type-C USB 串口直连驱动，Aubo i5 预留 `AuboRobot/aubo_ros2_driver` 的 TCP/IP + ros2_control 路线。
+- 没接真机时，也可以用 mock 节点、安全状态机、ros2_control 控制器命名、MoveIt2 起步配置和 Nav2 起步配置继续联调。
 
 ## Roadmap
 
-1. Finalize physical calibration: tool adapter pose, sensor poses, and collision simplification for planning.
-2. Validate the new MoveIt2 and ros2_control starter configs in RViz/Gazebo.
-3. Replace the Gazebo auto-pick validation planner with MoveIt2 and ros2_control controllers.
-4. Bring up Nav2 against the simulated Scout odometry, then later swap in real odometry/localization.
-5. Upgrade object grasping from command-level validation to contact-validated or attach-aware Gazebo tasks.
-6. Connect the Godot showcase to ROS2 or MuJoCo through the prepared bridge interface.
-7. Validate real-hardware ROS bringup on the physical Scout, Aubo, and MS42DC after the remaining materials arrive.
-8. Build the full operator Web UI after the model, controllers, and launch contracts are stable.
+1. 完成物理标定：末端转接板、传感器位姿和用于规划的简化碰撞模型。
+2. 在 RViz/Gazebo 中验证新的 MoveIt2 和 ros2_control 起步配置。
+3. 用 MoveIt2 和 ros2_control 替换当前 Gazebo 自主拾取验证中的轻量规划器。
+4. 先用仿真里程计跑通 Nav2，再在真机阶段替换真实定位和里程计。
+5. 将物体抓取从命令级验证升级为 Gazebo 接触验证或 attach-aware 任务。
+6. 通过已预留的 bridge 接口，把 Godot 展示前端连接到 ROS2 或 MuJoCo。
+7. 继续验证 Aubo 真机 TCP/IP 控制，并把 Scout、Aubo、MS42DC 的联合 bringup 和安全门控跑成稳定流程。
+8. 在模型、控制器和 launch 接口稳定后，再构建完整 Web 操作界面。
 
-## Quick Start
+## 快速启动
 
-Recommended environments:
+推荐环境：
 
 - Ubuntu 24.04 + ROS2 Jazzy
 - Ubuntu 22.04 + ROS2 Humble
@@ -97,9 +95,8 @@ cd Arachne
 ./scripts/setup_ubuntu.sh
 ./scripts/fetch_third_party.sh
 
-# If Conda is active, deactivate it before building ROS packages.
 conda deactivate 2>/dev/null || true
-source /opt/ros/jazzy/setup.bash  # use /opt/ros/humble/setup.bash on Ubuntu 22.04
+source /opt/ros/jazzy/setup.bash  # Ubuntu 22.04 使用 /opt/ros/humble/setup.bash
 
 colcon build --base-paths src --packages-select \
   aubo_description scout_description dh_ag95_description \
@@ -111,9 +108,9 @@ source install/setup.bash
 ./scripts/view_model.sh
 ```
 
-`view_model.sh` launches the normal development view: MS42DC model, base teleop GUI, Aubo joint sliders, gripper open/close simulator, and the `Arachne Gripper` Open/Close window. The base GUI publishes `/cmd_vel`; `base_sim_controller` publishes `/odom`, `odom -> base_link`, and wheel joint states.
+底盘遥控 GUI 会发布 `/cmd_vel`，底盘仿真节点会发布 `/odom`、`odom -> base_link` 和轮子 joint state。
 
-If the Aubo appears folded into the Scout body, rebuild and relaunch with the helper script so the installed launch file includes the current user-confirmed display pose:
+如果看到 Aubo 折叠到 Scout 车体里，先重新构建并用 helper 脚本启动，确保安装目录里的 launch 文件是最新的：
 
 ```bash
 colcon build --base-paths src --packages-select arachne_description
@@ -121,20 +118,20 @@ source install/setup.bash
 ./scripts/view_model.sh
 ```
 
-The base can also be commanded from the terminal:
+也可以直接用命令控制底盘：
 
 ```bash
 ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
   "{linear: {x: 0.25}, angular: {z: 0.0}}"
 ```
 
-To view AG95 with the same Open/Close controls:
+查看 AG95 版本：
 
 ```bash
 ./scripts/use_gripper.sh ag95 view
 ```
 
-The same entry can switch the gripper for other stacks:
+同一个入口也可以切换其他栈里的夹具：
 
 ```bash
 ./scripts/use_gripper.sh ms42dc prehardware launch_rviz:=false
@@ -142,23 +139,23 @@ The same entry can switch the gripper for other stacks:
 ./scripts/use_gripper.sh ms42dc gazebo
 ```
 
-## Planning And Control Skeleton
+## 规划与控制骨架
 
-The pre-hardware planning/control stack can be checked without any physical devices:
+不接真机也可以先检查规划/控制接口：
 
 ```bash
 ./scripts/check_workspace.sh
 ```
 
-More detail lives in [docs/control.md](docs/control.md). The main code entry points are [prehardware_control.launch.py](src/arachne_control/launch/prehardware_control.launch.py), [sequence_executor.py](src/arachne_operator/arachne_operator/sequence_executor.py), and [action_chunk_translator.py](src/arachne_operator/arachne_operator/action_chunk_translator.py).
+更多细节见 [docs/control.zh-CN.md](docs/control.zh-CN.md)。主要代码入口是 [prehardware_control.launch.py](src/arachne_control/launch/prehardware_control.launch.py)、[sequence_executor.py](src/arachne_operator/arachne_operator/sequence_executor.py) 和 [action_chunk_translator.py](src/arachne_operator/arachne_operator/action_chunk_translator.py)。
 
-One-command pre-hardware control bringup:
+一条命令启动未接真机时的联合控制环境：
 
 ```bash
 ros2 launch arachne_control prehardware_control.launch.py launch_rviz:=false
 ```
 
-Mock hardware bringup:
+启动硬件 mock：
 
 ```bash
 ros2 launch arachne_hardware mock_bringup.launch.py
@@ -166,29 +163,29 @@ ros2 launch arachne_operator operator_panel.launch.py
 ros2 launch arachne_operator sequence_executor.launch.py
 ```
 
-ros2_control mock controller launch:
+启动 ros2_control mock 控制器：
 
 ```bash
 ros2 launch arachne_control mock_ros2_control.launch.py gripper_type:=ms42dc
 ```
 
-MoveIt2 starter launch:
+启动 MoveIt2 起步配置：
 
 ```bash
 ros2 launch arachne_moveit_config moveit_planning.launch.py gripper_type:=ms42dc
 ```
 
-Nav2 starter launch:
+启动 Nav2 起步配置：
 
 ```bash
 ros2 launch arachne_nav nav2_sim.launch.py
 ```
 
-By default this uses the lightweight base simulator and a mock `map -> odom` transform, so Nav2 can become active before lidar/localization hardware is available. When a real localization or SLAM stack provides `map -> odom`, launch with `with_mock_map_odom:=false`.
+默认会同时启动轻量底盘仿真和 mock `map -> odom` 变换，因此在 lidar/定位硬件尚未接入时 Nav2 也能进入 active。后续如果由真实定位或 SLAM 提供 `map -> odom`，启动时加 `with_mock_map_odom:=false`。
 
-The sequence executor is a small high-level command surface. It runs task steps with status, timeouts, stop handling, and Nav2 result checks through `/arachne/sequence/command`; for example `ready`, `open`, `demo_pick`, `demo_nav_pick`, or `goto 1.0 0.0 0.0`.
+`sequence_executor` 是一个轻量高层命令入口。它通过 `/arachne/sequence/command` 执行带状态、超时、停止处理和 Nav2 结果检查的任务 step，例如 `ready`、`open`、`demo_pick`、`demo_nav_pick` 或 `goto 1.0 0.0 0.0`。
 
-External VLA/WAM policies can use the action-chunk translator. It accepts JSON on `/arachne/vla/action_chunk` and converts each step into `/cmd_vel`, Aubo joint trajectories, and `/arachne/gripper/command`:
+外部 VLA/WAM 策略可以接入 action chunk translator。它从 `/arachne/vla/action_chunk` 接收 JSON，并把每个 step 转成 `/cmd_vel`、Aubo 关节轨迹和 `/arachne/gripper/command`：
 
 ```bash
 ros2 launch arachne_operator action_chunk_translator.launch.py
@@ -196,33 +193,33 @@ ros2 topic pub --once /arachne/vla/action_chunk std_msgs/msg/String \
   "{data: '{\"action\":[0.15,0.0,0,0,0,0,0,0,1],\"duration\":0.3}'}"
 ```
 
-These entries are intended for interface validation before real hardware arrives. The next tuning pass is to validate planning groups, controller behavior, Nav2 costmaps, and safety gating under RViz/Gazebo.
+这些入口目前用于接口验证。下一轮需要在 RViz/Gazebo 中继续调 planning group、控制器行为、Nav2 costmap 和安全门控。
 
-## Real Hardware ROS Bringup
+## 真机 ROS Bringup
 
-Arachne uses official/vendor ROS packages where they are stable and keeps this repository as the integration layer:
+Arachne 优先复用官方/厂家 ROS 路线，同时为当前实机硬件提供必要集成层：
 
-- Scout 2.0: default `scout_waveshare_serial_driver`, which maps `/cmd_vel` to Scout v2 CAN frames through a Waveshare USB-CAN-A CH340 serial adapter. The official AgileX `scout_base`/SocketCAN path remains available with `scout_driver:=official`.
-- MS42DC: default `ms42dc_direct_serial_driver`, which maps `/arachne/gripper/command` to the documented Type-C USB serial frames. The vendor `step_motor` path is still available with `ms42dc_driver:=vendor`.
-- Aubo i5: `AuboRobot/aubo_ros2_driver`, launched with `aubo_type:=aubo_i5`, `robot_ip:=...`, and `use_fake_hardware:=false`.
+- Scout 2.0：默认使用 `scout_waveshare_serial_driver`，把 `/cmd_vel` 转成 Scout v2 CAN 帧，并通过 Waveshare USB-CAN-A 的 CH340 串口发送。官方 AgileX `scout_base`/SocketCAN 路线仍然保留，可用 `scout_driver:=official` 启用。
+- MS42DC：默认使用 `ms42dc_direct_serial_driver`，把 `/arachne/gripper/command` 转成说明书中的 Type-C USB 串口帧。厂家 `step_motor` 路线仍然保留，可用 `ms42dc_driver:=vendor` 启用。
+- Aubo i5：使用 `AuboRobot/aubo_ros2_driver`，以 `aubo_type:=aubo_i5`、`robot_ip:=...`、`use_fake_hardware:=false` 启动真机控制。
 
-See [docs/hardware.md](docs/hardware.md), [real_bringup.launch.py](src/arachne_hardware/launch/real_bringup.launch.py), and [real_hardware.yaml](src/arachne_hardware/config/real_hardware.yaml) when wiring the physical devices.
+接线和真机 bringup 时主要看 [docs/hardware.zh-CN.md](docs/hardware.zh-CN.md)、[real_bringup.launch.py](src/arachne_hardware/launch/real_bringup.launch.py) 和 [real_hardware.yaml](src/arachne_hardware/config/real_hardware.yaml)。
 
-Prepare the vendor packages:
+准备真机相关 ROS 包：
 
 ```bash
 ./scripts/prepare_real_hardware_ros.sh
 ```
 
-Check the host before connecting real hardware:
+接真机前先检查主机环境：
 
 ```bash
 ./scripts/check_real_hardware_env.sh
 ```
 
-The check supports both native Linux and WSL2. Aubo TCP/IP works in either environment when the robot network is reachable. MS42DC Type-C serial should appear as `/dev/ttyACM*` or `/dev/ttyCH343USB*`; on WSL2, attach the CH9102 USB device with `usbipd-win` first and point `/dev/motor_serial` at it. Scout uses the Waveshare USB-CAN-A as a CH340 serial device by default; SocketCAN `can0` is optional for Linux adapters supported by the kernel.
+这个检查脚本同时支持正常 Linux 和 WSL2。Aubo 走 TCP/IP，只要机器人网络可达，两边都可以用。MS42DC Type-C 串口通常会显示为 `/dev/ttyACM*` 或 `/dev/ttyCH343USB*`；WSL2 下需要先用 `usbipd-win` 把 CH9102 USB 设备透传进 WSL2，再把 `/dev/motor_serial` 指向它。Scout 默认使用 Waveshare USB-CAN-A，它在 Linux 里显示为 CH340 串口；SocketCAN `can0` 仅作为原生 Linux CAN 适配器的可选路线。
 
-Recommended helper: [hurry-porter](https://github.com/zay002/hurry-porter) is optional but useful for WSL2/Windows USB handoff and Waveshare USB-CAN-A diagnostics:
+推荐工具：[hurry-porter](https://github.com/zay002/hurry-porter) 是可选但推荐的 WSL2/Windows 辅助工具，可用于 USB 透传、串口扫描和 Waveshare USB-CAN-A 诊断：
 
 ```bash
 hurry scan
@@ -233,9 +230,9 @@ hurry waveshare-can-a recv \
   --duration 2
 ```
 
-The MS42DC bringup defaults to a conservative `30 deg` relative open/close test at `6 rad/s`. The vendor full-stroke reference is `18720` tenths of a degree (`1872 deg`, about `5.2` turns), but it should only be used after physical travel and homing behavior are confirmed.
+MS42DC bringup 默认使用较保守的 `30 deg` 相对开合测试，速度为 `6 rad/s`。厂家完整行程参考值是 `18720` 个 0.1 度单位，也就是 `1872 deg`、约 `5.2` 圈；只有在确认真实行程和回零行为后才建议使用大行程。
 
-Build the core hardware bringup packages:
+构建核心真机 bringup 包：
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -244,7 +241,7 @@ colcon build --base-paths src --packages-select \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 ```
 
-Launch any available hardware subset by toggling components:
+可以按当前已连接硬件选择启动子系统：
 
 ```bash
 source install/setup.bash
@@ -256,7 +253,7 @@ ros2 launch arachne_hardware real_bringup.launch.py \
   use_aubo:=false
 ```
 
-For a native SocketCAN setup, use `scout_driver:=official scout_port:=can0`. When the Aubo driver and its SDK dependencies are installed:
+如果使用原生 Linux SocketCAN 适配器，可以改成 `scout_driver:=official scout_port:=can0`。Aubo 官方驱动和 SDK 依赖安装完成后，再启用机械臂：
 
 ```bash
 ros2 launch arachne_hardware real_bringup.launch.py \
@@ -265,14 +262,14 @@ ros2 launch arachne_hardware real_bringup.launch.py \
   aubo_robot_ip:=192.168.127.128
 ```
 
-After the real hardware is powered and the bringup is stable, run the guarded acceptance sequence from [docs/hardware.md](docs/hardware.md#real-hardware-acceptance-test):
+真机上电且 bringup 稳定后，按 [docs/hardware.zh-CN.md](docs/hardware.zh-CN.md#真机验收测试) 运行带确认保护的验收序列：
 
 ```bash
 ./scripts/real_hardware_acceptance_test.sh  # dry run
 ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 ```
 
-Subsystem-only entries are available for staged bringup:
+分子系统测试入口：
 
 ```bash
 ./scripts/real_base_test.sh
@@ -280,167 +277,148 @@ Subsystem-only entries are available for staged bringup:
 ./scripts/real_gripper_test.sh
 ```
 
-## Switch Demo
+## Switch 手柄 Demo
 
-Connect the Nintendo Switch Pro Controller over Bluetooth, then run the playable Gazebo showroom demo:
+先通过蓝牙连接 Nintendo Switch Pro 手柄，然后运行可玩的 Gazebo 展厅 demo：
 
 ```bash
 ./scripts/switch_demo.sh
 ```
 
-Relevant files: [scripts/switch_demo.sh](scripts/switch_demo.sh), [switch_gazebo_demo.launch.py](src/arachne_demo/launch/switch_gazebo_demo.launch.py), [switch_teleop.py](src/arachne_demo/arachne_demo/switch_teleop.py), and [arachne_showroom.sdf](src/arachne_demo/worlds/arachne_showroom.sdf).
+相关文件：[scripts/switch_demo.sh](scripts/switch_demo.sh)、[switch_gazebo_demo.launch.py](src/arachne_demo/launch/switch_gazebo_demo.launch.py)、[switch_teleop.py](src/arachne_demo/arachne_demo/switch_teleop.py)、[arachne_showroom.sdf](src/arachne_demo/worlds/arachne_showroom.sdf)。
 
-On native Linux, `switch_demo.sh` uses `/dev/input/js0` when it exists. In WSL2, or when no joystick device is available, it automatically starts a browser bridge:
+在正常 Linux 中，`switch_demo.sh` 会优先使用 `/dev/input/js0`。在 WSL2 中，或者系统里没有 joystick 设备时，它会自动启动浏览器桥接：
 
 ```bash
 ./scripts/switch_demo.sh
-# then open http://127.0.0.1:8787 in the Windows or Linux browser
+# 然后在 Windows 或 Linux 浏览器打开 http://127.0.0.1:8787
 ```
 
-You can force an input backend when needed:
+也可以手动指定输入方式：
 
 ```bash
 INPUT_BACKEND=joy JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh
 INPUT_BACKEND=web ./scripts/switch_demo.sh
 ```
 
-For the Switch Pro Controller, the WSL2/browser backend is usually the most reliable path because the controller stays visible to Windows Bluetooth while the browser forwards its standard Gamepad state into ROS2.
+对于 Switch Pro 手柄，WSL2 下通常优先推荐浏览器桥接，因为手柄保持连接在 Windows 蓝牙侧，再由浏览器把标准 Gamepad 状态转发到 ROS2。
 
 <p align="center">
-  <img src="docs/demo/Bridge.png" alt="Arachne browser gamepad bridge" width="720">
+  <img src="docs/demo/Bridge.png" alt="Arachne 浏览器手柄桥接页面" width="720">
 </p>
 
-For the lightweight RViz-only control view:
+如果只想打开轻量 RViz 控制视图：
 
 ```bash
 DEMO_MODE=rviz ./scripts/switch_demo.sh
 ```
 
-Default controls:
+默认按键：
 
-- Left stick: proportional body-frame driving; joystick radius controls instantaneous speed, vertical direction controls forward/back, and horizontal direction controls turning.
-- Right stick: orbit the smoothed Gazebo chase camera around the robot.
-- Hold `ZL` + D-pad up/down: move the selected Aubo joint.
-- `L` / `R`: select previous/next Aubo joint.
-- `B`: open gripper. `A`: close gripper.
-- `+` or the browser `RESET` button: reset the base, arm, gripper, and Gazebo demo pose. `-`: stop base motion.
+- 左摇杆：按小车自身坐标连续控制 Scout；摇杆半径决定瞬时速度，纵向分量控制前进/后退，横向分量控制转向。
+- 右摇杆：围绕机器人旋转平滑的 Gazebo 跟随相机；在 RViz 模式下旋转 RViz 跟随视角。
+- 按住 `ZL` + 十字键上下：移动当前选中的 Aubo 关节。
+- `L` / `R`：切换上一个/下一个 Aubo 关节。
+- `B`：打开夹爪。`A`：闭合夹爪。
+- `+` 或浏览器 `RESET` 按钮：重置底盘、机械臂、夹爪和 Gazebo demo 位姿。`-`：底盘停止。
 
-The default Gazebo version opens only the Gazebo showroom window: it uses the real robot meshes, a lighter physics world, dynamic props, a diff-drive physics plugin, Gazebo `/gz/odom`, a controller-driven third-person camera, and direct demo bridges for Aubo joint nudging plus MS42DC open/close control. RViz remains available as a separate lightweight control view while the full ros2_control/Gazebo stack is developed.
+默认 Gazebo 版本只打开 Gazebo 展厅窗口，不启动 RViz：它加载真实机器人 mesh、轻量化物理展厅、可碰撞物体、diff-drive 物理插件、Gazebo `/gz/odom`、手柄控制的第三人称相机，以及 Aubo 关节微调和 MS42DC 开闭控制桥。完整 ros2_control/Gazebo 控制栈会在后续继续补齐。
 
-## Gazebo Autonomous Pick
+## Gazebo 自主拾取验证
 
-Run the known-world autonomy validation:
+运行已知世界信息下的自主拾取验证：
 
 ```bash
 ./scripts/gazebo_autopick_demo.sh
 ```
 
-Relevant files: [scripts/gazebo_autopick_demo.sh](scripts/gazebo_autopick_demo.sh), [gazebo_autopick_demo.launch.py](src/arachne_demo/launch/gazebo_autopick_demo.launch.py), and [gazebo_autopick_planner.py](src/arachne_demo/arachne_demo/gazebo_autopick_planner.py).
+相关文件：[scripts/gazebo_autopick_demo.sh](scripts/gazebo_autopick_demo.sh)、[gazebo_autopick_demo.launch.py](src/arachne_demo/launch/gazebo_autopick_demo.launch.py)、[gazebo_autopick_planner.py](src/arachne_demo/arachne_demo/gazebo_autopick_planner.py)。
 
-This launches Gazebo without the manual teleop node. The planner uses the showroom's known obstacle map to continuously refresh a 2D A* route for Scout, follows it with a turn-then-drive pure-pursuit controller, parks the robot about `0.78 m` in front of the visible ground `pick_bottle` near `(3.4, -2.35)`, then computes Aubo joint targets every control tick with damped least-squares position IK from the current base-to-object pose. Arm commands are sent both as `/arachne/gui_joint_states` and as direct Gazebo joint-position topics bridged through `ros_gz_bridge`; MS42DC open/close still goes through the Gazebo demo bridge. It is a validation step toward MoveIt2 and full ros2_control, not the final hardware planner.
+这个入口不会启动手柄 teleop，避免和自治节点抢 `/cmd_vel`。当前规划器会读取硬编码的 Gazebo 展厅障碍物图，持续刷新 2D A* 路线，用“先转向再前进”的 pure-pursuit 控制 Scout 停到位于约 `(3.4, -2.35)` 的地面 `pick_bottle` 前方约 `0.78 m`，然后在每个控制 tick 根据当前底盘到目标物的相对位姿，用阻尼最小二乘位置 IK 实时计算 Aubo 关节目标。机械臂命令会同时走 `/arachne/gui_joint_states` 和 `ros_gz_bridge` 直连的 Gazebo 单关节位置话题；MS42DC 开闭仍由 Gazebo demo bridge 控制。它是通往 MoveIt2/ros2_control 的仿真验证层，不是真机最终规划器。
 
 <p align="center">
-  <img src="docs/demo/gazebo.png" alt="Arachne Gazebo showroom demo" width="900">
+  <img src="docs/demo/gazebo.png" alt="Arachne Gazebo 展厅 demo" width="900">
 </p>
 
-Camera distance can be tuned without rebuilding:
+相机距离可以不重新构建直接微调：
 
 ```bash
 GAZEBO_CAMERA_DISTANCE=1.7 ./scripts/switch_demo.sh
 ```
 
-If another controller reports the left-stick Y axis in the opposite direction, flip it without rebuilding:
+如果其他手柄上报的左摇杆 Y 轴刚好相反，可以不重新构建直接切换：
 
 ```bash
 FORWARD_AXIS_SIGN=1.0 ./scripts/switch_demo.sh
 ```
 
-To manually tune the MS42DC close angle with sliders:
+手动调 MS42DC 闭合角：
 
 ```bash
 WITH_GRIPPER_SIM=false WITH_GRIPPER_GUI=false ./scripts/view_model.sh
 ```
 
-Drag `ms42dc_left_finger_joint`; the right finger follows through the URDF mimic joint. The normal default is already `0.6 rad`, but a one-off launch override is available:
+拖动 `ms42dc_left_finger_joint`，右指会通过 mimic 反向跟随。默认值已经是 `0.6 rad`，临时覆盖可以这样启动：
 
 ```bash
 GRIPPER_CLOSED_POSITION=0.58 ./scripts/view_model.sh
 ```
 
-## Godot Showcase
+## Godot 展示前端
 
-The Godot frontend is a high-FPS third-person playable demo for presentations and portfolio videos. It loads the existing Scout 2.0, Aubo i5, MS42DC, AG95, and prop meshes through local links, then runs a flat office-style map with proportional keyboard/gamepad driving, collision-aware Scout movement, pushable props, visual suspension, follow-camera smoothing, MS42DC open/close animation, and Aubo preset interpolation. The Aubo arm uses an orange/black showcase finish, and the map includes reproducibly scattered pickable bottles and balls.
+Godot 前端用于高帧率第三人称演示和宣传视频，不替代 Gazebo 物理仿真。它通过本地链接复用现有 Scout 2.0、Aubo i5、MS42DC、AG95 和场景物件 mesh，并提供平地办公室地图、键盘/手柄比例控制、可碰撞 Scout 运动、可推动物件、视觉悬挂、平滑跟随相机、MS42DC 开闭动画、Aubo 预设姿态插值和手动关节微调。Aubo 在 Godot 中使用橘色机身和黑色关节涂装，场景会以固定随机种子撒布可拾取水瓶和小球。
 
-Relevant files: [godot/arachne_showcase](godot/arachne_showcase), [scripts/godot_showcase.sh](scripts/godot_showcase.sh), [scripts/fetch_godot_assets.sh](scripts/fetch_godot_assets.sh), and [scripts/test_godot_showcase.sh](scripts/test_godot_showcase.sh).
+相关文件：[godot/arachne_showcase](godot/arachne_showcase)、[scripts/godot_showcase.sh](scripts/godot_showcase.sh)、[scripts/fetch_godot_assets.sh](scripts/fetch_godot_assets.sh)、[scripts/test_godot_showcase.sh](scripts/test_godot_showcase.sh)。
 
 <p align="center">
-  <img src="docs/demo/godot.png" alt="Arachne Godot showcase frontend" width="900">
+  <img src="docs/demo/godot.png" alt="Arachne Godot 展示前端" width="900">
 </p>
 
 ```bash
-./scripts/install_godot4.sh   # optional if godot4 is already installed
+./scripts/install_godot4.sh   # 如果已经安装 godot4，可以跳过
 ./scripts/fetch_third_party.sh
-./scripts/fetch_godot_assets.sh   # optional CC0 office props
+./scripts/fetch_godot_assets.sh   # 可选：下载 CC0 办公室道具
 ./scripts/godot_showcase.sh
 ```
 
-If Godot is not on `PATH`, set `GODOT_BIN=/path/to/godot4`. The launcher prepares local mesh links and generated GLB cache files before opening Godot. It automatically uses standalone mode, or UDP bridge mode when a ROS2 environment is sourced. The robot visual meshes and mount dimensions come from the same Scout/Aubo/MS42DC sources used by the URDF/Gazebo model; Godot uses simplified collision proxies and a separate showcase office map for performance.
+如果 Godot 不在 `PATH` 中，可以设置 `GODOT_BIN=/path/to/godot4`。启动脚本会先准备本地 mesh 链接和生成的 GLB 缓存文件，再打开 Godot；如果当前 shell 已 source ROS2 环境，会自动使用 UDP bridge 占位模式。机器人视觉 mesh 和安装尺寸来自 URDF/Gazebo 使用的同一批 Scout/Aubo/MS42DC 资源；Godot 为了流畅展示使用简化碰撞代理，并使用独立的办公室展示地图。
 
-On WSL2, the launcher automatically selects Mesa D3D12 OpenGL rendering so the window uses the Windows GPU instead of CPU `llvmpipe`, and starts a browser Gamepad API bridge for Switch Pro controllers connected on the Windows side. Open the printed `http://127.0.0.1:8790` page and press any controller button. To prefer a discrete GPU, set:
+在 WSL2 中，启动脚本会自动选择 Mesa D3D12 OpenGL 渲染，让窗口走 Windows GPU，而不是 CPU `llvmpipe`，并启动一个浏览器 Gamepad API 桥接页面，用于识别连接在 Windows 蓝牙侧的 Switch Pro 手柄。打开终端打印的 `http://127.0.0.1:8790` 页面并按一下手柄按钮即可。如果想优先使用独显：
 
 ```bash
 MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA ./scripts/godot_showcase.sh
 ```
 
-Controls: left stick or `WASD` drives the Scout, right stick or `Q/E` orbits the third-person camera, `A/B` or `C/O` closes/opens the gripper, `1..5` selects arm presets, `LB/RB` or `H/K` selects a joint, and D-pad up/down or `U/J` nudges the selected Aubo joint. Hold the right-stick button, press `P`, or use the browser bridge `Auto Pick` button to run the nearest-object demo: select target, drive near it, move the Aubo through a lightweight IK/interpolation path, close the gripper, lift, and return home. The D-pad is deliberately not used for base motion.
+控制方式：左摇杆或 `WASD` 控制底盘，右摇杆或 `Q/E` 环绕第三人称相机，`A/B` 或 `C/O` 闭合/打开夹爪，`1..5` 选择机械臂预设姿态，`LB/RB` 或 `H/K` 选择关节，D-pad 上/下或 `U/J` 微调当前 Aubo 关节。长按右摇杆按键、按 `P`，或点击浏览器桥接页的 `Auto Pick`，会运行最近物体拾取 demo：寻找目标、自动靠近、用轻量 IK/插值移动 Aubo、闭合夹爪、抬起并回到初始位。D-pad 不参与底盘运动。
 
-If the native Godot controller path reports an unusual camera axis, force the camera axis:
+如果原生 Godot 手柄路径的相机轴映射异常，可以手动指定相机轴：
 
 ```bash
 ARACHNE_CAMERA_AXIS=2 ./scripts/godot_showcase.sh
 ```
 
-Headless self-test:
+无窗口自测：
 
 ```bash
 ./scripts/test_godot_showcase.sh
 ```
 
-## Useful Commands
-
-Validate the generated URDF:
+## 常用检查
 
 ```bash
 ./scripts/check_model.sh
-```
-
-Smoke-test both gripper simulation profiles:
-
-```bash
 ./scripts/test_gripper_sim.sh
 ```
 
-Reset the simulated base pose:
+重置底盘仿真位姿：
 
 ```bash
 ros2 service call /arachne/base/reset std_srvs/srv/Trigger {}
 ```
 
-Direct launch equivalent:
+如果 RViz 只看到网格，优先用 `./scripts/view_model.sh` 重新启动；这个脚本会清理旧的 RViz、robot_state_publisher 和 joint_state_publisher 节点。模型加载可能需要等待几秒。
 
-```bash
-ros2 launch arachne_description display.launch.py \
-  gripper_type:=ms42dc \
-  use_gui:=true \
-  with_base_gui:=true \
-  with_gripper_sim:=true \
-  with_gripper_gui:=true \
-  gripper_sim_profile:=ms42dc
-```
-
-If RViz opens with only a grid, use `./scripts/view_model.sh` rather than a bare launch command; it clears stale ROS visualization nodes before starting. Wait a few seconds for meshes to load, then check that RViz `Fixed Frame` is `odom`.
-
-## Key Frames
+## 关键坐标系
 
 ```text
 base_link
@@ -448,25 +426,25 @@ base_link
     └── aubo_base_link
         └── ... └── tool0
             └── gripper_adapter_link
-                └── ms42dc_body_link  # or ag95_base_link
+                └── ms42dc_body_link  # 或 ag95_base_link
                     ├── ms42dc_base_link
                     ├── ms42dc_left_finger_link
                     ├── ms42dc_right_finger_link
                     └── grasp_frame
 ```
 
-`map -> odom -> base_link` is not part of this URDF; it will come from localization and odometry later.
+`map -> odom -> base_link` 不属于 URDF 本体，后续由定位和里程计提供。
 
-## Reports
+## 阶段报告
 
-- [stage 0: repository foundation](docs/reports/stage_0_repository_foundation.md)
-- [stage 1: unified robot model](docs/reports/stage_1_unified_robot_model.md)
-- [stage 2: gripper sim control](docs/reports/stage_2_gripper_sim_control.md)
-- [stage 3: joint sim control](docs/reports/stage_3_joint_sim_control.md)
-- [stage 4: Switch demo](docs/reports/stage_4_switch_demo.md)
-- [stage 5: Godot showcase](docs/reports/stage_5_godot_showcase.md)
-- [stage 6: Gazebo autonomy](docs/reports/stage_6_gazebo_autonomy.md)
-- [stage 7: real hardware ROS bringup](docs/reports/stage_7_real_hardware_ros_bringup.md)
-- [stage 8: planning/control scaffold](docs/reports/stage_8_planning_control_scaffold.md)
+- [stage 0：仓库基础](docs/reports/stage_0_repository_foundation.zh-CN.md)
+- [stage 1：统一机器人模型](docs/reports/stage_1_unified_robot_model.zh-CN.md)
+- [stage 2：夹爪仿真控制](docs/reports/stage_2_gripper_sim_control.zh-CN.md)
+- [stage 3：关节仿真控制](docs/reports/stage_3_joint_sim_control.zh-CN.md)
+- [stage 4：Switch 手柄 demo](docs/reports/stage_4_switch_demo.zh-CN.md)
+- [stage 5：Godot 展示前端](docs/reports/stage_5_godot_showcase.zh-CN.md)
+- [stage 6：Gazebo 自主验证](docs/reports/stage_6_gazebo_autonomy.zh-CN.md)
+- [stage 7：真机 ROS bringup](docs/reports/stage_7_real_hardware_ros_bringup.zh-CN.md)
+- [stage 8：规划与控制骨架](docs/reports/stage_8_planning_control_scaffold.zh-CN.md)
 
-Chinese versions are stored beside each maintained document as `*.zh-CN.md`.
+英文阶段报告与中文版本放在同一目录：[docs/reports](docs/reports)。

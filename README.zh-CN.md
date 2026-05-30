@@ -4,7 +4,7 @@
 
 # Arachne 中文说明
 
-[English README](README.md)
+[English README](README.en.md)
 
 Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换夹爪的 ROS2 workspace。当前默认硬件模型是 Scout 2.0 + Aubo i5 + 易爪机器人二指柔性伺服电机夹爪（MS42DC）；AG95 作为开源夹爪模型保留，用于对比和演示。
 
@@ -69,7 +69,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 - `scripts/gazebo_autopick_demo.sh` 会启动 Gazebo 自主拾取验证：Scout 根据已知展厅障碍物规划路线，靠近可见地面目标，并实时计算 Aubo/MS42DC 拾取控制。
 - `scripts/godot_showcase.sh` 可启动单独的 Godot 4.x 第三人称展示前端，包含可碰撞底盘运动、涂装材质、视觉悬挂、平滑跟随相机、机械臂手动微调、夹爪开闭、可拾取水瓶/小球和 ROS2/UDP bridge 占位接口。
 - `scripts/use_gripper.sh` 是推荐的夹具切换入口，可在可视化、demo、MoveIt2、ros2_control、Nav2 和未接真机联合启动中统一选择 MS42DC 或 AG95。
-- 真机控制路径已统一为 ROS 接口：Scout 2.0 使用 AgileX `scout_ros2` 通过 CAN 控制，MS42DC 使用本地厂家资料包自带 ROS2 串口节点，Aubo i5 使用 `AuboRobot/aubo_ros2_driver` 通过 TCP/IP 和 ros2_control 控制。
+- 真机控制路径已统一为 ROS 接口：Scout 2.0 默认使用 Waveshare USB-CAN-A 串口桥接驱动，MS42DC 默认使用 Type-C USB 串口直连驱动，Aubo i5 预留 `AuboRobot/aubo_ros2_driver` 的 TCP/IP + ros2_control 路线。
 - 没接真机时，也可以用 mock 节点、安全状态机、ros2_control 控制器命名、MoveIt2 起步配置和 Nav2 起步配置继续联调。
 
 ## Roadmap
@@ -80,7 +80,7 @@ Arachne 是一个面向 Scout 2.0 移动底盘、Aubo i5 机械臂和可切换�
 4. 先用仿真里程计跑通 Nav2，再在真机阶段替换真实定位和里程计。
 5. 将物体抓取从命令级验证升级为 Gazebo 接触验证或 attach-aware 任务。
 6. 通过已预留的 bridge 接口，把 Godot 展示前端连接到 ROS2 或 MuJoCo。
-7. 真机材料到齐后，在物理 Scout、Aubo 和 MS42DC 上验证官方/厂家 ROS bringup。
+7. 继续验证 Aubo 真机 TCP/IP 控制，并把 Scout、Aubo、MS42DC 的联合 bringup 和安全门控跑成稳定流程。
 8. 在模型、控制器和 launch 接口稳定后，再构建完整 Web 操作界面。
 
 ## 快速启动
@@ -197,10 +197,10 @@ ros2 topic pub --once /arachne/vla/action_chunk std_msgs/msg/String \
 
 ## 真机 ROS Bringup
 
-Arachne 不重复实现底层硬件协议，而是复用已有官方/厂家 ROS 包：
+Arachne 优先复用官方/厂家 ROS 路线，同时为当前实机硬件提供必要集成层：
 
-- Scout 2.0：使用 AgileX `scout_ros2` 中的 `scout_base`，底层依赖 `ugv_sdk`，通过 `can0` 接收 `/cmd_vel` 并发布 `/odom` 与 Scout 状态。
-- MS42DC：使用本地 MS42DC 厂家资料包中的 `step_motor` ROS2 包。`motor_node` 独占串口，`ms42dc_official_bridge` 将 `/arachne/gripper/command` 映射为厂家 `motor_control` 话题。
+- Scout 2.0：默认使用 `scout_waveshare_serial_driver`，把 `/cmd_vel` 转成 Scout v2 CAN 帧，并通过 Waveshare USB-CAN-A 的 CH340 串口发送。官方 AgileX `scout_base`/SocketCAN 路线仍然保留，可用 `scout_driver:=official` 启用。
+- MS42DC：默认使用 `ms42dc_direct_serial_driver`，把 `/arachne/gripper/command` 转成说明书中的 Type-C USB 串口帧。厂家 `step_motor` 路线仍然保留，可用 `ms42dc_driver:=vendor` 启用。
 - Aubo i5：使用 `AuboRobot/aubo_ros2_driver`，以 `aubo_type:=aubo_i5`、`robot_ip:=...`、`use_fake_hardware:=false` 启动真机控制。
 
 接线和真机 bringup 时主要看 [docs/hardware.zh-CN.md](docs/hardware.zh-CN.md)、[real_bringup.launch.py](src/arachne_hardware/launch/real_bringup.launch.py) 和 [real_hardware.yaml](src/arachne_hardware/config/real_hardware.yaml)。
@@ -217,7 +217,20 @@ Arachne 不重复实现底层硬件协议，而是复用已有官方/厂家 ROS 
 ./scripts/check_real_hardware_env.sh
 ```
 
-这个检查脚本同时支持正常 Linux 和 WSL2。Aubo 走 TCP/IP，只要机器人网络可达，两边都可以用。MS42DC 串口和 Scout USB-CAN 需要 Linux 里能看到真实设备节点；在 WSL2 下，需要先用 `usbipd-win` 把 USB 串口或 USB-CAN 设备透传进 WSL2，再确认 `/dev/ttyUSB*` 或 `can0` 存在。
+这个检查脚本同时支持正常 Linux 和 WSL2。Aubo 走 TCP/IP，只要机器人网络可达，两边都可以用。MS42DC Type-C 串口通常会显示为 `/dev/ttyACM*` 或 `/dev/ttyCH343USB*`；WSL2 下需要先用 `usbipd-win` 把 CH9102 USB 设备透传进 WSL2，再把 `/dev/motor_serial` 指向它。Scout 默认使用 Waveshare USB-CAN-A，它在 Linux 里显示为 CH340 串口；SocketCAN `can0` 仅作为原生 Linux CAN 适配器的可选路线。
+
+推荐工具：[hurry-porter](https://github.com/zay002/hurry-porter) 是可选但推荐的 WSL2/Windows 辅助工具，可用于 USB 透传、串口扫描和 Waveshare USB-CAN-A 诊断：
+
+```bash
+hurry scan
+hurry waveshare-can-a recv \
+  --port /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
+  --can-bitrate 500000 \
+  --frame-type standard \
+  --duration 2
+```
+
+MS42DC bringup 默认使用较保守的 `30 deg` 相对开合测试，速度为 `6 rad/s`。厂家完整行程参考值是 `18720` 个 0.1 度单位，也就是 `1872 deg`、约 `5.2` 圈；只有在确认真实行程和回零行为后才建议使用大行程。
 
 构建核心真机 bringup 包：
 
@@ -233,16 +246,19 @@ colcon build --base-paths src --packages-select \
 ```bash
 source install/setup.bash
 ros2 launch arachne_hardware real_bringup.launch.py \
-  use_scout:=true scout_port:=can0 \
+  use_scout:=true \
+  scout_driver:=waveshare \
+  scout_port:=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
   use_ms42dc:=true ms42dc_port:=/dev/motor_serial \
   use_aubo:=false
 ```
 
-Aubo 官方驱动和 SDK 依赖安装完成后，再启用机械臂：
+如果使用原生 Linux SocketCAN 适配器，可以改成 `scout_driver:=official scout_port:=can0`。Aubo 官方驱动和 SDK 依赖安装完成后，再启用机械臂：
 
 ```bash
 ros2 launch arachne_hardware real_bringup.launch.py \
-  use_scout:=true use_ms42dc:=true use_aubo:=true \
+  use_scout:=true scout_driver:=waveshare \
+  use_ms42dc:=true use_aubo:=true \
   aubo_robot_ip:=192.168.127.128
 ```
 
