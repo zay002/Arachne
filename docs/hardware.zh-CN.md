@@ -94,12 +94,17 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 也可以单独测试某个子系统：
 
 ```bash
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh \
-  run_arm_test:=false run_gripper_test:=false
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh \
-  run_base_test:=false run_gripper_test:=false
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh \
-  run_base_test:=false run_arm_test:=false
+./scripts/real_base_test.sh
+./scripts/real_arm_test.sh
+./scripts/real_gripper_test.sh
+```
+
+这些入口默认也只是 dry-run。只让某个子系统真实运动时：
+
+```bash
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_base_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_arm_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_gripper_test.sh
 ```
 
 ## Mock 硬件

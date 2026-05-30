@@ -237,10 +237,7 @@ class RealHardwareAcceptanceTest(Node):
 
     def run(self) -> bool:
         self._status("acceptance test loaded")
-        self._status(
-            "plan: base +0.2m/-0.2m, left 30deg/return, right 30deg/return, "
-            "tool0 z +0.2m/return, gripper open-close x5"
-        )
+        self._status(f"plan: {self._plan_summary()}")
         if not self.confirm_motion:
             self._status("dry run only: set confirm_motion:=true to command real hardware", warn=True)
             return True
@@ -263,6 +260,16 @@ class RealHardwareAcceptanceTest(Node):
             self._publish_gripper("stop")
             self._status(f"acceptance test failed: {exc}", warn=True)
             return False
+
+    def _plan_summary(self) -> str:
+        steps: list[str] = []
+        if bool(self.get_parameter("run_base_test").value):
+            steps.append("base +0.2m/-0.2m, left 30deg/return, right 30deg/return")
+        if bool(self.get_parameter("run_arm_test").value):
+            steps.append("tool0 z +0.2m/return")
+        if bool(self.get_parameter("run_gripper_test").value):
+            steps.append("gripper open-close x5")
+        return "; ".join(steps) if steps else "no subsystem selected"
 
     def _run_base_sequence(self) -> None:
         distance = float(self.get_parameter("base_distance_m").value)

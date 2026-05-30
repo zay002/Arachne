@@ -253,6 +253,14 @@ ros2 launch arachne_hardware real_bringup.launch.py \
 ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 ```
 
+分子系统测试入口：
+
+```bash
+./scripts/real_base_test.sh
+./scripts/real_arm_test.sh
+./scripts/real_gripper_test.sh
+```
+
 ## Switch 手柄 Demo
 
 先通过蓝牙连接 Nintendo Switch Pro 手柄，然后运行可玩的 Gazebo 展厅 demo：

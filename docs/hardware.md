@@ -94,12 +94,17 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 Individual subsystems can be isolated:
 
 ```bash
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh \
-  run_arm_test:=false run_gripper_test:=false
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh \
-  run_base_test:=false run_gripper_test:=false
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh \
-  run_base_test:=false run_arm_test:=false
+./scripts/real_base_test.sh
+./scripts/real_arm_test.sh
+./scripts/real_gripper_test.sh
+```
+
+These wrappers are also dry-run by default. To move only one subsystem:
+
+```bash
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_base_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_arm_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_gripper_test.sh
 ```
 
 ## Mock Hardware

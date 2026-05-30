@@ -256,6 +256,14 @@ After the real hardware is powered and the bringup is stable, run the guarded ac
 ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 ```
 
+Subsystem-only entries are available for staged bringup:
+
+```bash
+./scripts/real_base_test.sh
+./scripts/real_arm_test.sh
+./scripts/real_gripper_test.sh
+```
+
 ## Switch Demo
 
 Connect the Nintendo Switch Pro Controller over Bluetooth, then run the playable Gazebo showroom demo:
