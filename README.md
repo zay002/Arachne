@@ -222,7 +222,16 @@ Check the host before connecting real hardware:
 
 The check supports both native Linux and WSL2. Aubo TCP/IP works in either environment when the robot network is reachable. MS42DC Type-C serial should appear as `/dev/ttyACM*` or `/dev/ttyCH343USB*`; on WSL2, attach the CH9102 USB device with `usbipd-win` first and point `/dev/motor_serial` at it. Scout uses the Waveshare USB-CAN-A as a CH340 serial device by default; SocketCAN `can0` is optional for Linux adapters supported by the kernel.
 
-[hurry-porter](https://github.com/zay002/hurry-porter) is recommended for WSL2/Windows USB handoff and Waveshare USB-CAN-A diagnostics. It is optional, but `hurry scan` and `hurry waveshare-can-a recv` make real-hardware bringup much easier.
+Recommended helper: [hurry-porter](https://github.com/zay002/hurry-porter) is optional but useful for WSL2/Windows USB handoff and Waveshare USB-CAN-A diagnostics:
+
+```bash
+hurry scan
+hurry waveshare-can-a recv \
+  --port /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
+  --can-bitrate 500000 \
+  --frame-type standard \
+  --duration 2
+```
 
 The MS42DC bringup defaults to a conservative `30 deg` relative open/close test at `6 rad/s`. The vendor full-stroke reference is `18720` tenths of a degree (`1872 deg`, about `5.2` turns), but it should only be used after physical travel and homing behavior are confirmed.
 
