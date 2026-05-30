@@ -19,6 +19,12 @@ Arachne 尽量使用官方或厂家 ROS 接口：
 - MS42DC：使用本地 MS42DC 厂家资料中的 `step_motor` ROS2 包。`motor_node` 独占串口并订阅 `motor_control`；Arachne 的 `ms42dc_official_bridge` 将 `/arachne/gripper/command` 映射为厂家 `step_motor/msg/Motor` 消息。
 - Aubo i5：使用 `AuboRobot/aubo_ros2_driver`，通过 TCP/IP 连接机器人控制器，并使用 ros2_control 进行轨迹执行。Arachne 只在官方驱动外提供状态探针和 launch 集成。
 
+当前实机接线：
+
+- MS42DC 夹具：USB Type-C 直连串口。
+- Scout 2.0：USB-CAN 适配器，进入 Linux 后通常为 SocketCAN `can0`。
+- Aubo 控制柜：网线连接。当前控制柜 MAC 识别提示为 `CC:82:7F:A3:E6:2E`；ROS 控制仍然使用配置的机器人 IP。
+
 统一真机启动入口：
 
 ```bash
@@ -39,6 +45,61 @@ ros2 launch arachne_hardware real_bringup.launch.py
 
 ```bash
 ./scripts/check_real_hardware_env.sh
+```
+
+## 真机验收测试
+
+电源、网络、串口和 CAN 都稳定后，可以运行保守的真机验收测试：
+
+1. Scout 前进 `0.2 m`。
+2. Scout 后退 `0.2 m`。
+3. Scout 左转 `30 deg`，再归位。
+4. Scout 右转 `30 deg`，再归位。
+5. Aubo `tool0` 沿 Aubo 基座 Z 方向上移 `0.2 m`，再回到起始关节姿态。
+6. MS42DC 开合 `5` 次，最后保持打开。
+
+测试节点是 [real_hardware_acceptance_test.py](../src/arachne_operator/arachne_operator/real_hardware_acceptance_test.py)。Scout 运动使用 `/odom` 闭环；机械臂读取 `/joint_states`，本地求 Aubo i5 的位置 IK，然后同时发布 `/aubo_arm_controller/joint_trajectory` 和 `/joint_trajectory_controller/joint_trajectory`；夹具使用 `/arachne/gripper/command`。
+
+默认机械臂运动沿 `aubo_base_link` 坐标系的竖直 Z 方向。如果希望沿当前工具 Z 轴移动，可传入 `arm_z_frame:=tool`。
+
+先做主机检查：
+
+```bash
+./scripts/check_real_hardware_env.sh --strict
+```
+
+一个终端启动已连接硬件，按实际端口和 IP 调整：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+ros2 launch arachne_hardware real_bringup.launch.py \
+  scout_port:=can0 \
+  ms42dc_port:=/dev/ttyUSB0 \
+  aubo_robot_ip:=192.168.127.128
+```
+
+另一个终端先 dry-run：
+
+```bash
+./scripts/real_hardware_acceptance_test.sh
+```
+
+确认机器人周围无障碍、急停或断电手段在手边后，才运行真实运动：
+
+```bash
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
+```
+
+也可以单独测试某个子系统：
+
+```bash
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh \
+  run_arm_test:=false run_gripper_test:=false
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh \
+  run_base_test:=false run_gripper_test:=false
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh \
+  run_base_test:=false run_arm_test:=false
 ```
 
 ## Mock 硬件

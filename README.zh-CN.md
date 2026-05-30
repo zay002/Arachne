@@ -246,6 +246,13 @@ ros2 launch arachne_hardware real_bringup.launch.py \
   aubo_robot_ip:=192.168.127.128
 ```
 
+真机上电且 bringup 稳定后，按 [docs/hardware.zh-CN.md](docs/hardware.zh-CN.md#真机验收测试) 运行带确认保护的验收序列：
+
+```bash
+./scripts/real_hardware_acceptance_test.sh  # dry run
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
+```
+
 ## Switch 手柄 Demo
 
 先通过蓝牙连接 Nintendo Switch Pro 手柄，然后运行可玩的 Gazebo 展厅 demo：

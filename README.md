@@ -249,6 +249,13 @@ ros2 launch arachne_hardware real_bringup.launch.py \
   aubo_robot_ip:=192.168.127.128
 ```
 
+After the real hardware is powered and the bringup is stable, run the guarded acceptance sequence from [docs/hardware.md](docs/hardware.md#real-hardware-acceptance-test):
+
+```bash
+./scripts/real_hardware_acceptance_test.sh  # dry run
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
+```
+
 ## Switch Demo
 
 Connect the Nintendo Switch Pro Controller over Bluetooth, then run the playable Gazebo showroom demo:

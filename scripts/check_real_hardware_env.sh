@@ -161,11 +161,18 @@ echo
 echo "== Aubo TCP/IP =="
 aubo_ip="${AUBO_ROBOT_IP:-192.168.127.128}"
 aubo_port="${AUBO_PORT:-80}"
+aubo_mac_hint="${AUBO_MAC_HINT:-CC:82:7F:A3:E6:2E}"
 echo "Aubo target: ${aubo_ip}:${aubo_port}"
+echo "Aubo MAC hint: ${aubo_mac_hint}"
 if timeout 1 bash -c "</dev/tcp/${aubo_ip}/${aubo_port}" >/dev/null 2>&1; then
   ok "Aubo TCP endpoint is reachable"
 else
   warn "Aubo TCP endpoint is not reachable yet; verify robot IP, controller network, and firewall"
+fi
+if have_cmd ip && ip neigh show "${aubo_ip}" 2>/dev/null | grep -qi "${aubo_mac_hint}"; then
+  ok "Aubo MAC hint matches neighbor table"
+else
+  warn "Aubo MAC hint not seen in neighbor table yet; this is expected before first successful network contact"
 fi
 echo
 

@@ -19,6 +19,12 @@ Arachne uses official or vendor ROS interfaces wherever available:
 - MS42DC: `step_motor` from the local vendor ROS2 package under the MS42DC materials. `motor_node` owns the serial device and subscribes to `motor_control`; Arachne's `ms42dc_official_bridge` maps `/arachne/gripper/command` into the vendor `step_motor/msg/Motor` message.
 - Aubo i5: `AuboRobot/aubo_ros2_driver`, using TCP/IP to the robot controller and ros2_control for trajectory execution. Arachne keeps only a status probe and launch integration around the official driver.
 
+Current physical wiring:
+
+- MS42DC gripper: direct USB Type-C serial connection.
+- Scout 2.0: USB-CAN adapter exposed as SocketCAN, normally `can0`.
+- Aubo controller cabinet: Ethernet. The current controller MAC hint is `CC:82:7F:A3:E6:2E`; ROS control still uses the configured robot IP.
+
 The integrated bringup entry is:
 
 ```bash
@@ -39,6 +45,61 @@ Run the environment checker before motion tests:
 
 ```bash
 ./scripts/check_real_hardware_env.sh
+```
+
+## Real-Hardware Acceptance Test
+
+After power, networking, serial, and CAN are stable, Arachne provides a conservative acceptance test:
+
+1. Scout forward `0.2 m`.
+2. Scout backward `0.2 m`.
+3. Scout left yaw `30 deg`, then return.
+4. Scout right yaw `30 deg`, then return.
+5. Aubo `tool0` moves up `0.2 m` along Aubo-base Z, then returns to the starting joint pose.
+6. MS42DC opens and closes `5` cycles, then leaves the gripper open.
+
+The test node is [real_hardware_acceptance_test.py](../src/arachne_operator/arachne_operator/real_hardware_acceptance_test.py). Scout motion is closed over `/odom`; arm motion reads `/joint_states`, solves a local position-only Aubo i5 IK target, and publishes both `/aubo_arm_controller/joint_trajectory` and `/joint_trajectory_controller/joint_trajectory`; the gripper uses `/arachne/gripper/command`.
+
+The default arm move is vertical in `aubo_base_link` coordinates. To move along the current tool Z axis instead, pass `arm_z_frame:=tool`.
+
+First run the host check:
+
+```bash
+./scripts/check_real_hardware_env.sh --strict
+```
+
+Bring up the connected hardware in one terminal, adjusting ports/IP as needed:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+ros2 launch arachne_hardware real_bringup.launch.py \
+  scout_port:=can0 \
+  ms42dc_port:=/dev/ttyUSB0 \
+  aubo_robot_ip:=192.168.127.128
+```
+
+Dry-run the test entry in another terminal:
+
+```bash
+./scripts/real_hardware_acceptance_test.sh
+```
+
+Run real motion only when the robot is clear and an emergency stop or power cut is within reach:
+
+```bash
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
+```
+
+Individual subsystems can be isolated:
+
+```bash
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh \
+  run_arm_test:=false run_gripper_test:=false
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh \
+  run_base_test:=false run_gripper_test:=false
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh \
+  run_base_test:=false run_arm_test:=false
 ```
 
 ## Mock Hardware

@@ -23,6 +23,7 @@ setup(
         "console_scripts": [
             "action_chunk_translator = arachne_operator.action_chunk_translator:main",
             "operator_panel = arachne_operator.operator_panel:main",
+            "real_hardware_acceptance_test = arachne_operator.real_hardware_acceptance_test:main",
             "sequence_executor = arachne_operator.sequence_executor:main",
         ],
     },

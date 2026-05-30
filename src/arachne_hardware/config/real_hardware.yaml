@@ -29,4 +29,15 @@ arachne_real_hardware:
     upstream: https://github.com/AuboRobot/aubo_ros2_driver
     transport: tcp_ip
     robot_ip: 192.168.127.128
+    controller_mac_hint: CC:82:7F:A3:E6:2E
     launch: ros2 launch aubo_ros2_driver aubo_control.launch.py aubo_type:=aubo_i5 robot_ip:=192.168.127.128 use_fake_hardware:=false
+  acceptance_test:
+    script: ./scripts/real_hardware_acceptance_test.sh
+    confirm_env: ARACHNE_CONFIRM_REAL_MOTION=YES
+    sequence:
+      - scout_forward_0.2m
+      - scout_backward_0.2m
+      - scout_left_30deg_return
+      - scout_right_30deg_return
+      - aubo_tool0_z_up_0.2m_return
+      - ms42dc_open_close_5_cycles
