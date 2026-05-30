@@ -25,6 +25,10 @@ PLAN.md
 
 # Downloaded upstream repositories and bulky local reference material stay out of git.
 third_party/*
+src/vendor/*
+!src/vendor/aubo_description
+!src/vendor/dh_ag95_description
+!src/vendor/scout_description
 
 # Keep the small source assets needed to reproduce the active MS42DC model.
 !third_party/README.md

@@ -15,14 +15,14 @@ Arachne 面向 Scout 2.0 移动底盘、Aubo i5 机械臂和易爪机器人 MS42
 
 Arachne 尽量使用稳定的官方或厂家 ROS 接口：
 
-- Scout 2.0：使用 AgileX `scout_ros2` 中的 `scout_base`，底层依赖 `ugv_sdk`。公开 ROS2 包通过 CAN 控制 Scout，通常为 `can0`、`500000` 波特率；`/cmd_vel` 为速度命令输入，`/odom`、`/scout_status` 和 `/rc_status` 为反馈。
+- Scout 2.0：Arachne 默认使用 `scout_waveshare_serial_driver`，通过 Waveshare USB-CAN-A 的 CH340 串口封装直接发送 Scout v2 CAN 帧。它接收 `/cmd_vel`，将适配器配置为 `500000` bit/s 标准 CAN 帧，并发布 `/odom` 和 `/arachne/hardware/base_status`。AgileX 官方 `scout_base`/SocketCAN 路径仍然保留，可用 `scout_driver:=official` 切换。
 - MS42DC：默认使用 `ms42dc_direct_serial_driver`，保留 `/arachne/gripper/command` 这个 ROS 话题接口，并按说明书直接写入 Type-C USB 串口帧。本地厂家 `step_motor` 路径仍然保留，可用 `ms42dc_driver:=vendor` 切换。
 - Aubo i5：使用 `AuboRobot/aubo_ros2_driver`，通过 TCP/IP 连接机器人控制器，并使用 ros2_control 进行轨迹执行。Arachne 只在官方驱动外提供状态探针和 launch 集成。
 
 当前实机接线：
 
 - MS42DC 夹具：USB Type-C 直连串口。
-- Scout 2.0：USB-CAN 适配器，进入 Linux 后通常为 SocketCAN `can0`。
+- Scout 2.0：Waveshare USB-CAN-A 适配器，进入 Linux 后通常是 CH340 串口 `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0`。原生 Linux 的 SocketCAN `can0` 是可选备选路径。
 - Aubo 控制柜：网线连接。当前控制柜 MAC 识别提示为 `CC:82:7F:A3:E6:2E`；ROS 控制仍然使用配置的机器人 IP。
 
 统一真机启动入口：
@@ -39,7 +39,9 @@ ros2 launch arachne_hardware real_bringup.launch.py
 
 - Aubo TCP/IP 走网络，只要控制器 IP 可达，两种环境都能用。
 - MS42DC 串口需要 Linux 下存在 `/dev/motor_serial`、`/dev/ttyACM*` 或 `/dev/ttyCH343USB*`。WSL2 用户需要先从 Windows 侧透传 CH9102 USB 设备。
-- Scout CAN 需要 SocketCAN 接口，例如 `can0`。原生 Linux 通常使用 `gs_usb` 或类似 USB-CAN 适配器。WSL2 下需要用 `usbipd-win` 挂载适配器，并且 WSL2 内核需要包含对应 USB-CAN 驱动。
+- Scout 默认走 Waveshare USB-CAN-A 串口模式，WSL2 下用 `usbipd-win` 透传 CH340 设备后即可使用。原生 Linux 用户也可以用 SocketCAN 适配器，并通过 `scout_driver:=official scout_port:=can0` 切换。
+
+推荐安装并使用 [hurry-porter](https://github.com/zay002/hurry-porter) 作为 WSL2/Windows 设备透传和串口诊断工具。它可以列出 Windows 侧 USB 设备、提示 `usbipd-win` attach 命令，并提供 `hurry waveshare-can-a` 来配置、发送和接收 Waveshare USB-CAN-A 的 CAN2.0A/B 帧。Arachne 不强依赖它，但实机排障时很方便。
 
 运动测试前先运行环境检查：
 
@@ -74,10 +76,13 @@ ros2 launch arachne_hardware real_bringup.launch.py
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ros2 launch arachne_hardware real_bringup.launch.py \
-  scout_port:=can0 \
+  scout_driver:=waveshare \
+  scout_port:=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
   ms42dc_port:=/dev/motor_serial \
   aubo_robot_ip:=192.168.127.128
 ```
+
+原生 Linux SocketCAN 适配器可将 Scout 参数替换为 `scout_driver:=official scout_port:=can0`。
 
 单独标定 MS42DC 时，建议先用小角度测试，再使用厂家全行程。当前安全默认值是 `300` 个 0.1 度，也就是 `30 deg`；速度是 `60` 个 0.1 rad/s，也就是 `6 rad/s`。说明书中的全开/全闭示例是 `18720` 个 0.1 度，也就是 `1872 deg = 5.2 圈`，需要确认真实行程和回零行为后再使用：
 

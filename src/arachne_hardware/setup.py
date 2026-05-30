@@ -24,6 +24,7 @@ setup(
     entry_points={
         "console_scripts": [
             "scout_official_status_bridge = arachne_hardware.base_serial_driver:main",
+            "scout_waveshare_serial_driver = arachne_hardware.scout_waveshare_serial_driver:main",
             "ms42dc_official_bridge = arachne_hardware.gripper_serial_driver:main",
             "ms42dc_direct_serial_driver = arachne_hardware.ms42dc_direct_serial_driver:main",
             "aubo_official_status_probe = arachne_hardware.aubo_tcp_driver:main",

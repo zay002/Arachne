@@ -67,6 +67,7 @@ sudo apt-get install -y \
   python3-tk \
   assimp-utils \
   can-utils \
+  libasio-dev \
   usbutils \
   ros-dev-tools
 

@@ -202,7 +202,7 @@ These entries are intended for interface validation before real hardware arrives
 
 Arachne uses official/vendor ROS packages where they are stable and keeps this repository as the integration layer:
 
-- Scout 2.0: `scout_base` from AgileX `scout_ros2`, backed by `ugv_sdk`, with `/cmd_vel` in and `/odom` plus Scout status out over `can0`.
+- Scout 2.0: default `scout_waveshare_serial_driver`, which maps `/cmd_vel` to Scout v2 CAN frames through a Waveshare USB-CAN-A CH340 serial adapter. The official AgileX `scout_base`/SocketCAN path remains available with `scout_driver:=official`.
 - MS42DC: default `ms42dc_direct_serial_driver`, which maps `/arachne/gripper/command` to the documented Type-C USB serial frames. The vendor `step_motor` path is still available with `ms42dc_driver:=vendor`.
 - Aubo i5: `AuboRobot/aubo_ros2_driver`, launched with `aubo_type:=aubo_i5`, `robot_ip:=...`, and `use_fake_hardware:=false`.
 
@@ -220,7 +220,9 @@ Check the host before connecting real hardware:
 ./scripts/check_real_hardware_env.sh
 ```
 
-The check supports both native Linux and WSL2. Aubo TCP/IP works in either environment when the robot network is reachable. MS42DC Type-C serial should appear as `/dev/ttyACM*` or `/dev/ttyCH343USB*`; on WSL2, attach the CH9102 USB device with `usbipd-win` first and point `/dev/motor_serial` at it. Scout USB-CAN needs a normal SocketCAN `can0`.
+The check supports both native Linux and WSL2. Aubo TCP/IP works in either environment when the robot network is reachable. MS42DC Type-C serial should appear as `/dev/ttyACM*` or `/dev/ttyCH343USB*`; on WSL2, attach the CH9102 USB device with `usbipd-win` first and point `/dev/motor_serial` at it. Scout uses the Waveshare USB-CAN-A as a CH340 serial device by default; SocketCAN `can0` is optional for Linux adapters supported by the kernel.
+
+[hurry-porter](https://github.com/zay002/hurry-porter) is recommended for WSL2/Windows USB handoff and Waveshare USB-CAN-A diagnostics. It is optional, but `hurry scan` and `hurry waveshare-can-a recv` make real-hardware bringup much easier.
 
 The MS42DC bringup defaults to a conservative `30 deg` relative open/close test at `6 rad/s`. The vendor full-stroke reference is `18720` tenths of a degree (`1872 deg`, about `5.2` turns), but it should only be used after physical travel and homing behavior are confirmed.
 
@@ -238,16 +240,19 @@ Launch any available hardware subset by toggling components:
 ```bash
 source install/setup.bash
 ros2 launch arachne_hardware real_bringup.launch.py \
-  use_scout:=true scout_port:=can0 \
+  use_scout:=true \
+  scout_driver:=waveshare \
+  scout_port:=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
   use_ms42dc:=true ms42dc_port:=/dev/motor_serial \
   use_aubo:=false
 ```
 
-When the Aubo driver and its SDK dependencies are installed:
+For a native SocketCAN setup, use `scout_driver:=official scout_port:=can0`. When the Aubo driver and its SDK dependencies are installed:
 
 ```bash
 ros2 launch arachne_hardware real_bringup.launch.py \
-  use_scout:=true use_ms42dc:=true use_aubo:=true \
+  use_scout:=true scout_driver:=waveshare \
+  use_ms42dc:=true use_aubo:=true \
   aubo_robot_ip:=192.168.127.128
 ```
 

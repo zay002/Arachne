@@ -30,30 +30,62 @@ def _launch_setup(context, *args, **kwargs):
         return value in ("1", "true", "yes", "on")
 
     if enabled("use_scout"):
-        actions.append(
-            IncludeLaunchDescription(
-                _package_launch("scout_base", "launch", "scout_base.launch.py"),
-                launch_arguments={
-                    "port_name": LaunchConfiguration("scout_port"),
-                    "odom_frame": "odom",
-                    "base_frame": "base_link",
-                    "odom_topic_name": "/odom",
-                    "is_scout_mini": "false",
-                    "is_omni_wheel": "false",
-                    "simulated_robot": "false",
-                }.items(),
+        scout_driver = LaunchConfiguration("scout_driver").perform(context).strip().lower()
+        if scout_driver in ("official", "socketcan", "scout_base"):
+            actions.append(
+                IncludeLaunchDescription(
+                    _package_launch("scout_base", "launch", "scout_base.launch.py"),
+                    launch_arguments={
+                        "port_name": LaunchConfiguration("scout_port"),
+                        "odom_frame": "odom",
+                        "base_frame": "base_link",
+                        "odom_topic_name": "/odom",
+                        "is_scout_mini": "false",
+                        "is_omni_wheel": "false",
+                        "simulated_robot": "false",
+                    }.items(),
+                )
             )
-        )
 
-        actions.append(
-            Node(
-                package="arachne_hardware",
-                executable="scout_official_status_bridge",
-                name="scout_official_status_bridge",
-                parameters=[{"odom_topic": "/odom"}],
-                output="screen",
+            actions.append(
+                Node(
+                    package="arachne_hardware",
+                    executable="scout_official_status_bridge",
+                    name="scout_official_status_bridge",
+                    parameters=[{"odom_topic": "/odom"}],
+                    output="screen",
+                )
             )
-        )
+        elif scout_driver in ("waveshare", "serial", "usb_can_a", "usb-can-a"):
+            actions.append(
+                Node(
+                    package="arachne_hardware",
+                    executable="scout_waveshare_serial_driver",
+                    name="scout_waveshare_serial_driver",
+                    parameters=[
+                        {
+                            "port": LaunchConfiguration("scout_port"),
+                            "usb_baudrate": ParameterValue(
+                                LaunchConfiguration("scout_usb_baudrate"), value_type=int
+                            ),
+                            "can_bitrate": ParameterValue(
+                                LaunchConfiguration("scout_can_bitrate"), value_type=int
+                            ),
+                            "frame_type": LaunchConfiguration("scout_frame_type"),
+                            "cmd_vel_topic": "/cmd_vel",
+                            "odom_topic": "/odom",
+                            "odom_frame": "odom",
+                            "base_frame": "base_link",
+                        }
+                    ],
+                    output="screen",
+                )
+            )
+        else:
+            raise RuntimeError(
+                "Unsupported scout_driver value "
+                f"{scout_driver!r}; use waveshare or official."
+            )
 
     if enabled("use_ms42dc"):
         ms42dc_driver = LaunchConfiguration("ms42dc_driver").perform(context).strip().lower()
@@ -184,7 +216,14 @@ def generate_launch_description():
             DeclareLaunchArgument("use_scout", default_value="true"),
             DeclareLaunchArgument("use_ms42dc", default_value="true"),
             DeclareLaunchArgument("use_aubo", default_value="true"),
-            DeclareLaunchArgument("scout_port", default_value="can0"),
+            DeclareLaunchArgument("scout_driver", default_value="waveshare"),
+            DeclareLaunchArgument(
+                "scout_port",
+                default_value="/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0",
+            ),
+            DeclareLaunchArgument("scout_usb_baudrate", default_value="2000000"),
+            DeclareLaunchArgument("scout_can_bitrate", default_value="500000"),
+            DeclareLaunchArgument("scout_frame_type", default_value="standard"),
             DeclareLaunchArgument("ms42dc_driver", default_value="direct"),
             DeclareLaunchArgument("ms42dc_port", default_value="/dev/motor_serial"),
             DeclareLaunchArgument("ms42dc_baudrate", default_value="115200"),

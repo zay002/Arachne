@@ -116,46 +116,74 @@ EOF
 fi
 echo
 
-echo "== Scout SocketCAN =="
+echo "== Scout CAN =="
+scout_driver="${SCOUT_DRIVER:-waveshare}"
+scout_port="${SCOUT_PORT:-/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0}"
 can_iface="${SCOUT_CAN_IFACE:-can0}"
-need_cmd ip
-if ip link show "${can_iface}" >/dev/null 2>&1; then
-  ok "CAN interface exists: ${can_iface}"
-  if ip link show "${can_iface}" | grep -q "state UP"; then
-    ok "${can_iface} is UP"
-  else
-    warn "${can_iface} exists but is not UP"
-  fi
-else
-  warn "CAN interface not found: ${can_iface}"
-fi
 
-if have_cmd candump; then
-  ok "can-utils available: candump"
-else
-  warn "can-utils not installed; install it with sudo apt install can-utils"
-fi
-
-if [[ "${is_wsl}" == "true" ]]; then
-  cat <<'EOF'
-WSL2 CAN note:
-  Windows does not expose CAN devices to WSL2 automatically. Use a Linux-supported
-  USB-CAN adapter through usbipd-win, then bring up SocketCAN inside WSL2:
-    sudo modprobe can can_raw gs_usb
-    sudo ip link set can0 up type can bitrate 500000
-    candump can0
-  If your WSL2 kernel lacks the required USB-CAN driver, run Scout control on
-  native Linux or on an onboard Linux computer and bridge ROS over the network.
+case "${scout_driver}" in
+  waveshare|serial|usb_can_a|usb-can-a)
+    echo "Scout driver: Waveshare USB-CAN-A serial"
+    if [[ -e "${scout_port}" ]]; then
+      ok "SCOUT_PORT exists: ${scout_port}"
+    else
+      fail_or_warn "SCOUT_PORT not found: ${scout_port}"
+    fi
+    echo "Expected CAN settings: 500000 bit/s, standard 11-bit frames, Motorola payload byte order"
+    if have_cmd hurry; then
+      ok "hurry available for USB-CAN-A diagnostics"
+    else
+      warn "hurry not found; install hurry-porter for quick USB-CAN-A diagnostics"
+    fi
+    if [[ "${is_wsl}" == "true" ]]; then
+      cat <<'EOF'
+WSL2 Scout note:
+  Waveshare USB-CAN-A appears as a CH340 serial device, not can0.
+  Attach it from Windows with usbipd-win, then use the stable /dev/serial/by-id path.
+  A quick bus check is:
+    hurry waveshare-can-a configure --port "$SCOUT_PORT" --can-bitrate 500000 --frame-type standard
+    hurry waveshare-can-a recv --port "$SCOUT_PORT" --duration 2
 EOF
-else
-  cat <<'EOF'
-Native Linux CAN note:
+    fi
+    ;;
+  official|socketcan|scout_base)
+    echo "Scout driver: AgileX scout_base over SocketCAN"
+    need_cmd ip
+    if ip link show "${can_iface}" >/dev/null 2>&1; then
+      ok "CAN interface exists: ${can_iface}"
+      if ip link show "${can_iface}" | grep -q "state UP"; then
+        ok "${can_iface} is UP"
+      else
+        warn "${can_iface} exists but is not UP"
+      fi
+    else
+      fail_or_warn "CAN interface not found: ${can_iface}"
+    fi
+    if have_cmd candump; then
+      ok "can-utils available: candump"
+    else
+      warn "can-utils not installed; install it with sudo apt install can-utils"
+    fi
+    if [[ "${is_wsl}" == "true" ]]; then
+      cat <<'EOF'
+WSL2 SocketCAN note:
+  SocketCAN USB adapters need WSL2 kernel support for the matching driver.
+  If the adapter is a Waveshare USB-CAN-A CH340 serial device, use SCOUT_DRIVER=waveshare instead.
+EOF
+    else
+      cat <<'EOF'
+Native Linux SocketCAN note:
   For common gs_usb adapters:
     sudo modprobe gs_usb
     sudo ip link set can0 up type can bitrate 500000
     candump can0
 EOF
-fi
+    fi
+    ;;
+  *)
+    warn "unknown SCOUT_DRIVER=${scout_driver}; expected waveshare or official"
+    ;;
+esac
 echo
 
 echo "== Aubo TCP/IP =="

@@ -15,14 +15,14 @@ Arachne targets a Scout 2.0 mobile base, an Aubo i5 arm, and a Yizhua Robot MS42
 
 Arachne uses official or vendor ROS interfaces wherever they are stable:
 
-- Scout 2.0: `scout_base` from AgileX `scout_ros2`, backed by `ugv_sdk`. The public ROS2 package controls Scout over CAN, normally `can0` at `500000` bitrate, with `/cmd_vel` as the velocity command input and `/odom`, `/scout_status`, and `/rc_status` as feedback.
+- Scout 2.0: Arachne defaults to `scout_waveshare_serial_driver`, which writes Scout v2 CAN frames through a Waveshare USB-CAN-A CH340 serial adapter. It accepts `/cmd_vel`, configures the adapter for `500000` bit/s standard CAN frames, and publishes `/odom` plus `/arachne/hardware/base_status`. The official AgileX `scout_base`/SocketCAN path is still available with `scout_driver:=official`.
 - MS42DC: Arachne defaults to `ms42dc_direct_serial_driver`, which keeps the ROS topic surface `/arachne/gripper/command` and writes the documented Type-C USB serial frames directly. The local vendor `step_motor` package remains available through `ms42dc_driver:=vendor`.
 - Aubo i5: `AuboRobot/aubo_ros2_driver`, using TCP/IP to the robot controller and ros2_control for trajectory execution. Arachne keeps only a status probe and launch integration around the official driver.
 
 Current physical wiring:
 
 - MS42DC gripper: direct USB Type-C serial connection.
-- Scout 2.0: USB-CAN adapter exposed as SocketCAN, normally `can0`.
+- Scout 2.0: Waveshare USB-CAN-A adapter exposed as a CH340 serial device, normally `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0`. Native SocketCAN `can0` is an optional alternate path.
 - Aubo controller cabinet: Ethernet. The current controller MAC hint is `CC:82:7F:A3:E6:2E`; ROS control still uses the configured robot IP.
 
 The integrated bringup entry is:
@@ -39,7 +39,9 @@ The real-hardware ROS layer is designed to run on both native Linux and WSL2, bu
 
 - Aubo TCP/IP is network-based and works in either environment when the controller IP is reachable.
 - MS42DC serial requires a Linux serial device such as `/dev/motor_serial`, `/dev/ttyACM*`, or `/dev/ttyCH343USB*`. WSL2 users must pass the CH9102 USB device through from Windows first.
-- Scout CAN requires a SocketCAN interface such as `can0`. On native Linux this is normally a `gs_usb` or similar USB-CAN adapter. On WSL2, the adapter must be attached with `usbipd-win`, and the WSL2 kernel must include the matching USB-CAN driver.
+- Scout defaults to Waveshare USB-CAN-A serial mode, which works in WSL2 after the CH340 device is attached with `usbipd-win`. Native Linux users may instead use a SocketCAN adapter by launching with `scout_driver:=official scout_port:=can0`.
+
+[hurry-porter](https://github.com/zay002/hurry-porter) is recommended for WSL2/Windows device handoff and serial diagnostics. It can list Windows-side USB devices, suggest `usbipd-win` attach commands, and provides `hurry waveshare-can-a` for configuring, sending, and receiving Waveshare USB-CAN-A CAN2.0A/B frames. Arachne does not require it at runtime, but it is useful while bringing up real hardware.
 
 Run the environment checker before motion tests:
 
@@ -74,10 +76,13 @@ Bring up the connected hardware in one terminal, adjusting ports/IP as needed:
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ros2 launch arachne_hardware real_bringup.launch.py \
-  scout_port:=can0 \
+  scout_driver:=waveshare \
+  scout_port:=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
   ms42dc_port:=/dev/motor_serial \
   aubo_robot_ip:=192.168.127.128
 ```
+
+For SocketCAN adapters on native Linux, replace the Scout arguments with `scout_driver:=official scout_port:=can0`.
 
 For isolated MS42DC calibration, start with a small command before using the full factory stroke. The current safe default is `300` tenths of a degree (`30 deg`) at `60` tenths of rad/s (`6 rad/s`). The factory full open/close example is `18720` tenths of a degree, or `1872 deg = 5.2 turns`, and should only be used after physical travel and homing behavior are confirmed:
 

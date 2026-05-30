@@ -103,10 +103,10 @@ ros2 launch arachne_description display.launch.py \
 
 ## Real-Hardware ROS Control
 
-The real-hardware layer is now organized around official/vendor ROS packages rather than custom low-level protocol drivers:
+The real-hardware layer is organized around ROS-facing device wrappers with official/vendor paths kept where they fit the deployed hardware:
 
-- Scout 2.0 uses AgileX `scout_ros2` and `ugv_sdk`. `scout_base` subscribes to `/cmd_vel` and publishes `/odom`, `/scout_status`, and `/rc_status` over CAN.
-- MS42DC uses the vendor `step_motor` ROS2 package from the local gripper materials. `motor_node` owns the serial port and accepts `step_motor/msg/Motor` on `motor_control`; `ms42dc_official_bridge` converts `/arachne/gripper/command` (`open`, `close`, `home`, `stop`) into that vendor message.
+- Scout 2.0 defaults to `scout_waveshare_serial_driver`, which sends Scout v2 CAN frames through the Waveshare USB-CAN-A CH340 serial adapter and publishes `/odom`. The AgileX `scout_base`/SocketCAN path remains available with `scout_driver:=official`.
+- MS42DC defaults to `ms42dc_direct_serial_driver`, which owns the Type-C USB serial port and converts `/arachne/gripper/command` (`open`, `close`, `home`, `stop`) into the documented motor frames. The local vendor `step_motor` path remains available with `ms42dc_driver:=vendor`.
 - Aubo i5 uses `AuboRobot/aubo_ros2_driver`. The official launch exposes ros2_control trajectory execution for the Aubo arm over TCP/IP.
 
 Prepare package links:
@@ -121,7 +121,7 @@ Check native Linux or WSL2 hardware visibility before motion tests:
 ./scripts/check_real_hardware_env.sh
 ```
 
-The check reports ROS setup, vendor package links, MS42DC serial candidates, Scout SocketCAN status, and Aubo TCP reachability. On WSL2, USB serial and USB-CAN adapters must be passed through from Windows with `usbipd-win` before Linux can expose `/dev/ttyUSB*`, `/dev/ttyACM*`, or `can0`.
+The check reports ROS setup, vendor package links, MS42DC serial candidates, Scout USB-CAN-A or SocketCAN status, and Aubo TCP reachability. On WSL2, USB serial and USB-CAN adapters must be passed through from Windows with `usbipd-win` before Linux can expose `/dev/ttyUSB*` or `/dev/ttyACM*`. [hurry-porter](https://github.com/zay002/hurry-porter) is recommended for this USB handoff and for quick `hurry waveshare-can-a` diagnostics.
 
 Build the core bringup packages:
 
@@ -137,16 +137,21 @@ Launch a partial or full real-hardware session:
 ```bash
 source install/setup.bash
 ros2 launch arachne_hardware real_bringup.launch.py \
-  use_scout:=true scout_port:=can0 \
+  use_scout:=true \
+  scout_driver:=waveshare \
+  scout_port:=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
   use_ms42dc:=true ms42dc_port:=/dev/motor_serial \
   use_aubo:=false
 ```
+
+For native SocketCAN adapters, replace the Scout arguments with `scout_driver:=official scout_port:=can0`.
 
 When the Aubo SDK dependencies and network are ready:
 
 ```bash
 ros2 launch arachne_hardware real_bringup.launch.py \
-  use_scout:=true use_ms42dc:=true use_aubo:=true \
+  use_scout:=true scout_driver:=waveshare \
+  use_ms42dc:=true use_aubo:=true \
   aubo_robot_ip:=192.168.127.128
 ```
 

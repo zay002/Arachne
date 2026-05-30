@@ -8,13 +8,18 @@ arachne_real_hardware:
     gripper_command: /arachne/gripper/command
     joint_states: /joint_states
   scout_2:
+    default_driver: scout_waveshare_serial_driver
     official_package: scout_base
     upstream: https://github.com/agilexrobotics/scout_ros2
     dependency: https://github.com/agilexrobotics/ugv_sdk
-    interface: can
-    port_name: can0
+    interface: waveshare_usb_can_a_serial
+    port_name: /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
+    fallback_interface: socketcan
+    fallback_port_name: can0
     bitrate: 500000
-    launch: ros2 launch scout_base scout_base.launch.py port_name:=can0
+    usb_baudrate: 2000000
+    frame_type: standard
+    launch: ros2 launch arachne_hardware real_bringup.launch.py scout_driver:=waveshare
   ms42dc:
     vendor_package: step_motor
     source: third_party/MS42DC.../5.ROS例程与教程/源码/ROS2.zip
