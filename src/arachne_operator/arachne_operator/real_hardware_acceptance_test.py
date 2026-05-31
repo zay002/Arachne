@@ -354,11 +354,11 @@ class RealHardwareAcceptanceTest(Node):
             f"{z_delta:.3f}m, ik_error={error:.4f}, max_joint_delta={max_delta:.3f}"
         )
         self._command_arm(q_up, "up")
-        self._wait_for_arm_target(q_up, "up")
+        self._wait_for_arm_target(q_up, "up", q_start)
         self._sleep(float(self.get_parameter("arm_settle_sec").value))
         self._status("arm test: return to start")
         self._command_arm(q_start, "return")
-        self._wait_for_arm_target(q_start, "return")
+        self._wait_for_arm_target(q_start, "return", q_up)
         self._sleep(float(self.get_parameter("arm_settle_sec").value))
 
     def _run_gripper_sequence(self) -> None:
@@ -499,7 +499,9 @@ class RealHardwareAcceptanceTest(Node):
             self._spin_sleep(0.05)
         raise TimeoutError(f"missing arm trajectory subscribers: {missing}")
 
-    def _wait_for_arm_target(self, target: np.ndarray, label: str) -> None:
+    def _wait_for_arm_target(
+        self, target: np.ndarray, label: str, start_reference: np.ndarray
+    ) -> None:
         tolerance = float(self.get_parameter("arm_goal_tolerance").value)
         timeout = (
             float(self.get_parameter("arm_duration_sec").value)
@@ -507,27 +509,26 @@ class RealHardwareAcceptanceTest(Node):
             + float(self.get_parameter("feedback_timeout_sec").value)
         )
         deadline = time.monotonic() + timeout
-        start = self._current_arm_vector()
-        best_error = float(np.max(np.abs(start - target)))
+        target_delta = float(np.max(np.abs(target - start_reference)))
+        best_error = float(np.max(np.abs(self._current_arm_vector() - target)))
         while rclpy.ok() and time.monotonic() < deadline:
             current = self._current_arm_vector()
             error = float(np.max(np.abs(current - target)))
             best_error = min(best_error, error)
             if error <= tolerance:
-                moved = float(np.max(np.abs(current - start)))
                 self.get_logger().info(
-                    f"arm {label} feedback reached: max_error={error:.4f}, moved={moved:.4f}"
+                    f"arm {label} feedback reached: max_error={error:.4f}, "
+                    f"target_delta={target_delta:.4f}"
                 )
                 return
             self._spin_sleep(0.05)
 
         current = self._current_arm_vector()
-        moved = float(np.max(np.abs(current - start)))
         current_list = [round(float(value), 6) for value in current]
         target_list = [round(float(value), 6) for value in target]
         raise TimeoutError(
             f"arm {label} feedback did not reach target: best_error={best_error:.4f}, "
-            f"moved={moved:.4f}, current={current_list}, target={target_list}"
+            f"target_delta={target_delta:.4f}, current={current_list}, target={target_list}"
         )
 
     def _publish_gripper(self, command: str) -> None:

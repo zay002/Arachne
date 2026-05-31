@@ -89,7 +89,7 @@ Prepare real-hardware ROS packages:
 ./scripts/real_aubo_prepare.sh
 ```
 
-Prefer completing connect -> power on -> start from the teach pendant/control cabinet. If ROS-side remote startup is needed, use only the blocking startup script: it first confirms active controllers, reads the measured joint angles, sends a hold-position command, then runs power on -> servo-mode confirmation -> brake release -> post-Running hold verification. Any timeout or unsafe state aborts the flow.
+Prefer completing connect -> power on -> start from the teach pendant/control cabinet. If ROS-side remote startup is needed, use only the blocking startup script: it first confirms active controllers, reads the measured joint angles, sends a hold-position command, then runs power on -> Aubo `RobotManage.startup` lifecycle startup -> post-Running steady-state and hold verification. The script never calls `releaseRobotBrake` directly; any protective state, timeout, or controller error aborts the flow.
 
 Remote startup uses two terminals:
 

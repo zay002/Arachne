@@ -12,7 +12,7 @@ Refusing to start the real Aubo ROS2 driver without confirmation.
 The Aubo driver is a real-hardware control mode. In normal mode it requires the
 arm to already be Running. For remote startup, use ARACHNE_AUBO_ALLOW_PRESTART=YES
 so the driver can start controllers and hold measured joint positions before
-the brake release step.
+the RobotManage.startup lifecycle step.
 
 Before running:
   1. Confirm the robot workspace is clear.

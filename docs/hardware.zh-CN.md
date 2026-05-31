@@ -59,7 +59,9 @@ ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh
 
 推荐优先在示教器/控制柜上完成“连接 -> 上电 -> 启动”，再用 `real_aubo_prepare.sh` 做只读状态确认：`SafetyMode` 必须为 `Normal` 或 `ReducedMode`，`RobotMode` 必须为 `Running`。
 
-如果需要 ROS 侧远程启动，只能使用阻塞式状态机脚本。该流程不会跳步：它先等待 `joint_state_broadcaster` 与 `joint_trajectory_controller` 为 active，读取当前关节角，发送 hold-position action，随后按“上电 -> 等 Idle/Running -> 再次 hold -> servo mode 完全确认 -> 抱闸释放 -> 等 Running -> 最终 hold 校验”的顺序执行。任何 controller 缺失、action 失败、保护状态异常或超时都会退出。`fetch_third_party.sh` 会给固定版本的 Aubo driver 应用本项目补丁：命令接口从 RTDE `actual_q` 初始化，上电前不发送 `servoJoint`，并拒绝在实测关节非零时发送全零关节命令。
+如果需要 ROS 侧远程启动，只能使用阻塞式状态机脚本。该流程不会跳步：它先等待 `joint_state_broadcaster` 与 `joint_trajectory_controller` 为 active，读取当前关节角，发送 hold-position action，随后按“上电 -> 等 Idle/Running -> 再次 hold -> 调用 Aubo `RobotManage.startup` 完整启动 -> 等 Running -> 关节稳定检查 -> 最终 hold 校验”的顺序执行。脚本禁止直接调用 `releaseRobotBrake`，因为单独松刹车不是完整启动流程，可能导致伺服未保持时关节下坠并触发跟踪精度保护。任何 controller 缺失、action 失败、保护状态异常或超时都会退出。`fetch_third_party.sh` 会给固定版本的 Aubo driver 应用本项目补丁：命令接口从 RTDE `actual_q` 初始化，非 Running 状态持续把命令目标同步到实测关节角，不发送 `servoJoint`，并拒绝在实测关节非零时发送全零关节命令。
+
+如果示教器出现“关节跟踪精度”或 `ProtectiveStop`，不要继续远程清故障或远程启动；先停止 ROS driver，在机械臂有物理支撑和空间安全的前提下，从示教器/控制柜侧确认并清除保护状态。
 
 远程启动需要两个终端：
 

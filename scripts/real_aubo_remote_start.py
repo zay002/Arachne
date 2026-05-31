@@ -214,31 +214,40 @@ def wait_for_mode(rpc: AuboJsonRpc, expected: set[str], timeout: float, poll: fl
     raise TimeoutError(f"timed out waiting for {sorted(expected)}; last mode={last_mode}")
 
 
-def enable_servo_mode(rpc: AuboJsonRpc, timeout: float, poll: float) -> None:
-    print("enable servo mode")
-    result = rpc.robot_call("MotionControl.setServoMode", [True])
-    print(f"setServoMode(true) result: {result}")
+def wait_until_joints_steady(
+    node: HoldActionClient,
+    *,
+    timeout: float,
+    poll: float,
+    velocity_tolerance: float = 0.02,
+) -> None:
     deadline = time.monotonic() + timeout
-    last_value: Any = None
-    while time.monotonic() < deadline:
-        last_value = rpc.robot_call("MotionControl.isServoModeEnabled")
-        print(f"servo_mode_enabled={last_value}")
-        if bool(last_value):
-            return
+    last_delta = float("inf")
+    previous = node.wait_for_positions(timeout=timeout)
+    while rclpy.ok() and time.monotonic() < deadline:
         time.sleep(poll)
-    raise TimeoutError(f"servo mode did not become enabled; last={last_value}")
+        current = node.wait_for_positions(timeout=0.2)
+        last_delta = max(abs(a - b) for a, b in zip(current, previous))
+        if last_delta <= velocity_tolerance:
+            print(f"joints steady after startup: max_delta={last_delta:.4f}")
+            return
+        previous = current
+    raise TimeoutError(f"joints did not settle after startup: last_delta={last_delta:.4f}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Safely transition a real Aubo arm to remote hold control."
+        description=(
+            "Safely transition a real Aubo arm to ROS hold control using the "
+            "Aubo lifecycle startup API."
+        )
     )
     parser.add_argument("--ip", default=DEFAULT_IP)
     parser.add_argument("--rpc-timeout", type=float, default=2.0)
     parser.add_argument("--state-timeout", type=float, default=12.0)
     parser.add_argument("--power-timeout", type=float, default=45.0)
-    parser.add_argument("--release-timeout", type=float, default=30.0)
-    parser.add_argument("--servo-timeout", type=float, default=5.0)
+    parser.add_argument("--startup-timeout", type=float, default=45.0)
+    parser.add_argument("--steady-timeout", type=float, default=8.0)
     parser.add_argument("--controller-timeout", type=float, default=30.0)
     parser.add_argument("--poll", type=float, default=0.5)
     parser.add_argument("--hold-duration", type=float, default=1.0)
@@ -250,6 +259,10 @@ def main() -> int:
     parser.add_argument("--joint-state-topic", default="/joint_states")
     args = parser.parse_args()
 
+    print(
+        "safety note: this flow uses RobotManage.startup and never calls "
+        "releaseRobotBrake directly."
+    )
     print("blocking step 1/8: wait for active ROS controllers")
     ensure_controllers_active(args.controller_timeout, args.poll)
 
@@ -282,21 +295,26 @@ def main() -> int:
                 else:
                     print("blocking step 4/8: robot already Idle")
 
-                print("blocking step 5/8: refresh measured joint state and hold before brake release")
+                print("blocking step 5/8: refresh measured joint state before startup")
                 current = node.wait_for_positions(args.state_timeout)
                 node.send_hold(
                     current,
                     duration=args.hold_duration,
                     timeout=args.action_timeout,
-                    label="before-brake-release",
+                    label="before-startup",
                 )
-                print("blocking step 6/8: enable servo mode and wait for confirmation")
-                enable_servo_mode(rpc, args.servo_timeout, args.poll)
 
-                print("blocking step 7/8: release brake and wait for Running")
-                print("releaseRobotBrake")
-                print(f"releaseRobotBrake result: {rpc.robot_call('RobotManage.releaseRobotBrake')}")
-                wait_for_mode(rpc, {"Running"}, args.release_timeout, args.poll)
+                print("blocking step 6/8: call RobotManage.startup and wait for Running")
+                print("startup")
+                print(f"startup result: {rpc.robot_call('RobotManage.startup')}")
+                wait_for_mode(rpc, {"Running"}, args.startup_timeout, args.poll)
+
+                print("blocking step 7/8: wait for joint state to settle after startup")
+                wait_until_joints_steady(
+                    node,
+                    timeout=args.steady_timeout,
+                    poll=args.poll,
+                )
             else:
                 print("blocking steps 4-7/8: Aubo is already Running; keeping current hold command.")
 

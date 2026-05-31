@@ -7,10 +7,13 @@ AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
 
 if [[ "${ARACHNE_CONFIRM_AUBO_REMOTE_START:-}" != "YES" ]]; then
   cat <<EOF
-Refusing to remotely power/start the real Aubo arm without confirmation.
+Refusing to remotely prepare the real Aubo arm without confirmation.
 
 This script is intentionally blocking: every step waits for the matching ROS or
 robot-controller state and aborts on timeout before the next step can run.
+It never calls releaseRobotBrake directly. Aubo documents RobotManage.startup
+as the lifecycle call that starts the robot and releases the brake; using only
+releaseRobotBrake bypasses that startup path and is unsafe for this project.
 
 Required safe order:
   1. Start the Aubo ROS driver in prestart mode.
@@ -19,9 +22,8 @@ Required safe order:
   4. Send a hold-position action goal at the measured joint angles.
   5. Power on and wait for Idle.
   6. Re-send hold-position.
-  7. Enable servo mode.
-  8. Release brake and wait for Running.
-  9. Verify hold-position feedback again.
+  7. Call RobotManage.startup and wait for Running.
+  8. Verify steady joint feedback and hold-position again.
 
 Driver terminal:
   ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/real_aubo_bringup.sh

@@ -105,7 +105,7 @@ fi
 # Keep the Aubo hardware interface safe during remote startup. The upstream
 # driver starts servo mode in hardware activation and errors out if the arm is
 # not already Running; that prevents us from activating controllers and sending
-# a measured hold-position command before brake release. This patch delays
+# a measured hold-position command before the RobotManage.startup lifecycle. This patch delays
 # servoJoint writes until RobotMode=Running, initializes commands from RTDE
 # actual_q, and refuses an all-zero command when the measured pose is non-zero.
 aubo_hw_source="${ROOT_DIR}/third_party/aubo_ros2_driver/aubo_ros2_driver/src/aubo_hardware_interface.cpp"
@@ -226,6 +226,9 @@ s = s.replace(
             return hardware_interface::return_type::ERROR;
         }
     } else if (safety_ok) {
+        readActualQ();
+        aubo_position_commands_ = actual_q_copy_;
+        aubo_velocity_commands_.fill(0.0);
         if (!waiting_for_running_warned_) {
             RCLCPP_WARN_STREAM(
                 rclcpp::get_logger("AuboHardwareInterface"),

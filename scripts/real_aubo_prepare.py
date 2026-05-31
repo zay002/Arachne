@@ -93,12 +93,18 @@ def main() -> int:
         return 1
 
     if mode != "Running":
+        if args.allow_not_running:
+            print(
+                "not running yet: continuing because --allow-not-running is set "
+                "for the guarded remote startup flow."
+            )
+            return 0
         print(
             "ERROR: Aubo is not in Running mode. Use the teach pendant/control "
             "cabinet to perform connect -> power on -> start, then rerun this check.",
             file=sys.stderr,
         )
-        return 0 if args.allow_not_running else 3
+        return 3
 
     print("ready: Aubo is Running with acceptable safety state.")
     return 0

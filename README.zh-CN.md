@@ -89,7 +89,7 @@ Arachne 的真机层尽量复用官方或厂家 ROS 路线，并在本仓库内�
 ./scripts/real_aubo_prepare.sh
 ```
 
-Aubo 推荐优先在示教器/控制柜上完成“连接 -> 上电 -> 启动”。如果需要从 ROS 侧远程启动，只使用阻塞式脚本：它会先确认 controller active、读取当前关节角并发送 hold-position，再按“上电 -> servo mode 确认 -> 抱闸释放 -> Running 后保持”的顺序执行，任何一步超时或状态异常都会退出。
+Aubo 推荐优先在示教器/控制柜上完成“连接 -> 上电 -> 启动”。如果需要从 ROS 侧远程启动，只使用阻塞式脚本：它会先确认 controller active、读取当前关节角并发送 hold-position，再按“上电 -> Aubo `RobotManage.startup` 完整启动 -> Running 后稳定与保持校验”的顺序执行。脚本不会直接调用 `releaseRobotBrake`；任何保护状态、超时或 controller 异常都会退出。
 
 远程启动需要两个终端：
 
