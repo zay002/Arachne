@@ -60,6 +60,7 @@ def generate_launch_description():
             DeclareLaunchArgument("arm_max_joint_delta", default_value="1.0"),
             DeclareLaunchArgument("arm_goal_tolerance", default_value="0.03"),
             DeclareLaunchArgument("arm_goal_time_margin_sec", default_value="4.0"),
+            DeclareLaunchArgument("arm_circle_axis", default_value="1"),
             DeclareLaunchArgument("arm_circle_radius_m", default_value="0.1"),
             DeclareLaunchArgument("arm_circle_points", default_value="32"),
             DeclareLaunchArgument("arm_circle_revolutions", default_value="1.0"),
@@ -120,6 +121,9 @@ def generate_launch_description():
                         ),
                         "arm_goal_time_margin_sec": ParameterValue(
                             LaunchConfiguration("arm_goal_time_margin_sec"), value_type=float
+                        ),
+                        "arm_circle_axis": ParameterValue(
+                            LaunchConfiguration("arm_circle_axis"), value_type=int
                         ),
                         "arm_circle_radius_m": ParameterValue(
                             LaunchConfiguration("arm_circle_radius_m"), value_type=float
