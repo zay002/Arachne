@@ -94,8 +94,8 @@ class TeachPanelNode(Node):
         self.declare_parameter("gripper_command_topic", "/arachne/gripper/command")
         self.declare_parameter("base_linear_speed", 0.08)
         self.declare_parameter("base_angular_speed", 0.30)
-        self.declare_parameter("base_replay_linear_speed", 0.04)
-        self.declare_parameter("base_replay_angular_speed", 0.14)
+        self.declare_parameter("base_replay_linear_speed", 0.20)
+        self.declare_parameter("base_replay_angular_speed", 0.24)
         self.declare_parameter("base_position_tolerance", 0.02)
         self.declare_parameter("base_yaw_tolerance_deg", 2.0)
         self.declare_parameter("base_manual_publish_rate", 12.0)
@@ -112,6 +112,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_ik_max_step", 0.05)
         self.declare_parameter("arm_jog_max_joint_delta", 0.25)
         self.declare_parameter("aubo_teach_command_topic", "/arachne/aubo/teach_command")
+        self.declare_parameter("aubo_teach_exit_wait_sec", 8.0)
         self.declare_parameter("replay_settle_sec", 0.2)
         self.declare_parameter("recording_dir", "recordings/teach")
 
@@ -164,6 +165,9 @@ class TeachPanelNode(Node):
         self.tool_position: tuple[float, float, float] | None = None
         self.gripper_state = "open"
         self.hardware_status = {"Base": "waiting", "Aubo": "waiting", "Gripper": "waiting"}
+        self.aubo_teach_gate_active = False
+        self.aubo_teach_ready_event = threading.Event()
+        self.aubo_teach_ready_event.set()
         self.last_status = "ready"
         self.cancel_event = threading.Event()
         self.replay_thread: threading.Thread | None = None
@@ -202,8 +206,19 @@ class TeachPanelNode(Node):
         def callback(msg: String) -> None:
             with self.lock:
                 self.hardware_status[key] = msg.data
+                if key == "Aubo":
+                    self._update_aubo_teach_state_locked(msg.data)
 
         return callback
+
+    def _update_aubo_teach_state_locked(self, status: str) -> None:
+        data = status.strip().lower()
+        if "teach on active" in data or "keeping ros teach gate active" in data:
+            self.aubo_teach_gate_active = True
+            self.aubo_teach_ready_event.clear()
+        elif "teach off complete" in data:
+            self.aubo_teach_gate_active = False
+            self.aubo_teach_ready_event.set()
 
     def _gripper_status_callback(self, msg: String) -> None:
         data = msg.data.strip()
@@ -297,11 +312,38 @@ class TeachPanelNode(Node):
                     self.get_logger().warning(f"arm cancel before teach failed: {exc}")
         else:
             self.cancel_event.clear()
+        with self.lock:
+            self.aubo_teach_gate_active = enabled
+            if enabled:
+                self.aubo_teach_ready_event.clear()
         command = "teach_on" if enabled else "teach_off"
+        self._publish_aubo_teach_command(command)
+        self._status(f"aubo {command}")
+
+    def _publish_aubo_teach_command(self, command: str) -> None:
         msg = String()
         msg.data = command
         self.aubo_teach_pub.publish(msg)
-        self._status(f"aubo {command}")
+
+    def _aubo_teach_gate_may_be_active(self) -> bool:
+        with self.lock:
+            if self.aubo_teach_gate_active:
+                return True
+            status = self.hardware_status.get("Aubo", "").lower()
+        return "teach on active" in status or "keeping ros teach gate active" in status
+
+    def _ensure_aubo_motion_ready(self) -> bool:
+        if not self._aubo_teach_gate_may_be_active():
+            return True
+        timeout = max(float(self.get_parameter("aubo_teach_exit_wait_sec").value), 0.0)
+        self._status("aubo teach_off before replay")
+        self._publish_aubo_teach_command("teach_off")
+        if self.aubo_teach_ready_event.wait(timeout):
+            return True
+        with self.lock:
+            status = self.hardware_status.get("Aubo", "unknown")
+        self._status(f"aubo teach_off timeout before replay: {status}", warn=True)
+        return False
 
     def jog_arm(self, axis: str, sign: float) -> None:
         self.cancel_event.clear()
@@ -540,6 +582,8 @@ class TeachPanelNode(Node):
     def _replay_worker(self, waypoints: list[TeachWaypoint]) -> None:
         self._status(f"replay started: {len(waypoints)} waypoints")
         try:
+            if not self._ensure_aubo_motion_ready():
+                raise RuntimeError("Aubo teach mode is still active")
             for index, waypoint in enumerate(waypoints, start=1):
                 if self.cancel_event.is_set():
                     break
@@ -581,7 +625,11 @@ class TeachPanelNode(Node):
                     f"base motion {index}/{len(segments)} for {label}: "
                     f"{normalized.get('action', 'linear')} {abs(distance):.3f}m"
                 )
-                self._drive_distance(distance)
+                segment_speed = abs(float(normalized.get("linear_x", 0.0)))
+                self._drive_distance(
+                    distance,
+                    speed_override=segment_speed if segment_speed > 0.0 else None,
+                )
             elif motion_type == "angular":
                 angle = float(normalized.get("signed_angle_rad", 0.0))
                 self._status(
@@ -683,11 +731,15 @@ class TeachPanelNode(Node):
             time.sleep(0.05)
         self.set_base_velocity(0.0, 0.0)
 
-    def _drive_distance(self, distance: float) -> None:
+    def _drive_distance(self, distance: float, speed_override: float | None = None) -> None:
         start = self._current_base_pose()
         heading = np.array([math.cos(start.yaw), math.sin(start.yaw)], dtype=float)
         tolerance = float(self.get_parameter("base_position_tolerance").value)
-        speed = abs(float(self.get_parameter("base_replay_linear_speed").value))
+        speed = (
+            abs(float(speed_override))
+            if speed_override is not None
+            else abs(float(self.get_parameter("base_replay_linear_speed").value))
+        )
         sign = 1.0 if distance >= 0.0 else -1.0
         deadline = time.monotonic() + abs(distance) / max(speed, 1e-3) + 8.0
         while not self.cancel_event.is_set() and time.monotonic() < deadline:
