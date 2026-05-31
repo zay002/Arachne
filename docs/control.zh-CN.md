@@ -205,7 +205,7 @@ ros2 launch arachne_operator sequence_executor.launch.py
 
 `teach_panel.py` 面向真机演示和小型实验示教。它监听 `/odom`、`/joint_states` 和硬件状态，手动控制三类设备，并把当前状态记录为 waypoint：
 
-- 底盘：按住按钮向 `/cmd_vel` 发布前进、后退、左转、右转，松开后停止。
+- 底盘：按住按钮会以固定频率持续向 `/cmd_vel` 发布前进、后退、左转、右转，松开后停止。
 - Aubo：按 X/Y/Z 方向对末端做小步笛卡尔 jog，节点用本地 Aubo i5 FK/IK 转成关节轨迹，并优先走 `/joint_trajectory_controller/follow_joint_trajectory` action；RX/RY/RZ 是保守的腕部姿态微调，分别增量控制后三个腕部关节。
 - Aubo 示教：`Teach On` / `Teach Off` 向 `/arachne/aubo/teach_command` 发布命令；真机 bringup 中的 `aubo_teach_command_bridge` 会先打开本机示教门控，让 Aubo ros2_control 硬件接口停止 `servoJoint` 保持，再通过 30004 JSON-RPC 调用 `RobotManage.freedrive(true/false)`。
 - 夹具：向 `/arachne/gripper/command` 发布 `open`、`close` 或 `stop`。

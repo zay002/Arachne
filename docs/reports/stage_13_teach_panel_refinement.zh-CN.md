@@ -6,7 +6,7 @@
 
 ## 核心文件
 
-- `src/arachne_operator/arachne_operator/teach_panel.py`：新增 Aubo `Teach On/Off`、RX/RY/RZ 腕部姿态 jog、底盘手动移动段记录，以及 `Duplicate` 路点复用。
+- `src/arachne_operator/arachne_operator/teach_panel.py`：新增 Aubo `Teach On/Off`、RX/RY/RZ 腕部姿态 jog、底盘长按连续遥控与手动移动段记录，以及 `Duplicate` 路点复用。
 - `src/arachne_operator/launch/teach_panel.launch.py`：暴露示教命令 topic 和姿态 jog 参数。
 - `src/arachne_hardware/arachne_hardware/aubo_tcp_driver.py`：新增 `aubo_teach_command_bridge`，把 `/arachne/aubo/teach_command` 转成 Aubo 30004 JSON-RPC 的 `RobotManage.freedrive(true/false)` 调用。
 - `src/arachne_hardware/arachne_hardware/hardware_mock.py`：mock 接收同一示教命令并在状态中显示 teach on/off。

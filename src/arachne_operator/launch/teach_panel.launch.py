@@ -46,6 +46,7 @@ def generate_launch_description():
             DeclareLaunchArgument("base_angular_speed", default_value="0.22"),
             DeclareLaunchArgument("base_replay_linear_speed", default_value="0.025"),
             DeclareLaunchArgument("base_replay_angular_speed", default_value="0.10"),
+            DeclareLaunchArgument("base_manual_publish_rate", default_value="12.0"),
             DeclareLaunchArgument("base_motion_max_segment_sec", default_value="20.0"),
             DeclareLaunchArgument("arm_jog_step_m", default_value="0.02"),
             DeclareLaunchArgument("arm_jog_duration_sec", default_value="1.2"),
@@ -87,6 +88,9 @@ def generate_launch_description():
                         ),
                         "base_replay_angular_speed": ParameterValue(
                             LaunchConfiguration("base_replay_angular_speed"), value_type=float
+                        ),
+                        "base_manual_publish_rate": ParameterValue(
+                            LaunchConfiguration("base_manual_publish_rate"), value_type=float
                         ),
                         "base_motion_max_segment_sec": ParameterValue(
                             LaunchConfiguration("base_motion_max_segment_sec"), value_type=float

@@ -205,7 +205,7 @@ ros2 launch arachne_operator sequence_executor.launch.py
 
 `teach_panel.py` is intended for real-hardware demos and small teach-in experiments. It listens to `/odom`, `/joint_states`, and hardware status topics, manually controls the three subsystems, and records the current state as a waypoint:
 
-- Base: hold buttons publish forward, backward, left, and right commands on `/cmd_vel`; releasing the button stops the base.
+- Base: hold buttons continuously publish forward, backward, left, and right commands on `/cmd_vel` at a fixed rate; releasing the button stops the base.
 - Aubo: X/Y/Z tool jog buttons solve local Aubo i5 FK/IK and send a joint trajectory, preferring `/joint_trajectory_controller/follow_joint_trajectory`. RX/RY/RZ are conservative wrist-orientation jogs that increment the last three wrist joints.
 - Aubo teach mode: `Teach On` / `Teach Off` publishes on `/arachne/aubo/teach_command`; real bringup runs `aubo_teach_command_bridge`, which first enables a local teach gate so the Aubo ros2_control hardware interface stops `servoJoint` hold writes, then calls `RobotManage.freedrive(true/false)` through direct 30004 JSON-RPC.
 - Gripper: publishes `open`, `close`, or `stop` on `/arachne/gripper/command`.

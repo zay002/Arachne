@@ -98,6 +98,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("base_replay_angular_speed", 0.10)
         self.declare_parameter("base_position_tolerance", 0.02)
         self.declare_parameter("base_yaw_tolerance_deg", 2.0)
+        self.declare_parameter("base_manual_publish_rate", 12.0)
         self.declare_parameter("base_motion_max_segment_sec", 20.0)
         self.declare_parameter("arm_jog_step_m", 0.02)
         self.declare_parameter("arm_jog_duration_sec", 1.2)
@@ -157,6 +158,7 @@ class TeachPanelNode(Node):
         self.base_pose: Pose2D | None = None
         self.base_motion_segments: list[dict] = []
         self.active_base_motion: dict | None = None
+        self.manual_base_velocity: tuple[float, float] | None = None
         self.current_arm: dict[str, float] = {}
         self.tool_position: tuple[float, float, float] | None = None
         self.gripper_state = "open"
@@ -165,6 +167,8 @@ class TeachPanelNode(Node):
         self.cancel_event = threading.Event()
         self.replay_thread: threading.Thread | None = None
         self._active_goal_handle = None
+        publish_rate = max(float(self.get_parameter("base_manual_publish_rate").value), 1.0)
+        self.create_timer(1.0 / publish_rate, self._publish_manual_base_velocity)
         self._status("ready")
 
     def _odom_callback(self, msg: Odometry) -> None:
@@ -255,12 +259,13 @@ class TeachPanelNode(Node):
         }
         vx, wz = mapping.get(direction, (0.0, 0.0))
         self._track_base_motion(direction, vx, wz)
+        with self.lock:
+            self.manual_base_velocity = None if direction == "stop" else (vx, wz)
         self.set_base_velocity(vx, wz)
 
     def stop_all(self) -> None:
         self.cancel_event.set()
-        self._track_base_motion("stop", 0.0, 0.0)
-        self.set_base_velocity(0.0, 0.0)
+        self.drive_base_manual("stop")
         self.publish_gripper("stop")
         goal_handle = self._active_goal_handle
         if goal_handle is not None:
@@ -282,7 +287,7 @@ class TeachPanelNode(Node):
     def set_aubo_teach(self, enabled: bool) -> None:
         if enabled:
             self.cancel_event.set()
-            self.set_base_velocity(0.0, 0.0)
+            self.drive_base_manual("stop")
             goal_handle = self._active_goal_handle
             if goal_handle is not None:
                 try:
@@ -313,6 +318,13 @@ class TeachPanelNode(Node):
                 "start_stamp": datetime.now().isoformat(timespec="seconds"),
                 "_start_monotonic": now,
             }
+
+    def _publish_manual_base_velocity(self) -> None:
+        with self.lock:
+            velocity = self.manual_base_velocity
+        if velocity is None:
+            return
+        self.set_base_velocity(velocity[0], velocity[1])
 
     def _close_base_motion_locked(self, now: float) -> None:
         if self.active_base_motion is None:
@@ -440,6 +452,7 @@ class TeachPanelNode(Node):
         if self.replay_thread is not None and self.replay_thread.is_alive():
             self._status("replay already running", warn=True)
             return
+        self.drive_base_manual("stop")
         self.cancel_event.clear()
         self.replay_thread = threading.Thread(
             target=self._replay_worker,
@@ -635,6 +648,7 @@ class TeachPanelNode(Node):
         with self.lock:
             self.base_motion_segments.clear()
             self.active_base_motion = None
+            self.manual_base_velocity = None
 
     def _status(self, text: str, *, warn: bool = False) -> None:
         with self.lock:
