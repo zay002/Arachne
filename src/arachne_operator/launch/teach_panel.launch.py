@@ -43,8 +43,8 @@ def generate_launch_description():
             DeclareLaunchArgument("base_replay_linear_speed", default_value="0.06"),
             DeclareLaunchArgument("base_replay_angular_speed", default_value="0.22"),
             DeclareLaunchArgument("arm_jog_step_m", default_value="0.02"),
-            DeclareLaunchArgument("arm_jog_duration_sec", default_value="1.0"),
-            DeclareLaunchArgument("arm_waypoint_duration_sec", default_value="2.5"),
+            DeclareLaunchArgument("arm_jog_duration_sec", default_value="1.2"),
+            DeclareLaunchArgument("arm_waypoint_duration_sec", default_value="3.0"),
             DeclareLaunchArgument("recording_dir", default_value="recordings"),
             Node(
                 package="arachne_operator",

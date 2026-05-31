@@ -17,7 +17,14 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
-from arachne_operator.sequence_executor import ARM_JOINTS
+REAL_ARM_JOINTS = (
+    "shoulder_joint",
+    "upperArm_joint",
+    "foreArm_joint",
+    "wrist1_joint",
+    "wrist2_joint",
+    "wrist3_joint",
+)
 
 
 @dataclass(frozen=True)
@@ -179,17 +186,17 @@ class RealHardwareAcceptanceTest(Node):
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
         self.declare_parameter("odom_topic", "/odom")
         self.declare_parameter("joint_states_topic", "/joint_states")
-        self.declare_parameter("arm_command_mode", "topic")
+        self.declare_parameter("arm_command_mode", "action")
         self.declare_parameter(
             "arm_follow_joint_trajectory_action",
-            "/aubo_arm_controller/follow_joint_trajectory",
+            "/joint_trajectory_controller/follow_joint_trajectory",
         )
-        self.declare_parameter("arm_trajectory_topic", "/aubo_arm_controller/joint_trajectory")
+        self.declare_parameter("arm_trajectory_topic", "/joint_trajectory_controller/joint_trajectory")
         self.declare_parameter(
-            "legacy_arm_trajectory_topic", "/joint_trajectory_controller/joint_trajectory"
+            "legacy_arm_trajectory_topic", "/aubo_arm_controller/joint_trajectory"
         )
-        self.declare_parameter("arm_state_joint_names", ",".join(ARM_JOINTS))
-        self.declare_parameter("arm_command_joint_names", ",".join(ARM_JOINTS))
+        self.declare_parameter("arm_state_joint_names", ",".join(REAL_ARM_JOINTS))
+        self.declare_parameter("arm_command_joint_names", ",".join(REAL_ARM_JOINTS))
         self.declare_parameter("gripper_command_topic", "/arachne/gripper/command")
         self.declare_parameter("base_distance_m", 0.2)
         self.declare_parameter("base_linear_speed", 0.06)
@@ -200,7 +207,7 @@ class RealHardwareAcceptanceTest(Node):
         self.declare_parameter("base_settle_sec", 0.8)
         self.declare_parameter("arm_z_delta_m", 0.2)
         self.declare_parameter("arm_z_frame", "aubo_base")
-        self.declare_parameter("arm_duration_sec", 4.0)
+        self.declare_parameter("arm_duration_sec", 5.0)
         self.declare_parameter("arm_settle_sec", 1.0)
         self.declare_parameter("arm_position_tolerance", 0.008)
         self.declare_parameter("arm_ik_damping", 0.08)

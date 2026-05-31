@@ -25,7 +25,7 @@ class MS42DCOfficialBridge(Node):
         self.declare_parameter("mode", 2)
         self.declare_parameter("open_angle_tenths", 18720)
         self.declare_parameter("close_angle_tenths", 18720)
-        self.declare_parameter("speed_tenths", 200)
+        self.declare_parameter("speed_tenths", 150)
 
         motor_module = importlib.import_module("step_motor.msg")
         self.motor_msg_type = getattr(motor_module, "Motor")

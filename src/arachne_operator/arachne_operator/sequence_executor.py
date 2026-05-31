@@ -62,7 +62,7 @@ class SequenceExecutor(Node):
         self.declare_parameter("command_topic", "/arachne/sequence/command")
         self.declare_parameter("nav_goal_topic", "/arachne/navigation/goal")
         self.declare_parameter("nav_action_name", "navigate_to_pose")
-        self.declare_parameter("arm_motion_time", 2.5)
+        self.declare_parameter("arm_motion_time", 3.0)
         self.declare_parameter("gripper_motion_time", 0.8)
         self.declare_parameter("nav_wait_timeout", 1.0)
         self.declare_parameter("nav_goal_timeout", 35.0)

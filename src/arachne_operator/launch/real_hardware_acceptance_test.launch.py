@@ -22,31 +22,31 @@ def generate_launch_description():
             DeclareLaunchArgument("cmd_vel_topic", default_value="/cmd_vel"),
             DeclareLaunchArgument("odom_topic", default_value="/odom"),
             DeclareLaunchArgument("joint_states_topic", default_value="/joint_states"),
-            DeclareLaunchArgument("arm_command_mode", default_value="topic"),
+            DeclareLaunchArgument("arm_command_mode", default_value="action"),
             DeclareLaunchArgument(
                 "arm_follow_joint_trajectory_action",
-                default_value="/aubo_arm_controller/follow_joint_trajectory",
+                default_value="/joint_trajectory_controller/follow_joint_trajectory",
             ),
             DeclareLaunchArgument(
                 "arm_trajectory_topic",
-                default_value="/aubo_arm_controller/joint_trajectory",
+                default_value="/joint_trajectory_controller/joint_trajectory",
             ),
             DeclareLaunchArgument(
                 "legacy_arm_trajectory_topic",
-                default_value="/joint_trajectory_controller/joint_trajectory",
+                default_value="/aubo_arm_controller/joint_trajectory",
             ),
             DeclareLaunchArgument(
                 "arm_state_joint_names",
                 default_value=(
-                    "aubo_shoulder_joint,aubo_upperArm_joint,aubo_foreArm_joint,"
-                    "aubo_wrist1_joint,aubo_wrist2_joint,aubo_wrist3_joint"
+                    "shoulder_joint,upperArm_joint,foreArm_joint,"
+                    "wrist1_joint,wrist2_joint,wrist3_joint"
                 ),
             ),
             DeclareLaunchArgument(
                 "arm_command_joint_names",
                 default_value=(
-                    "aubo_shoulder_joint,aubo_upperArm_joint,aubo_foreArm_joint,"
-                    "aubo_wrist1_joint,aubo_wrist2_joint,aubo_wrist3_joint"
+                    "shoulder_joint,upperArm_joint,foreArm_joint,"
+                    "wrist1_joint,wrist2_joint,wrist3_joint"
                 ),
             ),
             DeclareLaunchArgument("gripper_command_topic", default_value="/arachne/gripper/command"),
@@ -56,7 +56,7 @@ def generate_launch_description():
             DeclareLaunchArgument("base_angular_speed", default_value="0.22"),
             DeclareLaunchArgument("arm_z_delta_m", default_value="0.2"),
             DeclareLaunchArgument("arm_z_frame", default_value="aubo_base"),
-            DeclareLaunchArgument("arm_duration_sec", default_value="4.0"),
+            DeclareLaunchArgument("arm_duration_sec", default_value="5.0"),
             DeclareLaunchArgument("arm_max_joint_delta", default_value="1.0"),
             DeclareLaunchArgument("arm_goal_tolerance", default_value="0.03"),
             DeclareLaunchArgument("arm_goal_time_margin_sec", default_value="4.0"),

@@ -1,34 +1,34 @@
 joint_limits:
   aubo_shoulder_joint:
     has_velocity_limits: true
-    max_velocity: 2.5964
+    max_velocity: 2.2
     has_acceleration_limits: true
-    max_acceleration: 2.0
+    max_acceleration: 1.6
   aubo_upperArm_joint:
     has_velocity_limits: true
-    max_velocity: 2.5964
+    max_velocity: 2.2
     has_acceleration_limits: true
-    max_acceleration: 2.0
+    max_acceleration: 1.6
   aubo_foreArm_joint:
     has_velocity_limits: true
-    max_velocity: 2.5964
+    max_velocity: 2.2
     has_acceleration_limits: true
-    max_acceleration: 2.0
+    max_acceleration: 1.6
   aubo_wrist1_joint:
     has_velocity_limits: true
-    max_velocity: 3.1105
+    max_velocity: 2.65
     has_acceleration_limits: true
-    max_acceleration: 2.5
+    max_acceleration: 2.0
   aubo_wrist2_joint:
     has_velocity_limits: true
-    max_velocity: 3.1105
+    max_velocity: 2.65
     has_acceleration_limits: true
-    max_acceleration: 2.5
+    max_acceleration: 2.0
   aubo_wrist3_joint:
     has_velocity_limits: true
-    max_velocity: 3.1105
+    max_velocity: 2.65
     has_acceleration_limits: true
-    max_acceleration: 2.5
+    max_acceleration: 2.0
   ms42dc_left_finger_joint:
     has_velocity_limits: true
     max_velocity: 1.0

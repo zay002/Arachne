@@ -1,11 +1,11 @@
 aubo_arm:
   joints:
-    aubo_shoulder_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 2.5964}
-    aubo_upperArm_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 2.5964}
-    aubo_foreArm_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 2.5964}
-    aubo_wrist1_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 3.1105}
-    aubo_wrist2_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 3.1105}
-    aubo_wrist3_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 3.1105}
+    aubo_shoulder_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 2.2}
+    aubo_upperArm_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 2.2}
+    aubo_foreArm_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 2.2}
+    aubo_wrist1_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 2.65}
+    aubo_wrist2_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 2.65}
+    aubo_wrist3_joint: {min_position: -6.283185307179586, max_position: 6.283185307179586, max_velocity: 2.65}
 ag95_gripper:
   joints:
     left_outer_knuckle_joint: {min_position: 0.0, max_position: 0.93, max_velocity: 2.1}

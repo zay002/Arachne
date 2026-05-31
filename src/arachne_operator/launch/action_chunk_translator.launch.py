@@ -11,6 +11,7 @@ def generate_launch_description():
     arm_trajectory_topic = LaunchConfiguration("arm_trajectory_topic")
     legacy_arm_trajectory_topic = LaunchConfiguration("legacy_arm_trajectory_topic")
     gripper_command_topic = LaunchConfiguration("gripper_command_topic")
+    default_arm_duration = LaunchConfiguration("default_arm_duration")
     array_arm_mode = LaunchConfiguration("array_arm_mode")
 
     return LaunchDescription(
@@ -27,6 +28,7 @@ def generate_launch_description():
                 default_value="/joint_trajectory_controller/joint_trajectory",
             ),
             DeclareLaunchArgument("gripper_command_topic", default_value="/arachne/gripper/command"),
+            DeclareLaunchArgument("default_arm_duration", default_value="1.2"),
             DeclareLaunchArgument("array_arm_mode", default_value="delta"),
             Node(
                 package="arachne_operator",
@@ -41,6 +43,7 @@ def generate_launch_description():
                         "arm_trajectory_topic": arm_trajectory_topic,
                         "legacy_arm_trajectory_topic": legacy_arm_trajectory_topic,
                         "gripper_command_topic": gripper_command_topic,
+                        "default_arm_duration": default_arm_duration,
                         "array_arm_mode": array_arm_mode,
                     }
                 ],

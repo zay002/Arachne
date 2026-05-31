@@ -232,7 +232,7 @@ def generate_launch_description():
             DeclareLaunchArgument("ms42dc_mode", default_value="2"),
             DeclareLaunchArgument("ms42dc_open_angle_tenths", default_value="18720"),
             DeclareLaunchArgument("ms42dc_close_angle_tenths", default_value="18720"),
-            DeclareLaunchArgument("ms42dc_speed_tenths", default_value="90"),
+            DeclareLaunchArgument("ms42dc_speed_tenths", default_value="150"),
             DeclareLaunchArgument("aubo_robot_ip", default_value="192.168.127.128"),
             DeclareLaunchArgument("aubo_port", default_value="80"),
             OpaqueFunction(function=_launch_setup),

@@ -46,7 +46,7 @@ class ActionChunkTranslator(Node):
         )
         self.declare_parameter("gripper_command_topic", "/arachne/gripper/command")
         self.declare_parameter("default_step_duration", 0.25)
-        self.declare_parameter("default_arm_duration", 1.0)
+        self.declare_parameter("default_arm_duration", 1.2)
         self.declare_parameter("max_linear_velocity", 0.8)
         self.declare_parameter("max_angular_velocity", 1.4)
         self.declare_parameter("max_arm_delta", 0.25)

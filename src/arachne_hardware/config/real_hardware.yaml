@@ -34,7 +34,7 @@ arachne_real_hardware:
     state_topic: motor_state
     arachne_command_topic: /arachne/gripper/command
     default_test_angle_tenths: 300
-    default_test_speed_tenths: 60
+    default_test_speed_tenths: 150
     full_stroke_angle_tenths: 18720
   aubo_i5:
     official_package: aubo_ros2_driver

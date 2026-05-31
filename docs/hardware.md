@@ -117,7 +117,7 @@ ros2 launch arachne_hardware real_bringup.launch.py \
 
 For SocketCAN adapters on native Linux, replace the Scout arguments with `scout_driver:=official scout_port:=can0`.
 
-For isolated MS42DC calibration, start with a small command before using the full factory stroke. The current safe default is `300` tenths of a degree (`30 deg`) at `60` tenths of rad/s (`6 rad/s`). The factory full open/close example is `18720` tenths of a degree, or `1872 deg = 5.2 turns`, and should only be used after physical travel and homing behavior are confirmed:
+For isolated MS42DC calibration, start with a small command before using the full factory stroke. The current small-angle test value is `300` tenths of a degree (`30 deg`) and the default demo speed is `150` tenths of rad/s (`15 rad/s`). The factory full open/close example is `18720` tenths of a degree, or `1872 deg = 5.2 turns`, and should only be used after physical travel and homing behavior are confirmed:
 
 ```bash
 ros2 launch arachne_hardware real_bringup.launch.py \
@@ -126,7 +126,7 @@ ros2 launch arachne_hardware real_bringup.launch.py \
   ms42dc_port:=/dev/motor_serial \
   ms42dc_open_angle_tenths:=300 \
   ms42dc_close_angle_tenths:=300 \
-  ms42dc_speed_tenths:=60
+  ms42dc_speed_tenths:=150
 ```
 
 Dry-run the test entry in another terminal:

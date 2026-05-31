@@ -117,7 +117,7 @@ ros2 launch arachne_hardware real_bringup.launch.py \
 
 原生 Linux SocketCAN 适配器可将 Scout 参数替换为 `scout_driver:=official scout_port:=can0`。
 
-单独标定 MS42DC 时，建议先用小角度测试，再使用厂家全行程。当前安全默认值是 `300` 个 0.1 度，也就是 `30 deg`；速度是 `60` 个 0.1 rad/s，也就是 `6 rad/s`。说明书中的全开/全闭示例是 `18720` 个 0.1 度，也就是 `1872 deg = 5.2 圈`，需要确认真实行程和回零行为后再使用：
+单独标定 MS42DC 时，建议先用小角度测试，再使用厂家全行程。当前小角度测试值是 `300` 个 0.1 度，也就是 `30 deg`；默认演示速度是 `150` 个 0.1 rad/s，也就是 `15 rad/s`。说明书中的全开/全闭示例是 `18720` 个 0.1 度，也就是 `1872 deg = 5.2 圈`，需要确认真实行程和回零行为后再使用：
 
 ```bash
 ros2 launch arachne_hardware real_bringup.launch.py \
@@ -126,7 +126,7 @@ ros2 launch arachne_hardware real_bringup.launch.py \
   ms42dc_port:=/dev/motor_serial \
   ms42dc_open_angle_tenths:=300 \
   ms42dc_close_angle_tenths:=300 \
-  ms42dc_speed_tenths:=60
+  ms42dc_speed_tenths:=150
 ```
 
 另一个终端先 dry-run：

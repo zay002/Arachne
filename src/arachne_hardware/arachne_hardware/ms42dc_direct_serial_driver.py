@@ -40,7 +40,7 @@ class MS42DCDirectSerialDriver(Node):
         self.declare_parameter("mode", 2)
         self.declare_parameter("open_angle_tenths", 18720)
         self.declare_parameter("close_angle_tenths", 18720)
-        self.declare_parameter("speed_tenths", 200)
+        self.declare_parameter("speed_tenths", 150)
         self.declare_parameter("retry_on_error", True)
         self.declare_parameter("query_after_command", True)
         self.declare_parameter("feedback_delay_sec", 0.05)
