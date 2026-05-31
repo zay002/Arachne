@@ -45,6 +45,8 @@ source scripts/arachne_env.sh
 ./scripts/view_model.sh
 ```
 
+Some third-party models, drivers, and SDKs are fetched at pinned versions and patched locally for Arachne's current hardware integration; those upstream repositories are not committed wholesale into this repository. If reproduction fails because of upstream changes, network downloads, platform differences, or patch application, please open a GitHub Issue with your environment and logs.
+
 `arachne_env.sh` pins the current shell to the Ubuntu system Python used by ROS, such as `/usr/bin/python3.12` on Ubuntu 24.04 + Jazzy, so conda/pyenv Python 3.13 cannot hijack ROS Python modules.
 
 `view_model.sh` starts the default MS42DC model, base teleop GUI, Aubo joint sliders, and gripper Open/Close controls.

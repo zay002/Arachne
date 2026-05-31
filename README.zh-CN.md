@@ -45,6 +45,8 @@ source scripts/arachne_env.sh
 ./scripts/view_model.sh
 ```
 
+部分第三方模型、驱动和 SDK 会由脚本按固定版本下载，并在本地应用 Arachne 当前硬件组合所需的适配补丁；这些上游仓库不会整体提交到本仓库。如果复现时遇到上游版本、网络下载、平台差异或补丁应用问题，欢迎在 GitHub Issue 中说明环境和日志。
+
 `arachne_env.sh` 会把当前 shell 固定到 ROS 使用的系统 Python，例如 Ubuntu 24.04 + Jazzy 下的 `/usr/bin/python3.12`，避免 conda/pyenv 的 Python 3.13 抢走 ROS Python 模块。
 
 `view_model.sh` 会启动默认 MS42DC 模型、底盘遥控 GUI、Aubo 关节滑条和夹爪 Open/Close 控制窗。
