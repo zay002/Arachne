@@ -6,8 +6,10 @@ from dataclasses import dataclass
 
 import numpy as np
 import rclpy
+from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
+from rclpy.action import ActionClient
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
@@ -175,6 +177,11 @@ class RealHardwareAcceptanceTest(Node):
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
         self.declare_parameter("odom_topic", "/odom")
         self.declare_parameter("joint_states_topic", "/joint_states")
+        self.declare_parameter("arm_command_mode", "topic")
+        self.declare_parameter(
+            "arm_follow_joint_trajectory_action",
+            "/aubo_arm_controller/follow_joint_trajectory",
+        )
         self.declare_parameter("arm_trajectory_topic", "/aubo_arm_controller/joint_trajectory")
         self.declare_parameter(
             "legacy_arm_trajectory_topic", "/joint_trajectory_controller/joint_trajectory"
@@ -198,6 +205,8 @@ class RealHardwareAcceptanceTest(Node):
         self.declare_parameter("arm_ik_max_iterations", 180)
         self.declare_parameter("arm_ik_max_step", 0.06)
         self.declare_parameter("arm_max_joint_delta", 1.0)
+        self.declare_parameter("arm_goal_tolerance", 0.03)
+        self.declare_parameter("arm_goal_time_margin_sec", 4.0)
         self.declare_parameter("gripper_cycles", 5)
         self.declare_parameter("gripper_pause_sec", 0.8)
         self.declare_parameter("gripper_final_state", "open")
@@ -216,6 +225,9 @@ class RealHardwareAcceptanceTest(Node):
         if len(self.arm_state_joint_names) != 6 or len(self.arm_command_joint_names) != 6:
             raise ValueError("arm_state_joint_names and arm_command_joint_names must list 6 joints")
         self.kinematics = AuboI5Kinematics()
+        self.arm_command_mode = str(self.get_parameter("arm_command_mode").value).strip().lower()
+        if self.arm_command_mode not in ("topic", "action"):
+            raise ValueError("arm_command_mode must be topic or action")
 
         arm_topics = []
         for topic in (
@@ -231,6 +243,11 @@ class RealHardwareAcceptanceTest(Node):
         self.arm_publishers = [
             self.create_publisher(JointTrajectory, topic, 10) for topic in arm_topics
         ]
+        self.arm_action_client = ActionClient(
+            self,
+            FollowJointTrajectory,
+            str(self.get_parameter("arm_follow_joint_trajectory_action").value),
+        )
         self.gripper_pub = self.create_publisher(
             String, str(self.get_parameter("gripper_command_topic").value), 10
         )
@@ -336,12 +353,12 @@ class RealHardwareAcceptanceTest(Node):
             "arm test: tool0 z up "
             f"{z_delta:.3f}m, ik_error={error:.4f}, max_joint_delta={max_delta:.3f}"
         )
-        self._publish_arm(q_up)
-        self._sleep(float(self.get_parameter("arm_duration_sec").value))
+        self._command_arm(q_up, "up")
+        self._wait_for_arm_target(q_up, "up")
         self._sleep(float(self.get_parameter("arm_settle_sec").value))
         self._status("arm test: return to start")
-        self._publish_arm(q_start)
-        self._sleep(float(self.get_parameter("arm_duration_sec").value))
+        self._command_arm(q_start, "return")
+        self._wait_for_arm_target(q_start, "return")
         self._sleep(float(self.get_parameter("arm_settle_sec").value))
 
     def _run_gripper_sequence(self) -> None:
@@ -406,7 +423,7 @@ class RealHardwareAcceptanceTest(Node):
             self._spin_sleep(0.05)
         raise TimeoutError(f"base yaw timeout target={math.degrees(angle):.2f}deg")
 
-    def _publish_arm(self, positions: np.ndarray) -> None:
+    def _make_arm_trajectory(self, positions: np.ndarray) -> JointTrajectory:
         trajectory = JointTrajectory()
         trajectory.header.stamp = self.get_clock().now().to_msg()
         trajectory.joint_names = list(self.arm_command_joint_names)
@@ -416,8 +433,102 @@ class RealHardwareAcceptanceTest(Node):
         point.time_from_start.sec = int(duration)
         point.time_from_start.nanosec = int((duration % 1.0) * 1e9)
         trajectory.points = [point]
+        return trajectory
+
+    def _command_arm(self, positions: np.ndarray, label: str) -> None:
+        trajectory = self._make_arm_trajectory(positions)
+        if self.arm_command_mode == "action":
+            self._send_arm_action(trajectory, label)
+        else:
+            self._publish_arm_topic(trajectory, label)
+
+    def _publish_arm_topic(self, trajectory: JointTrajectory, label: str) -> None:
+        self._wait_for_arm_topic_subscribers()
         for publisher in self.arm_publishers:
+            self.get_logger().info(
+                f"publishing arm {label} trajectory on {publisher.topic_name}"
+            )
             publisher.publish(trajectory)
+
+    def _send_arm_action(self, trajectory: JointTrajectory, label: str) -> None:
+        action_name = str(self.get_parameter("arm_follow_joint_trajectory_action").value)
+        timeout = float(self.get_parameter("feedback_timeout_sec").value)
+        if not self.arm_action_client.wait_for_server(timeout_sec=timeout):
+            raise TimeoutError(f"arm action server not available: {action_name}")
+
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory = trajectory
+        margin = float(self.get_parameter("arm_goal_time_margin_sec").value)
+        goal.goal_time_tolerance.sec = int(margin)
+        goal.goal_time_tolerance.nanosec = int((margin % 1.0) * 1e9)
+
+        self.get_logger().info(f"sending arm {label} action goal to {action_name}")
+        goal_future = self.arm_action_client.send_goal_async(goal)
+        rclpy.spin_until_future_complete(self, goal_future, timeout_sec=timeout)
+        goal_handle = goal_future.result()
+        if goal_handle is None:
+            raise TimeoutError(f"arm {label} action goal response timed out")
+        if not goal_handle.accepted:
+            raise RuntimeError(f"arm {label} action goal rejected")
+
+        result_future = goal_handle.get_result_async()
+        result_timeout = float(self.get_parameter("arm_duration_sec").value) + margin + timeout
+        rclpy.spin_until_future_complete(self, result_future, timeout_sec=result_timeout)
+        result_response = result_future.result()
+        if result_response is None:
+            raise TimeoutError(f"arm {label} action result timed out")
+        result = result_response.result
+        if result.error_code != FollowJointTrajectory.Result.SUCCESSFUL:
+            raise RuntimeError(
+                f"arm {label} action failed: code={result.error_code} {result.error_string}"
+            )
+        self.get_logger().info(f"arm {label} action result: SUCCESSFUL")
+
+    def _wait_for_arm_topic_subscribers(self) -> None:
+        timeout = float(self.get_parameter("feedback_timeout_sec").value)
+        deadline = time.monotonic() + timeout
+        missing: list[str] = []
+        while rclpy.ok() and time.monotonic() < deadline:
+            missing = [
+                publisher.topic_name
+                for publisher in self.arm_publishers
+                if publisher.get_subscription_count() <= 0
+            ]
+            if not missing:
+                return
+            self._spin_sleep(0.05)
+        raise TimeoutError(f"missing arm trajectory subscribers: {missing}")
+
+    def _wait_for_arm_target(self, target: np.ndarray, label: str) -> None:
+        tolerance = float(self.get_parameter("arm_goal_tolerance").value)
+        timeout = (
+            float(self.get_parameter("arm_duration_sec").value)
+            + float(self.get_parameter("arm_goal_time_margin_sec").value)
+            + float(self.get_parameter("feedback_timeout_sec").value)
+        )
+        deadline = time.monotonic() + timeout
+        start = self._current_arm_vector()
+        best_error = float(np.max(np.abs(start - target)))
+        while rclpy.ok() and time.monotonic() < deadline:
+            current = self._current_arm_vector()
+            error = float(np.max(np.abs(current - target)))
+            best_error = min(best_error, error)
+            if error <= tolerance:
+                moved = float(np.max(np.abs(current - start)))
+                self.get_logger().info(
+                    f"arm {label} feedback reached: max_error={error:.4f}, moved={moved:.4f}"
+                )
+                return
+            self._spin_sleep(0.05)
+
+        current = self._current_arm_vector()
+        moved = float(np.max(np.abs(current - start)))
+        current_list = [round(float(value), 6) for value in current]
+        target_list = [round(float(value), 6) for value in target]
+        raise TimeoutError(
+            f"arm {label} feedback did not reach target: best_error={best_error:.4f}, "
+            f"moved={moved:.4f}, current={current_list}, target={target_list}"
+        )
 
     def _publish_gripper(self, command: str) -> None:
         msg = String()

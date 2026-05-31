@@ -20,6 +20,11 @@ def generate_launch_description():
             DeclareLaunchArgument("cmd_vel_topic", default_value="/cmd_vel"),
             DeclareLaunchArgument("odom_topic", default_value="/odom"),
             DeclareLaunchArgument("joint_states_topic", default_value="/joint_states"),
+            DeclareLaunchArgument("arm_command_mode", default_value="topic"),
+            DeclareLaunchArgument(
+                "arm_follow_joint_trajectory_action",
+                default_value="/aubo_arm_controller/follow_joint_trajectory",
+            ),
             DeclareLaunchArgument(
                 "arm_trajectory_topic",
                 default_value="/aubo_arm_controller/joint_trajectory",
@@ -51,6 +56,8 @@ def generate_launch_description():
             DeclareLaunchArgument("arm_z_frame", default_value="aubo_base"),
             DeclareLaunchArgument("arm_duration_sec", default_value="4.0"),
             DeclareLaunchArgument("arm_max_joint_delta", default_value="1.0"),
+            DeclareLaunchArgument("arm_goal_tolerance", default_value="0.03"),
+            DeclareLaunchArgument("arm_goal_time_margin_sec", default_value="4.0"),
             DeclareLaunchArgument("gripper_cycles", default_value="5"),
             DeclareLaunchArgument("gripper_pause_sec", default_value="0.8"),
             DeclareLaunchArgument("gripper_final_state", default_value="open"),
@@ -68,6 +75,10 @@ def generate_launch_description():
                         "cmd_vel_topic": LaunchConfiguration("cmd_vel_topic"),
                         "odom_topic": LaunchConfiguration("odom_topic"),
                         "joint_states_topic": LaunchConfiguration("joint_states_topic"),
+                        "arm_command_mode": LaunchConfiguration("arm_command_mode"),
+                        "arm_follow_joint_trajectory_action": LaunchConfiguration(
+                            "arm_follow_joint_trajectory_action"
+                        ),
                         "arm_trajectory_topic": LaunchConfiguration("arm_trajectory_topic"),
                         "legacy_arm_trajectory_topic": LaunchConfiguration(
                             "legacy_arm_trajectory_topic"
@@ -96,6 +107,12 @@ def generate_launch_description():
                         ),
                         "arm_max_joint_delta": ParameterValue(
                             LaunchConfiguration("arm_max_joint_delta"), value_type=float
+                        ),
+                        "arm_goal_tolerance": ParameterValue(
+                            LaunchConfiguration("arm_goal_tolerance"), value_type=float
+                        ),
+                        "arm_goal_time_margin_sec": ParameterValue(
+                            LaunchConfiguration("arm_goal_time_margin_sec"), value_type=float
                         ),
                         "gripper_cycles": ParameterValue(
                             LaunchConfiguration("gripper_cycles"), value_type=int

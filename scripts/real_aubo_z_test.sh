@@ -30,6 +30,8 @@ exec "${ROOT_DIR}/scripts/real_hardware_acceptance_test.sh" \
   run_arm_test:=true \
   run_gripper_test:=false \
   joint_states_topic:=/joint_states \
+  arm_command_mode:=action \
+  arm_follow_joint_trajectory_action:=/joint_trajectory_controller/follow_joint_trajectory \
   arm_trajectory_topic:=/joint_trajectory_controller/joint_trajectory \
   legacy_arm_trajectory_topic:=/joint_trajectory_controller/joint_trajectory \
   arm_state_joint_names:="${AUBO_REAL_JOINTS}" \
