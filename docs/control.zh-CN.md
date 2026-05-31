@@ -205,14 +205,14 @@ ros2 launch arachne_operator sequence_executor.launch.py
 
 `teach_panel.py` 面向真机演示和小型实验示教。它监听 `/odom`、`/joint_states` 和硬件状态，手动控制三类设备，并把当前状态记录为 waypoint：
 
-- 底盘：按住按钮会以固定频率持续向 `/cmd_vel` 发布前进、后退、左转、右转，松开后停止。
+- 底盘：按住按钮会以固定频率持续向 `/cmd_vel` 发布前进、后退、左转、右转，松开后停止，并自动把这次长按转换成一个相对移动 waypoint。
 - Aubo：按 X/Y/Z 方向对末端做小步笛卡尔 jog，节点用本地 Aubo i5 FK/IK 转成关节轨迹，并优先走 `/joint_trajectory_controller/follow_joint_trajectory` action；RX/RY/RZ 是保守的腕部姿态微调，分别增量控制后三个腕部关节。
 - Aubo 示教：`Teach On` / `Teach Off` 向 `/arachne/aubo/teach_command` 发布命令；真机 bringup 中的 `aubo_teach_command_bridge` 会先打开本机示教门控，让 Aubo ros2_control 硬件接口停止 `servoJoint` 保持，再通过 30004 JSON-RPC 调用 `RobotManage.freedrive(true/false)`。
 - 夹具：向 `/arachne/gripper/command` 发布 `open`、`close` 或 `stop`。
-- 记录：保存底盘 odom 位姿、手动底盘移动段、Aubo 当前关节角、FK 得到的末端位置和夹具状态；列表中的 `base_moves=N` 表示该 waypoint 前累计了 N 段手动底盘移动。
+- 记录：机械臂保存 Aubo 当前关节角，夹具保存 open/close 状态；底盘不保存绝对 odom 位姿用于回放，而是保存相对移动段，例如 `forward 0.20 m`、`back 0.20 m`、`left 30 deg` 或 `right 30 deg`。FK 得到的末端位置只作为列表显示和调试元数据。
 - 等待：`Add Wait` 会在队列中插入等待 N 秒的步骤，适合让机械臂、底盘或夹具动作之间留出安全缓冲。
 - 复用：选中已有 waypoint 后点击 `Duplicate`，会把该点复制到队列末尾，便于重复使用同一姿态或等待步骤。
-- 回放：按 waypoint 顺序先回放手动底盘移动段，再用 `/odom` 闭环把 Scout 修正到记录位姿，随后发送夹具命令和 Aubo 关节轨迹；遇到 wait 步骤时只等待，不发送运动命令。
+- 回放：按 waypoint 顺序先用当前 `/odom` 闭环执行相对底盘移动段，再发送夹具命令和 Aubo 关节轨迹；不会把 Scout 拉回某个历史绝对 base 坐标。遇到 wait 步骤时只等待，不发送运动命令。
 - 重置：`Clear` 会清空列表并把下一个标签重置为 `wp_1`；`Reset` 会先停止当前动作，再清空列表、文件状态和标签编号。
 
 启动前先启动仿真或真机 bringup，再打开面板：

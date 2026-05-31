@@ -135,7 +135,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 ./scripts/real_teach_demo.sh
 ```
 
-它会启动真机 bringup，等待 `/odom`、`/joint_states`、Aubo trajectory action 和夹具状态可用后打开示教面板；关闭面板时会自动停止 bringup。面板可以手动控制底盘、Aubo 末端和 MS42DC，支持 Aubo Teach On/Off、RX/RY/RZ 腕部微调、底盘手动移动段记录、等待步骤和 waypoint 复用，并将记录保存到本地 `recordings/teach/` 后一键慢速回放。
+它会启动真机 bringup，等待 `/odom`、`/joint_states`、Aubo trajectory action 和夹具状态可用后打开示教面板；关闭面板时会自动停止 bringup。面板可以手动控制底盘、Aubo 末端和 MS42DC，支持 Aubo Teach On/Off、RX/RY/RZ 腕部微调、底盘长按松开后自动记录相对移动段、等待步骤和 waypoint 复用，并将记录保存到本地 `recordings/teach/` 后一键慢速回放。
 
 ## 项目结构
 

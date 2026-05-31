@@ -205,14 +205,14 @@ ros2 launch arachne_operator sequence_executor.launch.py
 
 `teach_panel.py` is intended for real-hardware demos and small teach-in experiments. It listens to `/odom`, `/joint_states`, and hardware status topics, manually controls the three subsystems, and records the current state as a waypoint:
 
-- Base: hold buttons continuously publish forward, backward, left, and right commands on `/cmd_vel` at a fixed rate; releasing the button stops the base.
+- Base: hold buttons continuously publish forward, backward, left, and right commands on `/cmd_vel` at a fixed rate; releasing the button stops the base and automatically turns that hold operation into a relative-motion waypoint.
 - Aubo: X/Y/Z tool jog buttons solve local Aubo i5 FK/IK and send a joint trajectory, preferring `/joint_trajectory_controller/follow_joint_trajectory`. RX/RY/RZ are conservative wrist-orientation jogs that increment the last three wrist joints.
 - Aubo teach mode: `Teach On` / `Teach Off` publishes on `/arachne/aubo/teach_command`; real bringup runs `aubo_teach_command_bridge`, which first enables a local teach gate so the Aubo ros2_control hardware interface stops `servoJoint` hold writes, then calls `RobotManage.freedrive(true/false)` through direct 30004 JSON-RPC.
 - Gripper: publishes `open`, `close`, or `stop` on `/arachne/gripper/command`.
-- Record: stores base odom pose, manual base-motion segments, current Aubo joints, FK tool position, and gripper state. `base_moves=N` in the list means N manual base-motion segments were accumulated before that waypoint.
+- Record: stores current Aubo joints for the arm and open/close state for the gripper. The base is not replayed from an absolute odom pose; it is stored as relative motion such as `forward 0.20 m`, `back 0.20 m`, `left 30 deg`, or `right 30 deg`. FK tool position is kept only as display/debug metadata.
 - Wait: `Add Wait` inserts an N-second wait step into the queue for safe pauses between arm, base, or gripper actions.
 - Reuse: select an existing waypoint and click `Duplicate` to append a copy, so the same pose or wait step can be reused later in the sequence.
-- Replay: replays manual base-motion segments first, refines Scout to the recorded odom pose with closed-loop `/odom` feedback, then sends gripper commands and Aubo joint trajectories. Wait steps only sleep and send no motion commands.
+- Replay: executes relative base-motion segments with current `/odom` feedback first, then sends gripper commands and Aubo joint trajectories. It does not pull Scout back to a historical absolute base coordinate. Wait steps only sleep and send no motion commands.
 - Reset: `Clear` empties the list and resets the next label to `wp_1`; `Reset` stops current motion, clears the list, resets file state, and resets labels.
 
 Start simulation or real bringup first, then open the panel:

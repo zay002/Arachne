@@ -13,8 +13,8 @@
 
 ## 文件关系
 
-`teach_panel.py` 与已有真机 bringup 共享同一组 ROS 契约：底盘使用 `/cmd_vel` 和 `/odom`，机械臂使用 `/joint_states` 与 `FollowJointTrajectory`，夹具使用 `/arachne/gripper/command`。UI 记录的是状态快照，保存为 JSON；回放时重新向这些底层接口发送命令，因此同一套记录可以用于演示复现和后续调参。
+`teach_panel.py` 与已有真机 bringup 共享同一组 ROS 契约：底盘使用 `/cmd_vel` 和 `/odom`，机械臂使用 `/joint_states` 与 `FollowJointTrajectory`，夹具使用 `/arachne/gripper/command`。UI 保存为 JSON；机械臂回放基于关节角，底盘回放基于相对移动段，因此同一套记录可以用于演示复现和后续调参。
 
 ## 当前边界
 
-回放的底盘位姿基于当前 `/odom` 坐标系，最适合从记录时相近的起点开始演示。Aubo 末端 jog 使用本地位置 IK，不做完整避障；正式自动任务仍应交给 MoveIt2/Nav2。
+底盘相对移动仍依赖 `/odom` 闭环估计距离和角度，但不再保存历史绝对 base 坐标。Aubo 末端 jog 使用本地位置 IK，不做完整避障；正式自动任务仍应交给 MoveIt2/Nav2。

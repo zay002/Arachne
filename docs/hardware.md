@@ -117,7 +117,7 @@ For teach demonstrations, use:
 ./scripts/real_teach_demo.sh
 ```
 
-This starts bringup, waits for the core topics and Aubo action, then opens the teach/replay panel; closing the panel stops the background bringup. Teach JSON files are saved locally under `recordings/teach/` by default, and replay uses slow safety defaults.
+This starts bringup, waits for the core topics and Aubo action, then opens the teach/replay panel; closing the panel stops the background bringup. Teach JSON files are saved locally under `recordings/teach/` by default. Base hold-to-drive operations are stored as relative forward/backward distance or left/right turn waypoints when the button is released, and replay uses slow safety defaults.
 
 For isolated MS42DC calibration, start with a small command before using the full factory stroke. The current small-angle test value is `300` tenths of a degree (`30 deg`) and the default demo speed is `150` tenths of rad/s (`15 rad/s`). The factory full open/close example is `18720` tenths of a degree, or `1872 deg = 5.2 turns`, and should only be used after physical travel and homing behavior are confirmed:
 

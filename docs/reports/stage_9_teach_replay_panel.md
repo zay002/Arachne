@@ -13,8 +13,8 @@ Provide a visual teach-in tool for demos and small experiments: manually control
 
 ## File Relationships
 
-`teach_panel.py` uses the same ROS contracts as real bringup: `/cmd_vel` and `/odom` for the base, `/joint_states` and `FollowJointTrajectory` for the arm, and `/arachne/gripper/command` for the gripper. The UI records state snapshots as JSON; replay sends commands back through these interfaces, so a recording can support repeatable demos and later calibration.
+`teach_panel.py` uses the same ROS contracts as real bringup: `/cmd_vel` and `/odom` for the base, `/joint_states` and `FollowJointTrajectory` for the arm, and `/arachne/gripper/command` for the gripper. The UI saves JSON recordings; arm replay uses joint values, and base replay uses relative motion segments, so a recording can support repeatable demos and later calibration.
 
 ## Current Boundaries
 
-Base replay uses the current `/odom` frame, so it is best started near the same pose used while recording. Aubo tool jog uses local position IK without full collision checking; autonomous tasks should still move to MoveIt2/Nav2.
+Base replay still uses `/odom` to close distance and angle, but it no longer stores or replays historical absolute base coordinates. Aubo tool jog uses local position IK without full collision checking; autonomous tasks should still move to MoveIt2/Nav2.

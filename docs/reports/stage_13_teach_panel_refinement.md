@@ -6,7 +6,7 @@ Make the real-hardware teach panel more useful for demo authoring: enter/exit Au
 
 ## Core Files
 
-- `src/arachne_operator/arachne_operator/teach_panel.py`: adds Aubo `Teach On/Off`, RX/RY/RZ wrist-orientation jogs, continuous hold-to-drive base teleop, recorded manual base-motion segments, and `Duplicate` waypoint reuse.
+- `src/arachne_operator/arachne_operator/teach_panel.py`: adds Aubo `Teach On/Off`, RX/RY/RZ wrist-orientation jogs, continuous hold-to-drive base teleop, relative base-motion recording, and `Duplicate` waypoint reuse.
 - `src/arachne_operator/launch/teach_panel.launch.py`: exposes the teach command topic and orientation-jog parameters.
 - `src/arachne_hardware/arachne_hardware/aubo_tcp_driver.py`: adds `aubo_teach_command_bridge`, which maps `/arachne/aubo/teach_command` to the Aubo 30004 JSON-RPC call `RobotManage.freedrive(true/false)`.
 - `src/arachne_hardware/arachne_hardware/hardware_mock.py`: accepts the same teach command topic and reports teach on/off in mock status.
@@ -14,7 +14,7 @@ Make the real-hardware teach panel more useful for demo authoring: enter/exit Au
 
 ## Relationships
 
-The teach UI only publishes stable ROS commands: base motion uses `/cmd_vel`, the gripper uses `/arachne/gripper/command`, Aubo teach mode uses `/arachne/aubo/teach_command`, and arm motion still uses the trajectory action/topic. Real bringup adapts the Arachne teach command to Aubo JSON-RPC; mock bringup uses the same topic for hardware-free validation. Manual base commands between button press and release are stored as base-motion segments inside the next waypoint and are replayed with that waypoint.
+The teach UI only publishes stable ROS commands: base motion uses `/cmd_vel`, the gripper uses `/arachne/gripper/command`, Aubo teach mode uses `/arachne/aubo/teach_command`, and arm motion still uses the trajectory action/topic. Real bringup adapts the Arachne teach command to Aubo JSON-RPC; mock bringup uses the same topic for hardware-free validation. Manual base commands between button press and release are stored as relative forward/backward distance or left/right turn waypoints and are replayed from the robot's current odom state.
 
 ## Note
 

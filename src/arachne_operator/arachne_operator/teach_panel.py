@@ -314,7 +314,7 @@ class TeachPanelNode(Node):
                 "command": direction,
                 "linear_x": float(linear_x),
                 "angular_z": float(angular_z),
-                "start_pose": self._base_pose_values_locked(),
+                "_start_pose": self._base_pose_values_locked(),
                 "start_stamp": datetime.now().isoformat(timespec="seconds"),
                 "_start_monotonic": now,
             }
@@ -329,20 +329,91 @@ class TeachPanelNode(Node):
     def _close_base_motion_locked(self, now: float) -> None:
         if self.active_base_motion is None:
             return
-        segment = dict(self.active_base_motion)
-        start = float(segment.pop("_start_monotonic", now))
+        active = dict(self.active_base_motion)
+        start = float(active.get("_start_monotonic", now))
         duration = max(0.0, now - start)
         if duration >= 0.05:
-            segment["duration_sec"] = duration
-            segment["end_pose"] = self._base_pose_values_locked()
+            end_pose = self._base_pose_values_locked()
+            segment = self._make_relative_base_segment(active, end_pose, duration)
             segment["end_stamp"] = datetime.now().isoformat(timespec="seconds")
             self.base_motion_segments.append(segment)
+            self.last_status = self._describe_base_segment(segment)
         self.active_base_motion = None
 
     def _base_pose_values_locked(self) -> list[float]:
         if self.base_pose is None:
             return []
         return [self.base_pose.x, self.base_pose.y, self.base_pose.yaw]
+
+    def _make_relative_base_segment(
+        self, active: dict, end_pose: list[float], duration: float
+    ) -> dict:
+        command = str(active.get("command", "stop"))
+        linear_x = float(active.get("linear_x", 0.0))
+        angular_z = float(active.get("angular_z", 0.0))
+        start_pose = active.get("_start_pose", [])
+        source = "timed"
+        signed_distance = linear_x * duration
+        signed_angle = angular_z * duration
+
+        if len(start_pose) == 3 and len(end_pose) == 3:
+            dx = float(end_pose[0]) - float(start_pose[0])
+            dy = float(end_pose[1]) - float(start_pose[1])
+            start_yaw = float(start_pose[2])
+            signed_distance = dx * math.cos(start_yaw) + dy * math.sin(start_yaw)
+            signed_angle = _angle_diff(float(end_pose[2]), start_yaw)
+            source = "odom"
+
+        if command in ("forward", "back"):
+            if abs(signed_distance) < 1e-5:
+                signed_distance = linear_x * duration
+                source = "timed"
+            action = "forward" if signed_distance >= 0.0 else "back"
+            return {
+                "type": "linear",
+                "action": action,
+                "distance_m": abs(float(signed_distance)),
+                "signed_distance_m": float(signed_distance),
+                "duration_sec": float(duration),
+                "linear_x": linear_x,
+                "source": source,
+                "start_stamp": active.get("start_stamp", ""),
+            }
+
+        if command in ("left", "right"):
+            if abs(signed_angle) < 1e-5:
+                signed_angle = angular_z * duration
+                source = "timed"
+            action = "left" if signed_angle >= 0.0 else "right"
+            return {
+                "type": "angular",
+                "action": action,
+                "angle_rad": abs(float(signed_angle)),
+                "signed_angle_rad": float(signed_angle),
+                "duration_sec": float(duration),
+                "angular_z": angular_z,
+                "source": source,
+                "start_stamp": active.get("start_stamp", ""),
+            }
+
+        return {
+            "type": "timed",
+            "action": command,
+            "duration_sec": float(duration),
+            "linear_x": linear_x,
+            "angular_z": angular_z,
+            "source": source,
+            "start_stamp": active.get("start_stamp", ""),
+        }
+
+    def _describe_base_segment(self, segment: dict) -> str:
+        action = str(segment.get("action", "base"))
+        if segment.get("type") == "linear":
+            return f"base recorded: {action} {float(segment.get('distance_m', 0.0)):.3f} m"
+        if segment.get("type") == "angular":
+            angle = math.degrees(float(segment.get("angle_rad", 0.0)))
+            return f"base recorded: {action} {angle:.1f} deg"
+        return f"base recorded: {action} {float(segment.get('duration_sec', 0.0)):.1f} s"
 
     def _jog_arm_worker(self, axis: str, sign: float) -> None:
         q_start = self._current_arm_vector()
@@ -413,17 +484,17 @@ class TeachPanelNode(Node):
             arm = self._current_arm_vector_locked()
             tool = self.tool_position
             gripper = self.gripper_state
+            if base is None:
+                raise RuntimeError("missing /odom")
+            if arm is None or tool is None:
+                raise RuntimeError("missing Aubo /joint_states")
             base_motion = [dict(item) for item in self.base_motion_segments]
             self.base_motion_segments.clear()
-        if base is None:
-            raise RuntimeError("missing /odom")
-        if arm is None or tool is None:
-            raise RuntimeError("missing Aubo /joint_states")
         clean_label = label.strip() or f"wp_{datetime.now().strftime('%H%M%S')}"
         waypoint = TeachWaypoint(
             label=clean_label,
             stamp=datetime.now().isoformat(timespec="seconds"),
-            base_pose=[base.x, base.y, base.yaw],
+            base_pose=[],
             arm_joints=[float(value) for value in arm],
             tool_position=[float(value) for value in tool],
             gripper=gripper,
@@ -476,8 +547,6 @@ class TeachPanelNode(Node):
 
                 if waypoint.base_motion:
                     self._replay_base_motion(waypoint.base_motion, waypoint.label)
-                if len(waypoint.base_pose) == 3:
-                    self._drive_base_to_pose(Pose2D(*waypoint.base_pose))
                 if waypoint.gripper in ("open", "close"):
                     self.publish_gripper(waypoint.gripper)
                 if not self._send_arm_positions(
@@ -499,19 +568,78 @@ class TeachPanelNode(Node):
         for index, segment in enumerate(segments, start=1):
             if self.cancel_event.is_set():
                 break
-            duration = max(0.0, min(float(segment.get("duration_sec", 0.0)), max_duration))
-            linear_x = float(segment.get("linear_x", 0.0))
-            angular_z = float(segment.get("angular_z", 0.0))
-            self._status(
-                f"base motion {index}/{len(segments)} for {label}: "
-                f"vx={linear_x:.3f} wz={angular_z:.3f} t={duration:.1f}s"
-            )
-            deadline = time.monotonic() + duration
-            while not self.cancel_event.is_set() and time.monotonic() < deadline:
-                self.set_base_velocity(linear_x, angular_z)
-                time.sleep(0.05)
+            normalized = self._normalize_base_motion_segment(segment)
+            motion_type = normalized.get("type")
+            if motion_type == "linear":
+                distance = float(normalized.get("signed_distance_m", 0.0))
+                self._status(
+                    f"base motion {index}/{len(segments)} for {label}: "
+                    f"{normalized.get('action', 'linear')} {abs(distance):.3f}m"
+                )
+                self._drive_distance(distance)
+            elif motion_type == "angular":
+                angle = float(normalized.get("signed_angle_rad", 0.0))
+                self._status(
+                    f"base motion {index}/{len(segments)} for {label}: "
+                    f"{normalized.get('action', 'angular')} {abs(math.degrees(angle)):.1f}deg"
+                )
+                self._turn_relative(angle)
+            else:
+                duration = max(0.0, min(float(normalized.get("duration_sec", 0.0)), max_duration))
+                linear_x = float(normalized.get("linear_x", 0.0))
+                angular_z = float(normalized.get("angular_z", 0.0))
+                self._status(
+                    f"base motion {index}/{len(segments)} for {label}: "
+                    f"vx={linear_x:.3f} wz={angular_z:.3f} t={duration:.1f}s"
+                )
+                deadline = time.monotonic() + duration
+                while not self.cancel_event.is_set() and time.monotonic() < deadline:
+                    self.set_base_velocity(linear_x, angular_z)
+                    time.sleep(0.05)
             self.set_base_velocity(0.0, 0.0)
             self._sleep(0.1)
+
+    def _normalize_base_motion_segment(self, segment: dict) -> dict:
+        if segment.get("type") == "linear":
+            normalized = dict(segment)
+            if "signed_distance_m" not in normalized:
+                action = str(normalized.get("action", "forward"))
+                distance = abs(float(normalized.get("distance_m", 0.0)))
+                normalized["signed_distance_m"] = -distance if action == "back" else distance
+            normalized["distance_m"] = abs(float(normalized.get("signed_distance_m", 0.0)))
+            normalized["action"] = (
+                "forward" if float(normalized.get("signed_distance_m", 0.0)) >= 0.0 else "back"
+            )
+            return normalized
+        if segment.get("type") == "angular":
+            normalized = dict(segment)
+            if "signed_angle_rad" not in normalized:
+                action = str(normalized.get("action", "left"))
+                angle = abs(float(normalized.get("angle_rad", 0.0)))
+                normalized["signed_angle_rad"] = -angle if action == "right" else angle
+            normalized["angle_rad"] = abs(float(normalized.get("signed_angle_rad", 0.0)))
+            normalized["action"] = (
+                "left" if float(normalized.get("signed_angle_rad", 0.0)) >= 0.0 else "right"
+            )
+            return normalized
+        if segment.get("type") == "timed":
+            return dict(segment)
+
+        command = str(segment.get("command", ""))
+        duration = float(segment.get("duration_sec", 0.0))
+        linear_x = float(segment.get("linear_x", 0.0))
+        angular_z = float(segment.get("angular_z", 0.0))
+        start_pose = segment.get("start_pose", [])
+        end_pose = segment.get("end_pose", [])
+
+        active = {
+            "command": command,
+            "linear_x": linear_x,
+            "angular_z": angular_z,
+            "_start_pose": start_pose,
+            "start_stamp": segment.get("start_stamp", ""),
+        }
+        return self._make_relative_base_segment(active, end_pose, duration)
 
     def _drive_base_to_pose(self, target: Pose2D) -> None:
         current = self._current_base_pose()
@@ -528,6 +656,11 @@ class TeachPanelNode(Node):
             self._drive_distance(direction * distance)
         self._turn_to_yaw(target.yaw)
         self.set_base_velocity(0.0, 0.0)
+
+    def _turn_relative(self, angle: float) -> None:
+        current = self._current_base_pose()
+        target = math.atan2(math.sin(current.yaw + angle), math.cos(current.yaw + angle))
+        self._turn_to_yaw(target)
 
     def _turn_to_yaw(self, target_yaw: float) -> None:
         tolerance = math.radians(float(self.get_parameter("base_yaw_tolerance_deg").value))
@@ -650,6 +783,10 @@ class TeachPanelNode(Node):
             self.active_base_motion = None
             self.manual_base_velocity = None
 
+    def pending_base_motion_count(self) -> int:
+        with self.lock:
+            return len(self.base_motion_segments) + (1 if self.active_base_motion is not None else 0)
+
     def _status(self, text: str, *, warn: bool = False) -> None:
         with self.lock:
             self.last_status = text
@@ -745,8 +882,8 @@ class TeachPanelApp:
             if direction == "stop":
                 button.configure(command=lambda: self.node.drive_base_manual("stop"))
             else:
-                button.bind("<ButtonPress-1>", lambda _event, d=direction: self.node.drive_base_manual(d))
-                button.bind("<ButtonRelease-1>", lambda _event: self.node.drive_base_manual("stop"))
+                button.bind("<ButtonPress-1>", lambda _event, d=direction: self._base_press(d))
+                button.bind("<ButtonRelease-1>", lambda _event: self._base_release())
 
     def _build_arm_controls(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="Aubo Tool Jog")
@@ -796,6 +933,14 @@ class TeachPanelApp:
         for key, var in self.status_vars.items():
             var.set(snapshot.get(key, "waiting"))
         self.root.after(100, self._refresh)
+
+    def _base_press(self, direction: str) -> None:
+        self.node.drive_base_manual(direction)
+
+    def _base_release(self) -> None:
+        self.node.drive_base_manual("stop")
+        if self.node.pending_base_motion_count() > 0:
+            self._record()
 
     def _record(self) -> None:
         try:
@@ -871,7 +1016,7 @@ class TeachPanelApp:
         if not path:
             return
         payload = {
-            "format": "arachne_teach_v1",
+            "format": "arachne_teach_v2",
             "saved_at": datetime.now().isoformat(timespec="seconds"),
             "arm_command_joint_names": self.node.arm_command_joint_names,
             "waypoints": [asdict(item) for item in self.waypoints],
@@ -901,17 +1046,38 @@ class TeachPanelApp:
             if waypoint.kind == "wait":
                 self.listbox.insert(tk.END, f"{index:02d} {waypoint.label} | wait={waypoint.wait_sec:.1f}s")
                 continue
-            x, y, yaw = waypoint.base_pose
             tool = waypoint.tool_position
+            moves = self._base_motion_summary(waypoint.base_motion)
+            tool_text = (
+                f"tool=({tool[0]:.2f},{tool[1]:.2f},{tool[2]:.2f})"
+                if len(tool) == 3
+                else "tool=unknown"
+            )
             self.listbox.insert(
                 tk.END,
                 (
-                    f"{index:02d} {waypoint.label} | base=({x:.2f},{y:.2f},"
-                    f"{math.degrees(yaw):.0f}deg) tool=({tool[0]:.2f},{tool[1]:.2f},"
-                    f"{tool[2]:.2f}) gripper={waypoint.gripper} "
-                    f"base_moves={len(waypoint.base_motion)}"
+                    f"{index:02d} {waypoint.label} | base={moves} "
+                    f"{tool_text} gripper={waypoint.gripper}"
                 ),
             )
+
+    def _base_motion_summary(self, segments: list[dict]) -> str:
+        if not segments:
+            return "none"
+        parts: list[str] = []
+        for segment in segments[:3]:
+            normalized = self.node._normalize_base_motion_segment(segment)
+            action = normalized.get("action", "?")
+            if normalized.get("type") == "linear":
+                parts.append(f"{action} {float(normalized.get('distance_m', 0.0)):.2f}m")
+            elif normalized.get("type") == "angular":
+                angle = math.degrees(float(normalized.get("angle_rad", 0.0)))
+                parts.append(f"{action} {angle:.0f}deg")
+            else:
+                parts.append(f"{action} {float(normalized.get('duration_sec', 0.0)):.1f}s")
+        if len(segments) > 3:
+            parts.append(f"+{len(segments) - 3}")
+        return ", ".join(parts)
 
     def run(self) -> None:
         self.root.mainloop()

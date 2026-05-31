@@ -6,7 +6,7 @@
 
 ## 核心文件
 
-- `src/arachne_operator/arachne_operator/teach_panel.py`：新增 Aubo `Teach On/Off`、RX/RY/RZ 腕部姿态 jog、底盘长按连续遥控与手动移动段记录，以及 `Duplicate` 路点复用。
+- `src/arachne_operator/arachne_operator/teach_panel.py`：新增 Aubo `Teach On/Off`、RX/RY/RZ 腕部姿态 jog、底盘长按连续遥控与相对移动段记录，以及 `Duplicate` 路点复用。
 - `src/arachne_operator/launch/teach_panel.launch.py`：暴露示教命令 topic 和姿态 jog 参数。
 - `src/arachne_hardware/arachne_hardware/aubo_tcp_driver.py`：新增 `aubo_teach_command_bridge`，把 `/arachne/aubo/teach_command` 转成 Aubo 30004 JSON-RPC 的 `RobotManage.freedrive(true/false)` 调用。
 - `src/arachne_hardware/arachne_hardware/hardware_mock.py`：mock 接收同一示教命令并在状态中显示 teach on/off。
@@ -14,7 +14,7 @@
 
 ## 文件关系
 
-示教 UI 只发布统一 ROS 命令：底盘走 `/cmd_vel`，夹具走 `/arachne/gripper/command`，Aubo 示教模式走 `/arachne/aubo/teach_command`，机械臂运动仍走 trajectory action/topic。真机 bringup 中的 bridge 负责把 Arachne 命令适配到 Aubo JSON-RPC；mock bringup 使用同一 topic 做无硬件验证。底盘手动控制在按下和松开之间记录成 base motion segment，随 waypoint 保存并参与回放。
+示教 UI 只发布统一 ROS 命令：底盘走 `/cmd_vel`，夹具走 `/arachne/gripper/command`，Aubo 示教模式走 `/arachne/aubo/teach_command`，机械臂运动仍走 trajectory action/topic。真机 bringup 中的 bridge 负责把 Arachne 命令适配到 Aubo JSON-RPC；mock bringup 使用同一 topic 做无硬件验证。底盘手动控制在按下和松开之间记录成相对移动 waypoint，例如前进/后退距离或左/右转角，并从当前 odom 状态回放。
 
 ## 说明
 
