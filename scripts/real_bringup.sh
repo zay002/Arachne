@@ -9,6 +9,7 @@ USE_AUBO="${USE_AUBO:-true}"
 SCOUT_DRIVER="${SCOUT_DRIVER:-waveshare}"
 AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
 SKIP_AUBO_CHECK="${SKIP_AUBO_CHECK:-false}"
+HURRY_AUTO_ATTACH="${HURRY_AUTO_ATTACH:-true}"
 SHOW_ARGS=false
 EXTRA_ARGS=()
 
@@ -30,6 +31,7 @@ Useful environment overrides:
   SCOUT_PORT=/dev/...       Override Scout Waveshare serial path.
   MS42DC_PORT=/dev/...      Override MS42DC serial path.
   AUBO_ROBOT_IP=...         Override Aubo controller IP.
+  HURRY_AUTO_ATTACH=false   Disable automatic WSL2 usbipd attach attempts.
 EOF
 }
 
@@ -82,12 +84,49 @@ EOF
   exit 1
 }
 
+is_wsl() {
+  grep -qiE 'microsoft|wsl' /proc/version /proc/sys/kernel/osrelease 2>/dev/null
+}
+
+try_hurry_attach() {
+  local label="$1"
+  local scan_pattern="$2"
+
+  if [[ "${HURRY_AUTO_ATTACH}" != "true" || "${SHOW_ARGS}" == "true" ]]; then
+    return 1
+  fi
+  if ! is_wsl || ! command -v hurry >/dev/null 2>&1; then
+    return 1
+  fi
+
+  echo "Trying hurry auto-attach for ${label}..." >&2
+  local bus_id
+  bus_id="$(
+    hurry scan 2>/dev/null \
+      | awk -v pat="${scan_pattern}" '$1 ~ /^usbipd:/ && $0 ~ pat {sub(/^usbipd:/, "", $1); print $1; exit}'
+  )"
+  if [[ -z "${bus_id}" ]]; then
+    echo "hurry auto-attach: no matching Windows USB device for ${label}" >&2
+    return 1
+  fi
+
+  hurry attach "${bus_id}" >&2 || return 1
+  sleep 2
+  return 0
+}
+
 resolve_port() {
   local env_value="$1"
   local label="$2"
-  shift 2
+  local attach_pattern="$3"
+  shift 3
 
   if [[ -n "${env_value}" ]]; then
+    if [[ -e "${env_value}" ]]; then
+      printf '%s\n' "${env_value}"
+      return 0
+    fi
+    try_hurry_attach "${label}" "${attach_pattern}" || true
     if [[ -e "${env_value}" ]]; then
       printf '%s\n' "${env_value}"
       return 0
@@ -97,16 +136,21 @@ resolve_port() {
   fi
 
   local pattern match
-  for pattern in "$@"; do
-    shopt -s nullglob
-    for match in ${pattern}; do
-      if [[ -e "${match}" ]]; then
-        shopt -u nullglob
-        printf '%s\n' "${match}"
-        return 0
-      fi
+  for attempt in 1 2; do
+    for pattern in "$@"; do
+      shopt -s nullglob
+      for match in ${pattern}; do
+        if [[ -e "${match}" ]]; then
+          shopt -u nullglob
+          printf '%s\n' "${match}"
+          return 0
+        fi
+      done
+      shopt -u nullglob
     done
-    shopt -u nullglob
+    if (( attempt == 1 )); then
+      try_hurry_attach "${label}" "${attach_pattern}" || break
+    fi
   done
 
   fail_missing_port "${label}"
@@ -125,7 +169,7 @@ if [[ "${USE_SCOUT}" == "true" && "${SCOUT_DRIVER}" =~ ^(waveshare|serial|usb_ca
     SCOUT_PORT_RESOLVED="/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
   else
     SCOUT_PORT_RESOLVED="$(
-      resolve_port "${SCOUT_PORT_RESOLVED}" "SCOUT_PORT" \
+      resolve_port "${SCOUT_PORT_RESOLVED}" "SCOUT_PORT" "USB-SERIAL CH340|CH340" \
         "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0" \
         "/dev/serial/by-id/*USB_Serial-if00-port0" \
         "/dev/ttyUSB*"
@@ -138,7 +182,7 @@ if [[ "${USE_MS42DC}" == "true" ]]; then
     MS42DC_PORT_RESOLVED="/dev/serial/by-id/usb-1a86_USB_Single_Serial_58EB003416-if00"
   else
     MS42DC_PORT_RESOLVED="$(
-      resolve_port "${MS42DC_PORT_RESOLVED}" "MS42DC_PORT" \
+      resolve_port "${MS42DC_PORT_RESOLVED}" "MS42DC_PORT" "USB-Enhanced-SERIAL CH9102|CH9102|USB_Single_Serial" \
         "/dev/motor_serial" \
         "/dev/serial/by-id/usb-1a86_USB_Single_Serial_58EB003416-if00" \
         "/dev/serial/by-id/*USB_Single_Serial*" \

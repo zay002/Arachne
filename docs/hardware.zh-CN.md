@@ -109,7 +109,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh
 ./scripts/real_bringup.sh
 ```
 
-如果 WSL2 重启后串口消失，先用 `hurry scan` / `hurry attach <BUSID>` 重新透传 USB，再运行脚本。原生 Linux SocketCAN 适配器可用 `SCOUT_DRIVER=official SCOUT_PORT=can0 ./scripts/real_bringup.sh`。
+如果 WSL2 重启后串口消失，脚本会先尝试用 `hurry` 自动 attach CH9102/CH340 设备；如果 Windows 侧设备尚未共享，再按提示执行 `hurry scan` / `hurry attach <BUSID>`。原生 Linux SocketCAN 适配器可用 `SCOUT_DRIVER=official SCOUT_PORT=can0 ./scripts/real_bringup.sh`。
 
 示教演示可以直接使用：
 

@@ -13,4 +13,4 @@ Reduce daily real-hardware demos from multi-terminal, multi-argument launch comm
 
 ## File Relationships
 
-The lower-level `real_bringup.launch.py` still exposes full parameters for debugging. The new scripts encode the lab defaults and print `hurry-porter` hints when serial devices are missing.
+The lower-level `real_bringup.launch.py` still exposes full parameters for debugging. The new scripts encode the lab defaults, try `hurry-porter` auto-attach when serial devices are missing, and print manual USB handoff hints if auto-attach fails.

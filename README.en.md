@@ -110,7 +110,7 @@ For day-to-day real-hardware work, use the automatic entry. It selects the Scout
 ./scripts/real_bringup.sh
 ```
 
-For WSL2, [hurry-porter](https://github.com/zay002/hurry-porter) is recommended for USB handoff, serial discovery, and Waveshare USB-CAN-A diagnostics.
+For WSL2, [hurry-porter](https://github.com/zay002/hurry-porter) is recommended for USB handoff, serial discovery, and Waveshare USB-CAN-A diagnostics. When `real_bringup.sh` cannot find serial ports, it first tries to auto-attach the CH9102/CH340 devices; if Windows has not shared them yet, follow the printed manual attach hint.
 
 ```bash
 hurry scan

@@ -109,7 +109,7 @@ Bring up the connected hardware in one terminal. For daily use, prefer the autom
 ./scripts/real_bringup.sh
 ```
 
-If WSL2 restarts and serial devices disappear, run `hurry scan` / `hurry attach <BUSID>` first, then retry. For native SocketCAN adapters, use `SCOUT_DRIVER=official SCOUT_PORT=can0 ./scripts/real_bringup.sh`.
+If WSL2 restarts and serial devices disappear, the script first tries to auto-attach the CH9102/CH340 devices through `hurry`; if Windows has not shared them yet, follow the printed `hurry scan` / `hurry attach <BUSID>` hint. For native SocketCAN adapters, use `SCOUT_DRIVER=official SCOUT_PORT=can0 ./scripts/real_bringup.sh`.
 
 For teach demonstrations, use:
 

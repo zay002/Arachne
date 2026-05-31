@@ -13,4 +13,4 @@
 
 ## 文件关系
 
-底层 `real_bringup.launch.py` 仍然保留完整参数，适合调试；新脚本只负责把实验室常用配置固化成默认流程，并在缺少串口时提示使用 `hurry-porter` 重新透传 USB。
+底层 `real_bringup.launch.py` 仍然保留完整参数，适合调试；新脚本只负责把实验室常用配置固化成默认流程，并在缺少串口时优先用 `hurry-porter` 自动 attach，失败后再提示手动透传 USB。
