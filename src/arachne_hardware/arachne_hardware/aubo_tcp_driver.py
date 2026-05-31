@@ -189,17 +189,37 @@ class AuboTeachCommandBridge(Node):
         status: Any = "unknown"
         while time.monotonic() <= deadline:
             status = self._read_teach_status(rpc, method)
-            if status is False or str(status).strip().lower() in ("false", "0", "disabled", "off"):
-                return status
+            mode, safety = self._read_robot_state(rpc)
+            teach_disabled = status is False or str(status).strip().lower() in (
+                "false",
+                "0",
+                "disabled",
+                "off",
+            )
+            state_ready = mode == "running" and safety in ("normal", "reducedmode")
+            if teach_disabled and state_ready:
+                return f"teach={status} mode={mode} safety={safety}"
             if isinstance(status, str) and status.startswith("status unavailable"):
                 time.sleep(min(timeout, poll))
-                return status
+                status = f"{status}; mode={mode} safety={safety}"
             try:
                 self._send_teach_rpc(rpc, method, False)
             except Exception as exc:
                 status = f"disable retry failed: {exc}"
             time.sleep(poll)
-        raise TimeoutError(f"teach mode did not report disabled before timeout; last status={status}")
+        mode, safety = self._read_robot_state(rpc)
+        raise TimeoutError(
+            "teach mode did not return to Running/Normal before timeout; "
+            f"last teach={status} mode={mode} safety={safety}"
+        )
+
+    def _read_robot_state(self, rpc: AuboDirectJsonRpc) -> tuple[str, str]:
+        try:
+            mode = str(rpc.robot_call("RobotState.getRobotModeType")).strip().lower()
+            safety = str(rpc.robot_call("RobotState.getSafetyModeType")).strip().lower()
+            return mode, safety
+        except Exception as exc:
+            return "unknown", f"unknown:{exc}"
 
     def _clear_teach_flag(self, path: Path) -> None:
         try:

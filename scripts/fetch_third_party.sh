@@ -440,6 +440,70 @@ source.write_text(s)
 PY
 fi
 
+# Teach Off can report Running while safety is still ProtectiveStop for a short
+# period. During that transition the hardware plugin must keep controller
+# manager alive and hold measured joints, not return ERROR.
+if [[ -f "${aubo_hw_source}" ]] && ! grep -q 'robot is not ready for servoJoint' "${aubo_hw_source}"; then
+  "${PYTHON_BIN}" - "${aubo_hw_source}" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1])
+s = source.read_text()
+s = s.replace(
+"""    const bool safety_ok =
+        safety_mode_ == SafetyModeType::Normal || safety_mode_ == SafetyModeType::ReducedMode;
+    if (safety_ok && teachControlEnabled()) {
+""",
+"""    const bool safety_ok =
+        safety_mode_ == SafetyModeType::Normal || safety_mode_ == SafetyModeType::ReducedMode;
+    const bool recoverable_stop =
+        safety_mode_ == SafetyModeType::ProtectiveStop || safety_mode_ == SafetyModeType::SafeguardStop;
+    if (teachControlEnabled()) {
+""",
+)
+s = s.replace(
+"""        if (servo_mode_start_ && stopServoMode() != 0) {
+""",
+"""        if (safety_ok && servo_mode_start_ && stopServoMode() != 0) {
+""",
+)
+s = s.replace(
+"""    } else if (safety_ok) {
+        readActualQ();
+        aubo_position_commands_ = actual_q_copy_;
+        aubo_velocity_commands_.fill(0.0);
+        if (!waiting_for_running_warned_) {
+            RCLCPP_WARN_STREAM(
+                rclcpp::get_logger("AuboHardwareInterface"),
+                "Aubo hardware interface is active but robot is not Running yet. "
+                "Holding measured command locally and not sending servoJoint. robot_mode_: "
+                    << static_cast<int>(robot_mode_)
+                    << ", safety_mode_: " << static_cast<int>(safety_mode_));
+            waiting_for_running_warned_ = true;
+        }
+        return hardware_interface::return_type::OK;
+""",
+"""    } else if (safety_ok || recoverable_stop) {
+        readActualQ();
+        aubo_position_commands_ = actual_q_copy_;
+        aubo_velocity_commands_.fill(0.0);
+        if (!waiting_for_running_warned_) {
+            RCLCPP_WARN_STREAM(
+                rclcpp::get_logger("AuboHardwareInterface"),
+                "Aubo hardware interface is active but robot is not ready for servoJoint. "
+                "Holding measured command locally. robot_mode_: "
+                    << static_cast<int>(robot_mode_)
+                    << ", safety_mode_: " << static_cast<int>(safety_mode_));
+            waiting_for_running_warned_ = true;
+        }
+        return hardware_interface::return_type::OK;
+""",
+)
+source.write_text(s)
+PY
+fi
+
 fetch_repo dh_ag95_gripper_ros2 \
   https://github.com/ian-chuang/dh_ag95_gripper_ros2.git \
   fc4f80fdfb3acae5626df4359aec1401cb71a9a3
