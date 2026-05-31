@@ -50,14 +50,28 @@ Run the environment checker before motion tests:
 ./scripts/real_aubo_probe.sh
 ```
 
-Use fixed scripts for isolated Aubo testing. `real_aubo_bringup.sh` starts the official ROS2 driver; because that driver enters servo mode during hardware activation, it requires explicit confirmation:
+Use fixed scripts for isolated Aubo testing. `real_aubo_bringup.sh` starts the official ROS2 driver; because this is a real-hardware control mode, it requires explicit confirmation:
 
 ```bash
 ./scripts/real_aubo_prepare.sh
 ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh
 ```
 
-Arachne does not power on the Aubo arm, release brakes, clear protective stops, or switch servo mode from scripts. Complete connect -> power on -> start on the teach pendant/control cabinet first, confirm the arm is stably holding, then use `real_aubo_prepare.sh` as a read-only state check: `SafetyMode` must be `Normal` or `ReducedMode`, and `RobotMode` must be `Running`. Run the small Z test in another terminal. It is dry-run by default; real motion requires confirmation:
+Prefer completing connect -> power on -> start from the teach pendant/control cabinet, then use `real_aubo_prepare.sh` as a read-only state check: `SafetyMode` must be `Normal` or `ReducedMode`, and `RobotMode` must be `Running`.
+
+If ROS-side remote startup is required, use only the blocking state-machine script. The flow does not skip steps: it waits for `joint_state_broadcaster` and `joint_trajectory_controller` to be active, reads the measured joint angles, sends a hold-position action, then runs power on -> wait for Idle/Running -> hold again -> confirm servo mode -> release brake -> wait for Running -> final hold verification. Missing controllers, failed actions, unsafe states, and timeouts abort the flow. `fetch_third_party.sh` applies an Arachne patch to the pinned Aubo driver so command interfaces initialize from RTDE `actual_q`, no `servoJoint` is sent before Running, and all-zero joint commands are rejected when the measured pose is non-zero.
+
+Remote startup uses two terminals:
+
+```bash
+# Terminal 1
+ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/real_aubo_bringup.sh
+
+# Terminal 2
+ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/real_aubo_remote_start.sh
+```
+
+Run the small Z test in another terminal. It is dry-run by default; real motion requires confirmation:
 
 ```bash
 ./scripts/real_aubo_z_test.sh

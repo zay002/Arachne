@@ -50,14 +50,28 @@ ros2 launch arachne_hardware real_bringup.launch.py
 ./scripts/real_aubo_probe.sh
 ```
 
-单独测试 Aubo 时使用固定脚本。`real_aubo_bringup.sh` 会启动官方 ROS2 driver；由于该 driver 在硬件激活阶段会进入 servo mode，必须显式确认：
+单独测试 Aubo 时使用固定脚本。`real_aubo_bringup.sh` 会启动官方 ROS2 driver；由于这是实机控制模式，必须显式确认：
 
 ```bash
 ./scripts/real_aubo_prepare.sh
 ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh
 ```
 
-Arachne 不通过脚本执行 Aubo 上电、松刹车、清保护停机或切换 servo mode。真实机械臂必须先在示教器/控制柜上完成“连接 -> 上电 -> 启动”，确认机械臂已经稳定保持后，`real_aubo_prepare.sh` 只做只读状态确认：`SafetyMode` 必须为 `Normal` 或 `ReducedMode`，`RobotMode` 必须为 `Running`。另一个终端运行小幅 Z 向测试。默认只 dry-run；真实运动需要确认：
+推荐优先在示教器/控制柜上完成“连接 -> 上电 -> 启动”，再用 `real_aubo_prepare.sh` 做只读状态确认：`SafetyMode` 必须为 `Normal` 或 `ReducedMode`，`RobotMode` 必须为 `Running`。
+
+如果需要 ROS 侧远程启动，只能使用阻塞式状态机脚本。该流程不会跳步：它先等待 `joint_state_broadcaster` 与 `joint_trajectory_controller` 为 active，读取当前关节角，发送 hold-position action，随后按“上电 -> 等 Idle/Running -> 再次 hold -> servo mode 完全确认 -> 抱闸释放 -> 等 Running -> 最终 hold 校验”的顺序执行。任何 controller 缺失、action 失败、保护状态异常或超时都会退出。`fetch_third_party.sh` 会给固定版本的 Aubo driver 应用本项目补丁：命令接口从 RTDE `actual_q` 初始化，上电前不发送 `servoJoint`，并拒绝在实测关节非零时发送全零关节命令。
+
+远程启动需要两个终端：
+
+```bash
+# 终端 1
+ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/real_aubo_bringup.sh
+
+# 终端 2
+ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/real_aubo_remote_start.sh
+```
+
+另一个终端运行小幅 Z 向测试。默认只 dry-run；真实运动需要确认：
 
 ```bash
 ./scripts/real_aubo_z_test.sh

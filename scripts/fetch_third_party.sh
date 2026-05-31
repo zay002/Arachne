@@ -101,6 +101,199 @@ path.write_text(text)
 PY
 fi
 
+# Keep the Aubo hardware interface safe during remote startup. The upstream
+# driver starts servo mode in hardware activation and errors out if the arm is
+# not already Running; that prevents us from activating controllers and sending
+# a measured hold-position command before brake release. This patch delays
+# servoJoint writes until RobotMode=Running, initializes commands from RTDE
+# actual_q, and refuses an all-zero command when the measured pose is non-zero.
+aubo_hw_source="${ROOT_DIR}/third_party/aubo_ros2_driver/aubo_ros2_driver/src/aubo_hardware_interface.cpp"
+if [[ -f "${aubo_hw_source}" ]] && ! grep -q 'Initialized hold command from actual_q' "${aubo_hw_source}"; then
+  python3 - "${aubo_hw_header}" "${aubo_hw_source}" <<'PY'
+from pathlib import Path
+import sys
+
+header = Path(sys.argv[1])
+source = Path(sys.argv[2])
+
+h = header.read_text()
+h = h.replace(
+"""    std::array<double, 6> aubo_position_commands_;
+    std::array<double, 6> aubo_velocity_commands_;
+    double speed_scaling_combined_;
+    bool controllers_initialized_;
+    bool servo_mode_start_{ false };
+    bool initialized_;
+""",
+"""    std::array<double, 6> aubo_position_commands_{};
+    std::array<double, 6> aubo_velocity_commands_{};
+    double speed_scaling_combined_;
+    bool controllers_initialized_;
+    bool servo_mode_start_{ false };
+    bool initialized_;
+    std::atomic<bool> actual_q_received_{ false };
+    bool waiting_for_running_warned_{ false };
+    bool first_servoj_logged_{ false };
+""",
+)
+h = h.replace(
+"""    std::array<double, 6> actual_q_copy_;
+    std::array<double, 6> joint_velocity_copy_;
+""",
+"""    std::array<double, 6> actual_q_copy_{};
+    std::array<double, 6> joint_velocity_copy_{};
+""",
+)
+header.write_text(h)
+
+s = source.read_text()
+s = s.replace('#include "hardware_interface/types/hardware_interface_type_values.hpp"\n#include <ctime>',
+              '#include "hardware_interface/types/hardware_interface_type_values.hpp"\n#include <cmath>\n#include <ctime>')
+s = s.replace("\n    startServoMode();\n\n    return true;\n", "\n    return true;\n")
+s = s.replace(
+    "    if (robot_mode_ == RobotModeType::Running && (safety_mode_ == \n",
+    "    if (robot_mode_ == RobotModeType::Running && (safety_mode_ ==\n",
+)
+s = s.replace(
+"""    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    readActualQ();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    if (!initialized_) {
+        //获取初始状态
+        aubo_position_commands_ = actual_q_copy_;
+        initialized_ = true;
+    }
+""",
+"""    for (int i = 0; i < 200 && !actual_q_received_; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (!actual_q_received_) {
+        RCLCPP_ERROR(rclcpp::get_logger("AuboHardwareInterface"),
+                     "No RTDE actual_q received during activation; refusing to initialize commands.");
+        return hardware_interface::CallbackReturn::ERROR;
+    }
+    readActualQ();
+
+    if (!initialized_) {
+        // Initialize the command interfaces from the measured joint state. This
+        // prevents an all-zero command from being sent during real-arm startup.
+        aubo_position_commands_ = actual_q_copy_;
+        aubo_velocity_commands_.fill(0.0);
+        initialized_ = true;
+        RCLCPP_INFO_STREAM(rclcpp::get_logger("AuboHardwareInterface"),
+                           "Initialized hold command from actual_q: ["
+                               << actual_q_copy_[0] << ", " << actual_q_copy_[1] << ", "
+                               << actual_q_copy_[2] << ", " << actual_q_copy_[3] << ", "
+                               << actual_q_copy_[4] << ", " << actual_q_copy_[5] << "]");
+    }
+""",
+)
+s = s.replace(
+"""    if (robot_mode_ == RobotModeType::Running && (safety_mode_ ==
+        SafetyModeType::Normal || safety_mode_ == SafetyModeType::ReducedMode)) {
+        try {
+            Servoj(aubo_position_commands_);
+        } catch (const std::exception &e) {
+        }
+    }else{
+        // 机器人状态异常
+        RCLCPP_WARN_STREAM(
+            rclcpp::get_logger("AuboHardwareInterface"),
+            "Robot not in valid state for motion command. Plz check&fix robot status firstly then restart driver"
+            << "robot_mode_: " << static_cast<int>(robot_mode_)
+            << ", safety_mode_: " << static_cast<int>(safety_mode_));
+
+        return hardware_interface::return_type::ERROR;
+    }
+""",
+"""    const bool safety_ok =
+        safety_mode_ == SafetyModeType::Normal || safety_mode_ == SafetyModeType::ReducedMode;
+    if (robot_mode_ == RobotModeType::Running && safety_ok) {
+        if (!servo_mode_start_ && startServoMode() != 0) {
+            RCLCPP_ERROR(rclcpp::get_logger("AuboHardwareInterface"),
+                         "Failed to enter Aubo servo mode; refusing to write commands.");
+            return hardware_interface::return_type::ERROR;
+        }
+        try {
+            if (Servoj(aubo_position_commands_) != 0) {
+                return hardware_interface::return_type::ERROR;
+            }
+        } catch (const std::exception &e) {
+            RCLCPP_ERROR_STREAM(rclcpp::get_logger("AuboHardwareInterface"),
+                                "Servoj exception: " << e.what());
+            return hardware_interface::return_type::ERROR;
+        }
+    } else if (safety_ok) {
+        if (!waiting_for_running_warned_) {
+            RCLCPP_WARN_STREAM(
+                rclcpp::get_logger("AuboHardwareInterface"),
+                "Aubo hardware interface is active but robot is not Running yet. "
+                "Holding measured command locally and not sending servoJoint. robot_mode_: "
+                    << static_cast<int>(robot_mode_)
+                    << ", safety_mode_: " << static_cast<int>(safety_mode_));
+            waiting_for_running_warned_ = true;
+        }
+        return hardware_interface::return_type::OK;
+    } else {
+        // 机器人状态异常
+        RCLCPP_WARN_STREAM(
+            rclcpp::get_logger("AuboHardwareInterface"),
+            "Robot not in valid state for motion command. Plz check&fix robot status firstly then restart driver"
+            << "robot_mode_: " << static_cast<int>(robot_mode_)
+            << ", safety_mode_: " << static_cast<int>(safety_mode_));
+
+        return hardware_interface::return_type::ERROR;
+    }
+""",
+)
+s = s.replace(
+"""int AuboHardwareInterface::Servoj(
+    const std::array<double, 6> joint_position_command)
+{
+    // 接口调用 : 获取机器人的名字
+    auto robot_name = rpc_client_->getRobotNames().front();
+""",
+"""int AuboHardwareInterface::Servoj(
+    const std::array<double, 6> joint_position_command)
+{
+    bool command_all_zero = true;
+    bool actual_non_zero = false;
+    for (size_t i = 0; i < joint_position_command.size(); ++i) {
+        command_all_zero = command_all_zero && std::abs(joint_position_command[i]) < 1e-9;
+        actual_non_zero = actual_non_zero || std::abs(actual_q_copy_[i]) > 0.05;
+    }
+    if (command_all_zero && actual_non_zero) {
+        RCLCPP_ERROR(rclcpp::get_logger("AuboHardwareInterface"),
+                     "Refusing all-zero Aubo joint command while actual joints are non-zero.");
+        return -1;
+    }
+    if (!first_servoj_logged_) {
+        RCLCPP_INFO_STREAM(rclcpp::get_logger("AuboHardwareInterface"),
+                           "First servoJoint command: ["
+                               << joint_position_command[0] << ", "
+                               << joint_position_command[1] << ", "
+                               << joint_position_command[2] << ", "
+                               << joint_position_command[3] << ", "
+                               << joint_position_command[4] << ", "
+                               << joint_position_command[5] << "]");
+        first_servoj_logged_ = true;
+    }
+    // 接口调用 : 获取机器人的名字
+    auto robot_name = rpc_client_->getRobotNames().front();
+""",
+)
+s = s.replace(
+"""        actual_TCP_pose_ = parser.popVectorDouble();
+""",
+"""        actual_TCP_pose_ = parser.popVectorDouble();
+        actual_q_received_ = true;
+""",
+)
+source.write_text(s)
+PY
+fi
+
 fetch_repo dh_ag95_gripper_ros2 \
   https://github.com/ian-chuang/dh_ag95_gripper_ros2.git \
   fc4f80fdfb3acae5626df4359aec1401cb71a9a3

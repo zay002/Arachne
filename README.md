@@ -69,6 +69,7 @@ source install/setup.bash
 | Aubo 只读连通探测 | `./scripts/real_aubo_probe.sh` |
 | Aubo 启动状态确认 | `./scripts/real_aubo_prepare.sh` |
 | Aubo 真机 driver 启动 | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh` |
+| Aubo 阻塞远程启动 | `ARACHNE_CONFIRM_AUBO_REMOTE_START=YES ./scripts/real_aubo_remote_start.sh` |
 | Aubo 小幅 Z 向测试 | `ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh` |
 
 <p align="center">
@@ -94,7 +95,17 @@ Arachne 的真机层尽量复用官方或厂家 ROS 路线，并在本仓库内�
 ./scripts/real_aubo_prepare.sh
 ```
 
-Arachne 不会通过脚本给 Aubo 上电、松刹车、清保护停机或切换 servo mode。请先在示教器/控制柜上完成“连接 -> 上电 -> 启动”，并确认机械臂已稳定保持，再用脚本检查 `RobotMode=Running`。
+Aubo 推荐优先在示教器/控制柜上完成“连接 -> 上电 -> 启动”。如果需要从 ROS 侧远程启动，只使用阻塞式脚本：它会先确认 controller active、读取当前关节角并发送 hold-position，再按“上电 -> servo mode 确认 -> 抱闸释放 -> Running 后保持”的顺序执行，任何一步超时或状态异常都会退出。
+
+远程启动需要两个终端：
+
+```bash
+# 终端 1：启动 driver，并允许上电前激活 controller
+ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/real_aubo_bringup.sh
+
+# 终端 2：执行阻塞式远程启动状态机
+ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/real_aubo_remote_start.sh
+```
 
 按已连接设备启动：
 

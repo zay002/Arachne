@@ -69,6 +69,7 @@ source install/setup.bash
 | Read-only Aubo connectivity probe | `./scripts/real_aubo_probe.sh` |
 | Aubo startup state check | `./scripts/real_aubo_prepare.sh` |
 | Aubo real driver bringup | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh` |
+| Blocking Aubo remote startup | `ARACHNE_CONFIRM_AUBO_REMOTE_START=YES ./scripts/real_aubo_remote_start.sh` |
 | Small Aubo Z test | `ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh` |
 
 <p align="center">
@@ -94,7 +95,17 @@ Prepare real-hardware ROS packages:
 ./scripts/real_aubo_prepare.sh
 ```
 
-Arachne does not power on the Aubo arm, release brakes, clear protective stops, or switch servo mode from scripts. Complete connect -> power on -> start on the teach pendant/control cabinet first, confirm the arm is stably holding, then use the script to verify `RobotMode=Running`.
+Prefer completing connect -> power on -> start from the teach pendant/control cabinet. If ROS-side remote startup is needed, use only the blocking startup script: it first confirms active controllers, reads the measured joint angles, sends a hold-position command, then runs power on -> servo-mode confirmation -> brake release -> post-Running hold verification. Any timeout or unsafe state aborts the flow.
+
+Remote startup uses two terminals:
+
+```bash
+# Terminal 1: start the driver and allow pre-power controller activation
+ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/real_aubo_bringup.sh
+
+# Terminal 2: run the blocking remote-start state machine
+ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/real_aubo_remote_start.sh
+```
 
 Launch only the connected devices:
 

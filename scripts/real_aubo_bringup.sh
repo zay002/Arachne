@@ -9,17 +9,23 @@ if [[ "${ARACHNE_CONFIRM_AUBO_DRIVER:-}" != "YES" ]]; then
   cat <<EOF
 Refusing to start the real Aubo ROS2 driver without confirmation.
 
-The current Aubo driver activates servo mode during ros2_control hardware activation.
-It should hold the current joint positions, but it is still a real-hardware control mode.
+The Aubo driver is a real-hardware control mode. In normal mode it requires the
+arm to already be Running. For remote startup, use ARACHNE_AUBO_ALLOW_PRESTART=YES
+so the driver can start controllers and hold measured joint positions before
+the brake release step.
 
 Before running:
   1. Confirm the robot workspace is clear.
   2. Keep the emergency stop or power cut within reach.
-  3. Use the teach pendant/control cabinet to complete connect -> power on -> start.
-  4. Run ./scripts/real_aubo_prepare.sh and confirm RobotMode=Running.
+  3. Either complete connect -> power on -> start on the teach pendant/control cabinet,
+     or use the guarded remote startup flow in ./scripts/real_aubo_remote_start.sh.
+  4. Confirm RobotMode/SafetyMode using ./scripts/real_aubo_prepare.sh.
 
 Start driver:
   ARACHNE_CONFIRM_AUBO_DRIVER=YES AUBO_ROBOT_IP=${AUBO_ROBOT_IP} ./scripts/real_aubo_bringup.sh
+
+Remote-start driver terminal:
+  ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES AUBO_ROBOT_IP=${AUBO_ROBOT_IP} ./scripts/real_aubo_bringup.sh
 EOF
   exit 2
 fi
@@ -41,7 +47,11 @@ source "/opt/ros/${ROS_DISTRO}/setup.bash"
 source "${ROOT_DIR}/install/setup.bash"
 set -u
 
-"${ROOT_DIR}/scripts/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}"
+if [[ "${ARACHNE_AUBO_ALLOW_PRESTART:-}" == "YES" ]]; then
+  "${ROOT_DIR}/scripts/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}" --allow-not-running
+else
+  "${ROOT_DIR}/scripts/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}"
+fi
 
 exec ros2 launch arachne_hardware real_bringup.launch.py \
   use_scout:=false \
