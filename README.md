@@ -149,7 +149,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 | `src/arachne_nav` | Scout Nav2 起步配置 |
 | `src/arachne_operator` | 操作员面板、sequence executor、VLA/WAM action chunk translator |
 | `godot/arachne_showcase` | Godot 4.x 第三人称展示前端 |
-| `docs` | 建模、控制、硬件、标定、阶段报告和参考资料 |
+| `docs` | 建模、控制、硬件、标定和参考资料 |
 
 ## 文档
 
@@ -158,7 +158,6 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 - [硬件](docs/hardware.zh-CN.md)
 - [标定](docs/calibration.zh-CN.md)
 - [参考资料](docs/references.zh-CN.md)
-- [阶段报告](docs/reports)
 
 英文版本位于同名文档，例如 [docs/hardware.md](docs/hardware.md)。
 

@@ -149,7 +149,7 @@ It starts real bringup, waits for `/odom`, `/joint_states`, the Aubo trajectory 
 | `src/arachne_nav` | Nav2 starter config for Scout |
 | `src/arachne_operator` | Operator panel, sequence executor, VLA/WAM action-chunk translator |
 | `godot/arachne_showcase` | Godot 4.x third-person showcase frontend |
-| `docs` | Modeling, control, hardware, calibration, reports, and references |
+| `docs` | Modeling, control, hardware, calibration, and references |
 
 ## Documentation
 
@@ -158,7 +158,6 @@ It starts real bringup, waits for `/odom`, `/joint_states`, the Aubo trajectory 
 - [Hardware](docs/hardware.md)
 - [Calibration](docs/calibration.md)
 - [References](docs/references.md)
-- [Stage reports](docs/reports)
 
 Chinese versions are available as matching `*.zh-CN.md` files.
 
