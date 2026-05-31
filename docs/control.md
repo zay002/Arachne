@@ -132,6 +132,18 @@ colcon build --base-paths src --packages-select \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 ```
 
+If `python3` in the current shell comes from conda or pyenv, run:
+
+```bash
+source scripts/arachne_env.sh
+```
+
+The script pins the project session to the ROS-compatible Ubuntu system Python and removes conda/pyenv Python paths from the front of the environment. To build the full workspace, use:
+
+```bash
+./scripts/build_workspace.sh
+```
+
 Launch a partial or full real-hardware session:
 
 ```bash

@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
 
+set +u
+# shellcheck disable=SC1091
+source "${ROOT_DIR}/scripts/arachne_env.sh"
+set -u
+
 cat <<'EOF'
 Aubo startup readiness check (read-only)
 
@@ -13,4 +18,4 @@ pendant/control cabinet, then use this script to verify the controller reports
 RobotMode=Running and SafetyMode=Normal/ReducedMode.
 EOF
 
-exec "${ROOT_DIR}/scripts/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}" "$@"
+exec "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}" "$@"

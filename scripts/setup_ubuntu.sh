@@ -72,4 +72,6 @@ sudo apt-get install -y \
   ros-dev-tools
 
 echo "source /opt/ros/${ROS_DISTRO}/setup.bash"
-echo "Then run: colcon build --symlink-install"
+echo "Then run:"
+echo "  source scripts/arachne_env.sh"
+echo "  ./scripts/build_workspace.sh"

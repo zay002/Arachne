@@ -59,6 +59,14 @@ echo "== ROS tools =="
 need_cmd ros2
 need_cmd colcon
 need_cmd python3
+if [[ "$(command -v python3 2>/dev/null || true)" != "/usr/bin/python3" ]]; then
+  fail_or_warn "python3 resolves to $(command -v python3); run 'source scripts/arachne_env.sh' before ROS commands"
+fi
+if /usr/bin/python3 -c 'import rclpy' >/dev/null 2>&1; then
+  ok "system Python can import rclpy"
+else
+  fail_or_warn "/usr/bin/python3 cannot import rclpy; source ROS or install the selected ROS distro"
+fi
 if [[ -n "${ROS_DISTRO:-}" ]]; then
   ok "ROS_DISTRO=${ROS_DISTRO}"
 else

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """Local browser Gamepad API bridge for the Godot showcase.
 
 The browser can see a Switch Pro controller connected to Windows while Godot in

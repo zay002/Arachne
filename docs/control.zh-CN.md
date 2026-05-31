@@ -132,6 +132,18 @@ colcon build --base-paths src --packages-select \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 ```
 
+如果当前 shell 里 `python3` 来自 conda/pyenv，先运行：
+
+```bash
+source scripts/arachne_env.sh
+```
+
+该脚本会把当前项目会话固定到 ROS 兼容的系统 Python，并清理 conda/pyenv 注入的 Python 路径。完整 workspace 可直接用：
+
+```bash
+./scripts/build_workspace.sh
+```
+
 启动部分或完整真机会话：
 
 ```bash

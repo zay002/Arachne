@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "${ROOT_DIR}/third_party" "${ROOT_DIR}/src/vendor"
+PYTHON_BIN="${ARACHNE_SYSTEM_PYTHON:-/usr/bin/python3}"
 
 fetch_repo() {
   local name="$1"
@@ -63,7 +64,7 @@ fi
 # joint_trajectory_controller from starting with an empty joints list on Jazzy.
 aubo_control_launch="${ROOT_DIR}/third_party/aubo_ros2_driver/aubo_ros2_driver/launch/aubo_control.launch.py"
 if [[ -f "${aubo_control_launch}" ]] && ! grep -q '"--param-file",[[:space:]]*robot_controllers' "${aubo_control_launch}"; then
-  python3 - "${aubo_control_launch}" <<'PY'
+  "${PYTHON_BIN}" - "${aubo_control_launch}" <<'PY'
 from pathlib import Path
 import sys
 
@@ -109,7 +110,7 @@ fi
 # actual_q, and refuses an all-zero command when the measured pose is non-zero.
 aubo_hw_source="${ROOT_DIR}/third_party/aubo_ros2_driver/aubo_ros2_driver/src/aubo_hardware_interface.cpp"
 if [[ -f "${aubo_hw_source}" ]] && ! grep -q 'Initialized hold command from actual_q' "${aubo_hw_source}"; then
-  python3 - "${aubo_hw_header}" "${aubo_hw_source}" <<'PY'
+  "${PYTHON_BIN}" - "${aubo_hw_header}" "${aubo_hw_source}" <<'PY'
 from pathlib import Path
 import sys
 

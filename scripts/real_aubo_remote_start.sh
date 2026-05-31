@@ -43,10 +43,8 @@ if [[ ! -f "${ROOT_DIR}/install/setup.bash" ]]; then
 fi
 
 set +u
-# shellcheck disable=SC1090
-source "/opt/ros/${ROS_DISTRO}/setup.bash"
 # shellcheck disable=SC1091
-source "${ROOT_DIR}/install/setup.bash"
+source "${ROOT_DIR}/scripts/arachne_env.sh"
 set -u
 
-exec "${ROOT_DIR}/scripts/real_aubo_remote_start.py" --ip "${AUBO_ROBOT_IP}" "$@"
+exec "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/real_aubo_remote_start.py" --ip "${AUBO_ROBOT_IP}" "$@"

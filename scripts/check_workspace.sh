@@ -2,17 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ROS_DISTRO="${ROS_DISTRO:-jazzy}"
-
-if [[ -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]]; then
-  set +u
-  # shellcheck disable=SC1090
-  source "/opt/ros/${ROS_DISTRO}/setup.bash"
-  set -u
-else
-  echo "ROS setup not found: /opt/ros/${ROS_DISTRO}/setup.bash" >&2
-  exit 1
-fi
+set +u
+# shellcheck disable=SC1091
+source "${ROOT_DIR}/scripts/arachne_env.sh"
+set -u
 
 cd "${ROOT_DIR}"
 
@@ -29,7 +22,7 @@ colcon build --base-paths src --packages-select \
   aubo_description scout_description dh_ag95_description \
   arachne_description arachne_sim arachne_gripper arachne_hardware \
   arachne_control arachne_moveit_config arachne_nav arachne_operator \
-  --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
+  --cmake-args -DPython3_EXECUTABLE="${ARACHNE_SYSTEM_PYTHON}"
 
 set +u
 source install/setup.bash

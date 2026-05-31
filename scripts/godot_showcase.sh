@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_DIR="${ROOT_DIR}/godot/arachne_showcase"
+ARACHNE_SYSTEM_PYTHON="${ARACHNE_SYSTEM_PYTHON:-/usr/bin/python3}"
 
 "${PROJECT_DIR}/tools/link_assets.sh"
 
@@ -69,7 +70,7 @@ if [[ "${START_GAMEPAD_BRIDGE}" == "true" ]]; then
   export ARACHNE_GODOT_GAMEPAD_PORT="${ARACHNE_GODOT_GAMEPAD_PORT:-8791}"
   WEB_GAMEPAD_HOST="${WEB_GAMEPAD_HOST:-127.0.0.1}"
   WEB_GAMEPAD_PORT="${WEB_GAMEPAD_PORT:-8790}"
-  python3 "${ROOT_DIR}/scripts/godot_gamepad_bridge.py" \
+  "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/godot_gamepad_bridge.py" \
     --host "${WEB_GAMEPAD_HOST}" \
     --port "${WEB_GAMEPAD_PORT}" \
     --udp-port "${ARACHNE_GODOT_GAMEPAD_PORT}" &

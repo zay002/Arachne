@@ -40,18 +40,12 @@ cd Arachne
 ./scripts/setup_ubuntu.sh
 ./scripts/fetch_third_party.sh
 
-conda deactivate 2>/dev/null || true
-source /opt/ros/jazzy/setup.bash  # Ubuntu 22.04 使用 /opt/ros/humble/setup.bash
-
-colcon build --base-paths src --packages-select \
-  aubo_description scout_description dh_ag95_description \
-  arachne_sim arachne_gripper arachne_hardware arachne_control arachne_moveit_config \
-  arachne_nav arachne_operator arachne_description arachne_gazebo arachne_demo \
-  --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
-
-source install/setup.bash
+source scripts/arachne_env.sh
+./scripts/build_workspace.sh
 ./scripts/view_model.sh
 ```
+
+`arachne_env.sh` 会把当前 shell 固定到 ROS 使用的系统 Python，例如 Ubuntu 24.04 + Jazzy 下的 `/usr/bin/python3.12`，避免 conda/pyenv 的 Python 3.13 抢走 ROS Python 模块。
 
 `view_model.sh` 会启动默认 MS42DC 模型、底盘遥控 GUI、Aubo 关节滑条和夹爪 Open/Close 控制窗。
 
