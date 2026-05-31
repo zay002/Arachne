@@ -92,11 +92,33 @@ done
 echo
 
 echo "== MS42DC serial =="
-ms42dc_port="${MS42DC_PORT:-/dev/motor_serial}"
-if [[ -e "${ms42dc_port}" ]]; then
-  ok "MS42DC_PORT exists: ${ms42dc_port}"
+ms42dc_port="${MS42DC_PORT:-}"
+if [[ -n "${ms42dc_port}" ]]; then
+  if [[ -e "${ms42dc_port}" ]]; then
+    ok "MS42DC_PORT exists: ${ms42dc_port}"
+  else
+    warn "MS42DC_PORT not found: ${ms42dc_port}"
+  fi
 else
-  warn "MS42DC_PORT not found: ${ms42dc_port}"
+  ms42dc_candidates=()
+  shopt -s nullglob
+  for candidate in \
+    /dev/motor_serial \
+    /dev/serial/by-id/usb-1a86_USB_Single_Serial_58EB003416-if00 \
+    /dev/serial/by-id/*USB_Single_Serial* \
+    /dev/ttyACM* \
+    /dev/ttyCH*
+  do
+    if [[ -e "${candidate}" ]]; then
+      ms42dc_candidates+=("${candidate}")
+    fi
+  done
+  shopt -u nullglob
+  if (( ${#ms42dc_candidates[@]} > 0 )); then
+    ok "MS42DC candidate: ${ms42dc_candidates[0]}"
+  else
+    warn "no MS42DC candidate found; attach the Type-C USB serial device first"
+  fi
 fi
 
 shopt -s nullglob

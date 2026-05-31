@@ -103,19 +103,21 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh
 ./scripts/check_real_hardware_env.sh --strict
 ```
 
-一个终端启动已连接硬件，按实际端口和 IP 调整：
+一个终端启动已连接硬件。日常优先使用自动入口，它会选择当前实验室默认串口并检查 Aubo 状态：
 
 ```bash
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-ros2 launch arachne_hardware real_bringup.launch.py \
-  scout_driver:=waveshare \
-  scout_port:=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
-  ms42dc_port:=/dev/motor_serial \
-  aubo_robot_ip:=192.168.127.128
+./scripts/real_bringup.sh
 ```
 
-原生 Linux SocketCAN 适配器可将 Scout 参数替换为 `scout_driver:=official scout_port:=can0`。
+如果 WSL2 重启后串口消失，先用 `hurry scan` / `hurry attach <BUSID>` 重新透传 USB，再运行脚本。原生 Linux SocketCAN 适配器可用 `SCOUT_DRIVER=official SCOUT_PORT=can0 ./scripts/real_bringup.sh`。
+
+示教演示可以直接使用：
+
+```bash
+./scripts/real_teach_demo.sh
+```
+
+该脚本会启动 bringup、等待核心话题和 Aubo action 可用，然后打开示教回放面板；关闭面板时会自动停止后台 bringup。
 
 单独标定 MS42DC 时，建议先用小角度测试，再使用厂家全行程。当前小角度测试值是 `300` 个 0.1 度，也就是 `30 deg`；默认演示速度是 `150` 个 0.1 rad/s，也就是 `15 rad/s`。说明书中的全开/全闭示例是 `18720` 个 0.1 度，也就是 `1872 deg = 5.2 圈`，需要确认真实行程和回零行为后再使用：
 

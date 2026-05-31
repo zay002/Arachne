@@ -60,6 +60,8 @@ source scripts/arachne_env.sh
 | Gazebo 自主拾取验证 | `./scripts/gazebo_autopick_demo.sh` |
 | Godot 展示前端 | `./scripts/godot_showcase.sh` |
 | 真机环境检查 | `./scripts/check_real_hardware_env.sh` |
+| 真机一键 bringup | `./scripts/real_bringup.sh` |
+| 真机示教演示 | `./scripts/real_teach_demo.sh` |
 | Aubo 只读连通探测 | `./scripts/real_aubo_probe.sh` |
 | Aubo 启动状态确认 | `./scripts/real_aubo_prepare.sh` |
 | Aubo 真机 driver 启动 | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh` |
@@ -102,16 +104,10 @@ ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/real_a
 ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/real_aubo_remote_start.sh
 ```
 
-按已连接设备启动：
+日常真机启动优先使用自动入口。脚本会自动选择 Scout 和 MS42DC 的 `/dev/serial/by-id` 串口，检查 Aubo 是否处于 Running / Normal，然后启动完整 bringup：
 
 ```bash
-ros2 launch arachne_hardware real_bringup.launch.py \
-  use_scout:=true \
-  scout_driver:=waveshare \
-  scout_port:=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
-  use_ms42dc:=true \
-  ms42dc_port:=/dev/motor_serial \
-  use_aubo:=false
+./scripts/real_bringup.sh
 ```
 
 WSL2 用户推荐使用 [hurry-porter](https://github.com/zay002/hurry-porter) 辅助 USB 透传、串口扫描和 Waveshare USB-CAN-A 诊断。
@@ -133,7 +129,13 @@ hurry waveshare-can-a recv \
 ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 ```
 
-示教演示时，先启动 `real_bringup.launch.py`，再运行 `./scripts/teach_panel.sh`。面板可以手动控制底盘、Aubo 末端和 MS42DC，记录当前底盘位姿、末端位置、关节角和夹具状态，并将 waypoint 保存为 JSON 后一键回放。
+示教演示可直接一键启动：
+
+```bash
+./scripts/real_teach_demo.sh
+```
+
+它会启动真机 bringup，等待 `/odom`、`/joint_states`、Aubo trajectory action 和夹具状态可用后打开示教面板；关闭面板时会自动停止 bringup。面板可以手动控制底盘、Aubo 末端和 MS42DC，记录当前底盘位姿、末端位置、关节角和夹具状态，并将 waypoint 保存为 JSON 后一键回放。
 
 ## 项目结构
 

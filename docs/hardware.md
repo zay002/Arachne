@@ -103,19 +103,21 @@ First run the host check:
 ./scripts/check_real_hardware_env.sh --strict
 ```
 
-Bring up the connected hardware in one terminal, adjusting ports/IP as needed:
+Bring up the connected hardware in one terminal. For daily use, prefer the automatic entry; it selects the lab-default serial ports and checks Aubo state:
 
 ```bash
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-ros2 launch arachne_hardware real_bringup.launch.py \
-  scout_driver:=waveshare \
-  scout_port:=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
-  ms42dc_port:=/dev/motor_serial \
-  aubo_robot_ip:=192.168.127.128
+./scripts/real_bringup.sh
 ```
 
-For SocketCAN adapters on native Linux, replace the Scout arguments with `scout_driver:=official scout_port:=can0`.
+If WSL2 restarts and serial devices disappear, run `hurry scan` / `hurry attach <BUSID>` first, then retry. For native SocketCAN adapters, use `SCOUT_DRIVER=official SCOUT_PORT=can0 ./scripts/real_bringup.sh`.
+
+For teach demonstrations, use:
+
+```bash
+./scripts/real_teach_demo.sh
+```
+
+This starts bringup, waits for the core topics and Aubo action, then opens the teach/replay panel; closing the panel stops the background bringup.
 
 For isolated MS42DC calibration, start with a small command before using the full factory stroke. The current small-angle test value is `300` tenths of a degree (`30 deg`) and the default demo speed is `150` tenths of rad/s (`15 rad/s`). The factory full open/close example is `18720` tenths of a degree, or `1872 deg = 5.2 turns`, and should only be used after physical travel and homing behavior are confirmed:
 

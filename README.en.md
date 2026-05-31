@@ -60,6 +60,8 @@ source scripts/arachne_env.sh
 | Gazebo autonomous pick validation | `./scripts/gazebo_autopick_demo.sh` |
 | Godot showcase | `./scripts/godot_showcase.sh` |
 | Real-hardware environment check | `./scripts/check_real_hardware_env.sh` |
+| Real one-command bringup | `./scripts/real_bringup.sh` |
+| Real teach demo | `./scripts/real_teach_demo.sh` |
 | Read-only Aubo connectivity probe | `./scripts/real_aubo_probe.sh` |
 | Aubo startup state check | `./scripts/real_aubo_prepare.sh` |
 | Aubo real driver bringup | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh` |
@@ -102,16 +104,10 @@ ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/real_a
 ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/real_aubo_remote_start.sh
 ```
 
-Launch only the connected devices:
+For day-to-day real-hardware work, use the automatic entry. It selects the Scout and MS42DC `/dev/serial/by-id` ports, checks that Aubo is Running / Normal, then starts the full bringup:
 
 ```bash
-ros2 launch arachne_hardware real_bringup.launch.py \
-  use_scout:=true \
-  scout_driver:=waveshare \
-  scout_port:=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
-  use_ms42dc:=true \
-  ms42dc_port:=/dev/motor_serial \
-  use_aubo:=false
+./scripts/real_bringup.sh
 ```
 
 For WSL2, [hurry-porter](https://github.com/zay002/hurry-porter) is recommended for USB handoff, serial discovery, and Waveshare USB-CAN-A diagnostics.
@@ -133,7 +129,13 @@ Real motion tests are dry-run by default. Enable motion only after power, emerge
 ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 ```
 
-For demonstrations, start `real_bringup.launch.py` first, then run `./scripts/teach_panel.sh`. The panel manually controls the base, Aubo tool, and MS42DC gripper, records base pose, tool position, arm joints, and gripper state as waypoints, saves them as JSON, and replays the sequence with one button.
+For demonstrations, use the one-command teach entry:
+
+```bash
+./scripts/real_teach_demo.sh
+```
+
+It starts real bringup, waits for `/odom`, `/joint_states`, the Aubo trajectory action, and gripper status, then opens the teach panel. Closing the panel stops the background bringup. The panel manually controls the base, Aubo tool, and MS42DC gripper, records base pose, tool position, arm joints, and gripper state as waypoints, saves them as JSON, and replays the sequence with one button.
 
 ## Project Layout
 
