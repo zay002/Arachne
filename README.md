@@ -67,6 +67,7 @@ source install/setup.bash
 | Godot 展示前端 | `./scripts/godot_showcase.sh` |
 | 真机环境检查 | `./scripts/check_real_hardware_env.sh` |
 | Aubo 只读连通探测 | `./scripts/real_aubo_probe.sh` |
+| Aubo 启动状态确认 | `./scripts/real_aubo_prepare.sh` |
 | Aubo 真机 driver 启动 | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh` |
 | Aubo 小幅 Z 向测试 | `ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh` |
 
@@ -90,7 +91,10 @@ Arachne 的真机层尽量复用官方或厂家 ROS 路线，并在本仓库内�
 ```bash
 ./scripts/prepare_real_hardware_ros.sh
 ./scripts/real_aubo_probe.sh
+./scripts/real_aubo_prepare.sh
 ```
+
+Arachne 不会通过脚本给 Aubo 上电、松刹车、清保护停机或切换 servo mode。请先在示教器/控制柜上完成“连接 -> 上电 -> 启动”，并确认机械臂已稳定保持，再用脚本检查 `RobotMode=Running`。
 
 按已连接设备启动：
 

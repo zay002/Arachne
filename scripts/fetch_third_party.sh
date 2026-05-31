@@ -58,6 +58,49 @@ if [[ -f "${aubo_hw_header}" ]] && grep -q 'hardware_interface/visibility_contro
   sed -i '/hardware_interface\/visibility_control\.h/d' "${aubo_hw_header}"
 fi
 
+# Newer controller_manager spawner versions do not always inherit controller
+# parameters from the manager node. Passing the same YAML to the spawners keeps
+# joint_trajectory_controller from starting with an empty joints list on Jazzy.
+aubo_control_launch="${ROOT_DIR}/third_party/aubo_ros2_driver/aubo_ros2_driver/launch/aubo_control.launch.py"
+if [[ -f "${aubo_control_launch}" ]] && ! grep -q '"--param-file",[[:space:]]*robot_controllers' "${aubo_control_launch}"; then
+  python3 - "${aubo_control_launch}" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+text = text.replace(
+'''        arguments=[
+            "joint_state_broadcaster",
+            "--controller-manager",
+            "/controller_manager",
+        ],
+''',
+'''        arguments=[
+            "joint_state_broadcaster",
+            "--controller-manager",
+            "/controller_manager",
+            "--param-file",
+            robot_controllers,
+        ],
+''',
+)
+text = text.replace(
+'''        arguments=[initial_joint_controller, "-c", "/controller_manager"],
+''',
+'''        arguments=[
+            initial_joint_controller,
+            "-c",
+            "/controller_manager",
+            "--param-file",
+            robot_controllers,
+        ],
+''',
+)
+path.write_text(text)
+PY
+fi
+
 fetch_repo dh_ag95_gripper_ros2 \
   https://github.com/ian-chuang/dh_ag95_gripper_ros2.git \
   fc4f80fdfb3acae5626df4359aec1401cb71a9a3

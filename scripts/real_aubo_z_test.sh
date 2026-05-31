@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
 AUBO_Z_DELTA_M="${AUBO_Z_DELTA_M:-0.02}"
 AUBO_ARM_DURATION_SEC="${AUBO_ARM_DURATION_SEC:-5.0}"
 AUBO_ARM_MAX_JOINT_DELTA="${AUBO_ARM_MAX_JOINT_DELTA:-0.25}"
@@ -19,6 +20,10 @@ This script expects the real Aubo driver to be running in another terminal:
 Dry run is the default. Real motion requires:
   ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh
 EOF
+
+if [[ "${ARACHNE_CONFIRM_REAL_MOTION:-}" == "YES" ]]; then
+  "${ROOT_DIR}/scripts/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}"
+fi
 
 exec "${ROOT_DIR}/scripts/real_hardware_acceptance_test.sh" \
   run_base_test:=false \

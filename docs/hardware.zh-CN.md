@@ -53,10 +53,11 @@ ros2 launch arachne_hardware real_bringup.launch.py
 单独测试 Aubo 时使用固定脚本。`real_aubo_bringup.sh` 会启动官方 ROS2 driver；由于该 driver 在硬件激活阶段会进入 servo mode，必须显式确认：
 
 ```bash
+./scripts/real_aubo_prepare.sh
 ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh
 ```
 
-另一个终端运行小幅 Z 向测试。默认只 dry-run；真实运动需要确认：
+Arachne 不通过脚本执行 Aubo 上电、松刹车、清保护停机或切换 servo mode。真实机械臂必须先在示教器/控制柜上完成“连接 -> 上电 -> 启动”，确认机械臂已经稳定保持后，`real_aubo_prepare.sh` 只做只读状态确认：`SafetyMode` 必须为 `Normal` 或 `ReducedMode`，`RobotMode` 必须为 `Running`。另一个终端运行小幅 Z 向测试。默认只 dry-run；真实运动需要确认：
 
 ```bash
 ./scripts/real_aubo_z_test.sh

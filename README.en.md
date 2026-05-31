@@ -67,6 +67,7 @@ source install/setup.bash
 | Godot showcase | `./scripts/godot_showcase.sh` |
 | Real-hardware environment check | `./scripts/check_real_hardware_env.sh` |
 | Read-only Aubo connectivity probe | `./scripts/real_aubo_probe.sh` |
+| Aubo startup state check | `./scripts/real_aubo_prepare.sh` |
 | Aubo real driver bringup | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh` |
 | Small Aubo Z test | `ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh` |
 
@@ -90,7 +91,10 @@ Prepare real-hardware ROS packages:
 ```bash
 ./scripts/prepare_real_hardware_ros.sh
 ./scripts/real_aubo_probe.sh
+./scripts/real_aubo_prepare.sh
 ```
+
+Arachne does not power on the Aubo arm, release brakes, clear protective stops, or switch servo mode from scripts. Complete connect -> power on -> start on the teach pendant/control cabinet first, confirm the arm is stably holding, then use the script to verify `RobotMode=Running`.
 
 Launch only the connected devices:
 

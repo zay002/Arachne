@@ -15,7 +15,8 @@ It should hold the current joint positions, but it is still a real-hardware cont
 Before running:
   1. Confirm the robot workspace is clear.
   2. Keep the emergency stop or power cut within reach.
-  3. Run ./scripts/real_aubo_probe.sh and confirm RobotMode/SafetyMode are acceptable.
+  3. Use the teach pendant/control cabinet to complete connect -> power on -> start.
+  4. Run ./scripts/real_aubo_prepare.sh and confirm RobotMode=Running.
 
 Start driver:
   ARACHNE_CONFIRM_AUBO_DRIVER=YES AUBO_ROBOT_IP=${AUBO_ROBOT_IP} ./scripts/real_aubo_bringup.sh
@@ -39,6 +40,8 @@ source "/opt/ros/${ROS_DISTRO}/setup.bash"
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/install/setup.bash"
 set -u
+
+"${ROOT_DIR}/scripts/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}"
 
 exec ros2 launch arachne_hardware real_bringup.launch.py \
   use_scout:=false \

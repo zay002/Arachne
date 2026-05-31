@@ -53,10 +53,11 @@ Run the environment checker before motion tests:
 Use fixed scripts for isolated Aubo testing. `real_aubo_bringup.sh` starts the official ROS2 driver; because that driver enters servo mode during hardware activation, it requires explicit confirmation:
 
 ```bash
+./scripts/real_aubo_prepare.sh
 ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh
 ```
 
-Run the small Z test in another terminal. It is dry-run by default; real motion requires confirmation:
+Arachne does not power on the Aubo arm, release brakes, clear protective stops, or switch servo mode from scripts. Complete connect -> power on -> start on the teach pendant/control cabinet first, confirm the arm is stably holding, then use `real_aubo_prepare.sh` as a read-only state check: `SafetyMode` must be `Normal` or `ReducedMode`, and `RobotMode` must be `Running`. Run the small Z test in another terminal. It is dry-run by default; real motion requires confirmation:
 
 ```bash
 ./scripts/real_aubo_z_test.sh
