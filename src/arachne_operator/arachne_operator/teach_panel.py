@@ -101,10 +101,10 @@ class TeachPanelNode(Node):
         self.declare_parameter("base_manual_publish_rate", 12.0)
         self.declare_parameter("base_motion_max_segment_sec", 20.0)
         self.declare_parameter("arm_jog_step_m", 0.02)
-        self.declare_parameter("arm_jog_duration_sec", 1.2)
+        self.declare_parameter("arm_jog_duration_sec", 1.0)
         self.declare_parameter("arm_rotate_step_rad", math.radians(5.0))
-        self.declare_parameter("arm_rotate_duration_sec", 1.2)
-        self.declare_parameter("arm_waypoint_duration_sec", 6.0)
+        self.declare_parameter("arm_rotate_duration_sec", 1.0)
+        self.declare_parameter("arm_waypoint_duration_sec", 4.5)
         self.declare_parameter("arm_goal_tolerance", 0.04)
         self.declare_parameter("arm_position_tolerance", 0.006)
         self.declare_parameter("arm_ik_damping", 0.08)
@@ -932,6 +932,7 @@ class TeachPanelApp:
         for index, (text, command) in enumerate(
             (
                 ("Delete", self._delete_selected),
+                ("Update WP", self._update_selected),
                 ("Duplicate", self._duplicate_selected),
                 ("Clear", self._clear),
                 ("Reset", self._reset),
@@ -1051,6 +1052,29 @@ class TeachPanelApp:
         for index in reversed(selected):
             del self.waypoints[index]
         self._refresh_waypoints()
+
+    def _update_selected(self) -> None:
+        selected = list(self.listbox.curselection())
+        if len(selected) != 1:
+            messagebox.showinfo("Update WP", "Select exactly one waypoint to update.")
+            return
+        index = selected[0]
+        source = self.waypoints[index]
+        try:
+            if source.kind == "wait":
+                seconds = float(self.wait_var.get())
+                if seconds < 0.0:
+                    raise ValueError("Wait seconds must be non-negative.")
+                waypoint = self.node.record_wait(source.label, seconds)
+            else:
+                waypoint = self.node.record_waypoint(source.label)
+        except Exception as exc:
+            messagebox.showerror("Update failed", str(exc))
+            return
+        self.waypoints[index] = waypoint
+        self._refresh_waypoints()
+        self.listbox.selection_set(index)
+        self.listbox.see(index)
 
     def _duplicate_selected(self) -> None:
         selected = list(self.listbox.curselection())
