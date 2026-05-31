@@ -50,6 +50,14 @@ fetch_repo aubo_ros2_driver \
   https://github.com/AuboRobot/aubo_ros2_driver.git \
   85684075d6ff06c5385e39611208e99ebf0f94c6
 
+# ROS 2 Jazzy no longer ships hardware_interface/visibility_control.h.
+# The pinned Aubo driver includes it but does not use symbols from it, so this
+# small source compatibility patch keeps the third-party checkout buildable.
+aubo_hw_header="${ROOT_DIR}/third_party/aubo_ros2_driver/aubo_ros2_driver/include/aubo_hardware_interface.h"
+if [[ -f "${aubo_hw_header}" ]] && grep -q 'hardware_interface/visibility_control.h' "${aubo_hw_header}"; then
+  sed -i '/hardware_interface\/visibility_control\.h/d' "${aubo_hw_header}"
+fi
+
 fetch_repo dh_ag95_gripper_ros2 \
   https://github.com/ian-chuang/dh_ag95_gripper_ros2.git \
   fc4f80fdfb3acae5626df4359aec1401cb71a9a3

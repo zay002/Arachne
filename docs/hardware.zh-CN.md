@@ -47,11 +47,27 @@ ros2 launch arachne_hardware real_bringup.launch.py
 
 ```bash
 ./scripts/check_real_hardware_env.sh
+./scripts/real_aubo_probe.sh
+```
+
+单独测试 Aubo 时使用固定脚本。`real_aubo_bringup.sh` 会启动官方 ROS2 driver；由于该 driver 在硬件激活阶段会进入 servo mode，必须显式确认：
+
+```bash
+ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh
+```
+
+另一个终端运行小幅 Z 向测试。默认只 dry-run；真实运动需要确认：
+
+```bash
+./scripts/real_aubo_z_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh
 ```
 
 ## 真机验收测试
 
 电源、网络、串口和 CAN 都稳定后，可以运行保守的真机验收测试：
+
+真机动作应优先固化为可执行脚本，而不是依赖临时终端命令。脚本需要写清目标动作、默认参数、安全确认和可观察输出，保证后续调试、演示和复现实验时行为一致。临时命令只用于 `ping`、端口探测、只读状态读取这类快速检查。
 
 1. Scout 前进 `0.2 m`。
 2. Scout 后退 `0.2 m`。

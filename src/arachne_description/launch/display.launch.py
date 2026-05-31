@@ -11,12 +11,12 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 DISPLAY_ARM_ZEROS = {
-    "zeros.aubo_shoulder_joint": 1.664,
-    "zeros.aubo_upperArm_joint": 0.034,
-    "zeros.aubo_foreArm_joint": -1.324,
-    "zeros.aubo_wrist1_joint": 0.034,
-    "zeros.aubo_wrist2_joint": -1.732,
-    "zeros.aubo_wrist3_joint": 0.0,
+    "zeros.aubo_shoulder_joint": -1.5407387550371199,
+    "zeros.aubo_upperArm_joint": 0.05937252214606485,
+    "zeros.aubo_foreArm_joint": 2.0350620214427786,
+    "zeros.aubo_wrist1_joint": 1.9717090402766757,
+    "zeros.aubo_wrist2_joint": 1.5416031029821449,
+    "zeros.aubo_wrist3_joint": -0.002335565908067907,
 }
 
 

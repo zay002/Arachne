@@ -179,6 +179,8 @@ class RealHardwareAcceptanceTest(Node):
         self.declare_parameter(
             "legacy_arm_trajectory_topic", "/joint_trajectory_controller/joint_trajectory"
         )
+        self.declare_parameter("arm_state_joint_names", ",".join(ARM_JOINTS))
+        self.declare_parameter("arm_command_joint_names", ",".join(ARM_JOINTS))
         self.declare_parameter("gripper_command_topic", "/arachne/gripper/command")
         self.declare_parameter("base_distance_m", 0.2)
         self.declare_parameter("base_linear_speed", 0.06)
@@ -205,20 +207,29 @@ class RealHardwareAcceptanceTest(Node):
         self.latest_odom: Odometry | None = None
         self.latest_joint_state: JointState | None = None
         self.current_arm: dict[str, float] = {}
+        self.arm_state_joint_names = self._parse_joint_names(
+            str(self.get_parameter("arm_state_joint_names").value)
+        )
+        self.arm_command_joint_names = self._parse_joint_names(
+            str(self.get_parameter("arm_command_joint_names").value)
+        )
+        if len(self.arm_state_joint_names) != 6 or len(self.arm_command_joint_names) != 6:
+            raise ValueError("arm_state_joint_names and arm_command_joint_names must list 6 joints")
         self.kinematics = AuboI5Kinematics()
+
+        arm_topics = []
+        for topic in (
+            str(self.get_parameter("arm_trajectory_topic").value),
+            str(self.get_parameter("legacy_arm_trajectory_topic").value),
+        ):
+            if topic and topic not in arm_topics:
+                arm_topics.append(topic)
 
         self.cmd_vel_pub = self.create_publisher(
             Twist, str(self.get_parameter("cmd_vel_topic").value), 10
         )
         self.arm_publishers = [
-            self.create_publisher(
-                JointTrajectory, str(self.get_parameter("arm_trajectory_topic").value), 10
-            ),
-            self.create_publisher(
-                JointTrajectory,
-                str(self.get_parameter("legacy_arm_trajectory_topic").value),
-                10,
-            ),
+            self.create_publisher(JointTrajectory, topic, 10) for topic in arm_topics
         ]
         self.gripper_pub = self.create_publisher(
             String, str(self.get_parameter("gripper_command_topic").value), 10
@@ -266,7 +277,9 @@ class RealHardwareAcceptanceTest(Node):
         if bool(self.get_parameter("run_base_test").value):
             steps.append("base +0.2m/-0.2m, left 30deg/return, right 30deg/return")
         if bool(self.get_parameter("run_arm_test").value):
-            steps.append("tool0 z +0.2m/return")
+            z_delta = float(self.get_parameter("arm_z_delta_m").value)
+            frame = str(self.get_parameter("arm_z_frame").value)
+            steps.append(f"tool0 z +{z_delta:.3f}m/return in {frame}")
         if bool(self.get_parameter("run_gripper_test").value):
             steps.append("gripper open-close x5")
         return "; ".join(steps) if steps else "no subsystem selected"
@@ -396,7 +409,7 @@ class RealHardwareAcceptanceTest(Node):
     def _publish_arm(self, positions: np.ndarray) -> None:
         trajectory = JointTrajectory()
         trajectory.header.stamp = self.get_clock().now().to_msg()
-        trajectory.joint_names = list(ARM_JOINTS)
+        trajectory.joint_names = list(self.arm_command_joint_names)
         point = JointTrajectoryPoint()
         point.positions = [float(value) for value in positions]
         duration = float(self.get_parameter("arm_duration_sec").value)
@@ -438,10 +451,10 @@ class RealHardwareAcceptanceTest(Node):
         timeout = float(self.get_parameter("feedback_timeout_sec").value)
         deadline = time.monotonic() + timeout
         while rclpy.ok() and time.monotonic() < deadline:
-            if all(name in self.current_arm for name in ARM_JOINTS):
+            if all(name in self.current_arm for name in self.arm_state_joint_names):
                 return
             self._spin_sleep(0.05)
-        missing = [name for name in ARM_JOINTS if name not in self.current_arm]
+        missing = [name for name in self.arm_state_joint_names if name not in self.current_arm]
         raise TimeoutError(f"missing arm joint states: {missing}")
 
     def _current_pose2d(self) -> Pose2D:
@@ -454,7 +467,7 @@ class RealHardwareAcceptanceTest(Node):
         return Pose2D(pose.position.x, pose.position.y, yaw)
 
     def _current_arm_vector(self) -> np.ndarray:
-        return np.array([self.current_arm[name] for name in ARM_JOINTS], dtype=float)
+        return np.array([self.current_arm[name] for name in self.arm_state_joint_names], dtype=float)
 
     def _on_odom(self, msg: Odometry) -> None:
         self.latest_odom = msg
@@ -462,8 +475,12 @@ class RealHardwareAcceptanceTest(Node):
     def _on_joint_state(self, msg: JointState) -> None:
         self.latest_joint_state = msg
         for name, position in zip(msg.name, msg.position):
-            if name in ARM_JOINTS:
+            if name in self.arm_state_joint_names:
                 self.current_arm[name] = float(position)
+
+    def _parse_joint_names(self, value: str) -> tuple[str, ...]:
+        names = tuple(item.strip() for item in value.split(",") if item.strip())
+        return names
 
     def _yaw_from_quaternion(self, x: float, y: float, z: float, w: float) -> float:
         return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))

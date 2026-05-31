@@ -22,12 +22,12 @@ ARM_JOINTS = (
 )
 
 HOME = {
-    "aubo_shoulder_joint": 1.664,
-    "aubo_upperArm_joint": 0.034,
-    "aubo_foreArm_joint": -1.324,
-    "aubo_wrist1_joint": 0.034,
-    "aubo_wrist2_joint": -1.732,
-    "aubo_wrist3_joint": 0.0,
+    "aubo_shoulder_joint": -1.5407387550371199,
+    "aubo_upperArm_joint": 0.05937252214606485,
+    "aubo_foreArm_joint": 2.0350620214427786,
+    "aubo_wrist1_joint": 1.9717090402766757,
+    "aubo_wrist2_joint": 1.5416031029821449,
+    "aubo_wrist3_joint": -0.002335565908067907,
 }
 
 

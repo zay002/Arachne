@@ -66,6 +66,9 @@ source install/setup.bash
 | Gazebo autonomous pick validation | `./scripts/gazebo_autopick_demo.sh` |
 | Godot showcase | `./scripts/godot_showcase.sh` |
 | Real-hardware environment check | `./scripts/check_real_hardware_env.sh` |
+| Read-only Aubo connectivity probe | `./scripts/real_aubo_probe.sh` |
+| Aubo real driver bringup | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh` |
+| Small Aubo Z test | `ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh` |
 
 <p align="center">
   <img src="docs/demo/gazebo.png" alt="Arachne Gazebo demo" width="48%">
@@ -86,6 +89,7 @@ Prepare real-hardware ROS packages:
 
 ```bash
 ./scripts/prepare_real_hardware_ros.sh
+./scripts/real_aubo_probe.sh
 ```
 
 Launch only the connected devices:
@@ -115,6 +119,7 @@ Real motion tests are dry-run by default. Enable motion only after power, emerge
 
 ```bash
 ./scripts/real_hardware_acceptance_test.sh
+./scripts/real_aubo_z_test.sh
 ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 ```
 

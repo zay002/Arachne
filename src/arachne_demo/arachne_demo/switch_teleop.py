@@ -69,7 +69,17 @@ class SwitchTeleop(Node):
                 "aubo_wrist3_joint",
             ],
         )
-        self.declare_parameter("default_positions", [1.664, 0.034, -1.324, 0.034, -1.732, 0.0])
+        self.declare_parameter(
+            "default_positions",
+            [
+                -1.5407387550371199,
+                0.05937252214606485,
+                2.0350620214427786,
+                1.9717090402766757,
+                1.5416031029821449,
+                -0.002335565908067907,
+            ],
+        )
         self.declare_parameter(
             "lower_limits",
             [-6.283185307179586] * 6,

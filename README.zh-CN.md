@@ -66,6 +66,9 @@ source install/setup.bash
 | Gazebo 自主拾取验证 | `./scripts/gazebo_autopick_demo.sh` |
 | Godot 展示前端 | `./scripts/godot_showcase.sh` |
 | 真机环境检查 | `./scripts/check_real_hardware_env.sh` |
+| Aubo 只读连通探测 | `./scripts/real_aubo_probe.sh` |
+| Aubo 真机 driver 启动 | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh` |
+| Aubo 小幅 Z 向测试 | `ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh` |
 
 <p align="center">
   <img src="docs/demo/gazebo.png" alt="Arachne Gazebo demo" width="48%">
@@ -86,6 +89,7 @@ Arachne 的真机层尽量复用官方或厂家 ROS 路线，并在本仓库内�
 
 ```bash
 ./scripts/prepare_real_hardware_ros.sh
+./scripts/real_aubo_probe.sh
 ```
 
 按已连接设备启动：
@@ -115,6 +119,7 @@ hurry waveshare-can-a recv \
 
 ```bash
 ./scripts/real_hardware_acceptance_test.sh
+./scripts/real_aubo_z_test.sh
 ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 ```
 

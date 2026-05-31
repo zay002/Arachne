@@ -28,6 +28,20 @@ def generate_launch_description():
                 "legacy_arm_trajectory_topic",
                 default_value="/joint_trajectory_controller/joint_trajectory",
             ),
+            DeclareLaunchArgument(
+                "arm_state_joint_names",
+                default_value=(
+                    "aubo_shoulder_joint,aubo_upperArm_joint,aubo_foreArm_joint,"
+                    "aubo_wrist1_joint,aubo_wrist2_joint,aubo_wrist3_joint"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "arm_command_joint_names",
+                default_value=(
+                    "aubo_shoulder_joint,aubo_upperArm_joint,aubo_foreArm_joint,"
+                    "aubo_wrist1_joint,aubo_wrist2_joint,aubo_wrist3_joint"
+                ),
+            ),
             DeclareLaunchArgument("gripper_command_topic", default_value="/arachne/gripper/command"),
             DeclareLaunchArgument("base_distance_m", default_value="0.2"),
             DeclareLaunchArgument("base_linear_speed", default_value="0.06"),
@@ -58,6 +72,8 @@ def generate_launch_description():
                         "legacy_arm_trajectory_topic": LaunchConfiguration(
                             "legacy_arm_trajectory_topic"
                         ),
+                        "arm_state_joint_names": LaunchConfiguration("arm_state_joint_names"),
+                        "arm_command_joint_names": LaunchConfiguration("arm_command_joint_names"),
                         "gripper_command_topic": LaunchConfiguration("gripper_command_topic"),
                         "base_distance_m": ParameterValue(
                             LaunchConfiguration("base_distance_m"), value_type=float

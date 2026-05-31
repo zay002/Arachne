@@ -47,11 +47,27 @@ Run the environment checker before motion tests:
 
 ```bash
 ./scripts/check_real_hardware_env.sh
+./scripts/real_aubo_probe.sh
+```
+
+Use fixed scripts for isolated Aubo testing. `real_aubo_bringup.sh` starts the official ROS2 driver; because that driver enters servo mode during hardware activation, it requires explicit confirmation:
+
+```bash
+ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh
+```
+
+Run the small Z test in another terminal. It is dry-run by default; real motion requires confirmation:
+
+```bash
+./scripts/real_aubo_z_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh
 ```
 
 ## Real-Hardware Acceptance Test
 
 After power, networking, serial, and CAN are stable, Arachne provides a conservative acceptance test:
+
+Real-hardware actions should be captured as executable scripts instead of relying on ad-hoc terminal snippets. Each script should define the motion goal, default parameters, safety confirmation, and observable output so debugging, demos, and repeated experiments behave consistently. Temporary commands are reserved for quick checks such as `ping`, port probing, and read-only state queries.
 
 1. Scout forward `0.2 m`.
 2. Scout backward `0.2 m`.
