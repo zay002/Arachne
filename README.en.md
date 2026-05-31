@@ -135,7 +135,7 @@ For demonstrations, use the one-command teach entry:
 ./scripts/real_teach_demo.sh
 ```
 
-It starts real bringup, waits for `/odom`, `/joint_states`, the Aubo trajectory action, and gripper status, then opens the teach panel. Closing the panel stops the background bringup. The panel manually controls the base, Aubo tool, and MS42DC gripper, records base pose, tool position, arm joints, and gripper state as waypoints, saves them as JSON, and replays the sequence with one button.
+It starts real bringup, waits for `/odom`, `/joint_states`, the Aubo trajectory action, and gripper status, then opens the teach panel. Closing the panel stops the background bringup. The panel manually controls the base, Aubo tool, and MS42DC gripper, records base pose, tool position, arm joints, and gripper state as waypoints, saves them under the local `recordings/teach/` directory, and replays the sequence slowly with one button.
 
 ## Project Layout
 

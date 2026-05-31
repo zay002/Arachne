@@ -217,7 +217,7 @@ Start simulation or real bringup first, then open the panel:
 ./scripts/teach_panel.sh
 ```
 
-The default real Aubo joint names are `shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint`. The panel also recognizes matching `aubo_`-prefixed joint states for RViz/mock flows. Override `arm_command_joint_names:=...` when the controller command names differ. Recordings are JSON files under `recordings/` by default.
+The default real Aubo joint names are `shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint`. The panel also recognizes matching `aubo_`-prefixed joint states for RViz/mock flows. Override `arm_command_joint_names:=...` when the controller command names differ. Recordings are JSON files under the local `recordings/teach/` directory by default. For safety, replay is slower than manual control by default: base replay uses `0.025 m/s` and `0.10 rad/s`, and each arm waypoint uses `6.0 s`.
 
 Launch ros2_control with mock hardware:
 

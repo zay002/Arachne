@@ -6,6 +6,7 @@ USE_SCOUT="${USE_SCOUT:-true}"
 USE_MS42DC="${USE_MS42DC:-true}"
 USE_AUBO="${USE_AUBO:-true}"
 WAIT_TIMEOUT_SEC="${WAIT_TIMEOUT_SEC:-35}"
+RECORDING_DIR="${ARACHNE_TEACH_RECORDING_DIR:-${ROOT_DIR}/recordings/teach}"
 BRINGUP_ARGS=()
 PANEL_ARGS=()
 
@@ -25,7 +26,9 @@ Options are forwarded to real_bringup.sh:
 
 Example:
   ./scripts/real_teach_demo.sh
-  ./scripts/real_teach_demo.sh -- --recording_dir:=recordings/demo_day_1
+  ./scripts/real_teach_demo.sh -- recording_dir:=recordings/demo_day_1
+
+Recordings are saved locally under recordings/teach by default.
 EOF
 }
 
@@ -69,7 +72,16 @@ set -u
 
 BRINGUP_LOG_DIR="${ROOT_DIR}/log/real_teach_demo"
 mkdir -p "${BRINGUP_LOG_DIR}"
+mkdir -p "${RECORDING_DIR}"
 BRINGUP_LOG="${BRINGUP_LOG_DIR}/bringup_$(date +%Y%m%d_%H%M%S).log"
+
+has_recording_dir=false
+for arg in "${PANEL_ARGS[@]}"; do
+  if [[ "${arg}" == recording_dir:=* || "${arg}" == --recording_dir:=* ]]; then
+    has_recording_dir=true
+    break
+  fi
+done
 
 cleanup() {
   if [[ -n "${BRINGUP_PID:-}" ]] && kill -0 "${BRINGUP_PID}" 2>/dev/null; then
@@ -130,4 +142,9 @@ if [[ "${USE_AUBO}" == "true" ]]; then
 fi
 
 echo "Opening teach/replay panel..."
-ros2 launch arachne_operator teach_panel.launch.py "${PANEL_ARGS[@]}"
+if [[ "${has_recording_dir}" == "true" ]]; then
+  ros2 launch arachne_operator teach_panel.launch.py "${PANEL_ARGS[@]}"
+else
+  ros2 launch arachne_operator teach_panel.launch.py \
+    recording_dir:="${RECORDING_DIR}" "${PANEL_ARGS[@]}"
+fi

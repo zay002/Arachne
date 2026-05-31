@@ -117,7 +117,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh
 ./scripts/real_teach_demo.sh
 ```
 
-该脚本会启动 bringup、等待核心话题和 Aubo action 可用，然后打开示教回放面板；关闭面板时会自动停止后台 bringup。
+该脚本会启动 bringup、等待核心话题和 Aubo action 可用，然后打开示教回放面板；关闭面板时会自动停止后台 bringup。示教 JSON 默认保存在本地 `recordings/teach/`，回放默认使用慢速安全参数。
 
 单独标定 MS42DC 时，建议先用小角度测试，再使用厂家全行程。当前小角度测试值是 `300` 个 0.1 度，也就是 `30 deg`；默认演示速度是 `150` 个 0.1 rad/s，也就是 `15 rad/s`。说明书中的全开/全闭示例是 `18720` 个 0.1 度，也就是 `1872 deg = 5.2 圈`，需要确认真实行程和回零行为后再使用：
 
