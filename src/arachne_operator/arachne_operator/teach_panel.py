@@ -4,7 +4,7 @@ import json
 import math
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields, field
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
@@ -45,10 +45,12 @@ class Pose2D:
 class TeachWaypoint:
     label: str
     stamp: str
-    base_pose: list[float]
-    arm_joints: list[float]
-    tool_position: list[float]
-    gripper: str
+    base_pose: list[float] = field(default_factory=list)
+    arm_joints: list[float] = field(default_factory=list)
+    tool_position: list[float] = field(default_factory=list)
+    gripper: str = "open"
+    kind: str = "pose"
+    wait_sec: float = 0.0
 
 
 def _angle_diff(target: float, current: float) -> float:
@@ -64,6 +66,12 @@ def _yaw_from_odom(msg: Odometry) -> float:
 
 def _parse_names(text: str) -> list[str]:
     return [item.strip() for item in text.split(",") if item.strip()]
+
+
+def _waypoint_from_dict(data: dict) -> TeachWaypoint:
+    known = {item.name for item in fields(TeachWaypoint)}
+    filtered = {key: value for key, value in data.items() if key in known}
+    return TeachWaypoint(**filtered)
 
 
 class TeachPanelNode(Node):
@@ -316,8 +324,21 @@ class TeachPanelNode(Node):
             arm_joints=[float(value) for value in arm],
             tool_position=[float(value) for value in tool],
             gripper=gripper,
+            kind="pose",
         )
         self._status(f"recorded {clean_label}")
+        return waypoint
+
+    def record_wait(self, label: str, seconds: float) -> TeachWaypoint:
+        wait_sec = max(float(seconds), 0.0)
+        clean_label = label.strip() or f"wait_{datetime.now().strftime('%H%M%S')}"
+        waypoint = TeachWaypoint(
+            label=clean_label,
+            stamp=datetime.now().isoformat(timespec="seconds"),
+            kind="wait",
+            wait_sec=wait_sec,
+        )
+        self._status(f"recorded wait {clean_label}: {wait_sec:.1f}s")
         return waypoint
 
     def replay(self, waypoints: list[TeachWaypoint]) -> None:
@@ -342,6 +363,11 @@ class TeachPanelNode(Node):
                 if self.cancel_event.is_set():
                     break
                 self._status(f"replay {index}/{len(waypoints)}: {waypoint.label}")
+                if waypoint.kind == "wait":
+                    self.set_base_velocity(0.0, 0.0)
+                    self._status(f"wait {waypoint.wait_sec:.1f}s: {waypoint.label}")
+                    self._sleep(float(waypoint.wait_sec))
+                    continue
                 if waypoint.gripper in ("open", "close"):
                     self.publish_gripper(waypoint.gripper)
                 if not self._send_arm_positions(
@@ -378,7 +404,8 @@ class TeachPanelNode(Node):
     def _turn_to_yaw(self, target_yaw: float) -> None:
         tolerance = math.radians(float(self.get_parameter("base_yaw_tolerance_deg").value))
         speed = abs(float(self.get_parameter("base_replay_angular_speed").value))
-        deadline = time.monotonic() + 12.0
+        initial_error = abs(_angle_diff(target_yaw, self._current_base_pose().yaw))
+        deadline = time.monotonic() + max(12.0, initial_error / max(speed, 1e-3) + 8.0)
         while not self.cancel_event.is_set() and time.monotonic() < deadline:
             current = self._current_base_pose()
             error = _angle_diff(target_yaw, current.yaw)
@@ -509,6 +536,7 @@ class TeachPanelApp:
         self.root.title("Arachne Teach & Replay")
         self.status_vars: dict[str, tk.StringVar] = {}
         self.label_var = tk.StringVar(value="wp_1")
+        self.wait_var = tk.StringVar(value="2.0")
         self.file_var = tk.StringVar(value="unsaved")
         self._build()
         self._refresh()
@@ -540,14 +568,21 @@ class TeachPanelApp:
         ttk.Button(record, text="Record Current", command=self._record).grid(
             row=0, column=1, sticky="ew", padx=4, pady=4
         )
+        wait = ttk.Frame(record)
+        wait.grid(row=1, column=0, columnspan=2, sticky="ew", padx=4, pady=0)
+        ttk.Label(wait, text="Wait s").grid(row=0, column=0, padx=(0, 4), pady=4)
+        ttk.Entry(wait, textvariable=self.wait_var, width=8).grid(row=0, column=1, padx=4, pady=4)
+        ttk.Button(wait, text="Add Wait", command=self._add_wait).grid(row=0, column=2, padx=4, pady=4)
+
         self.listbox = tk.Listbox(record, height=15, width=70)
-        self.listbox.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=4, pady=4)
+        self.listbox.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=4, pady=4)
         buttons = ttk.Frame(record)
-        buttons.grid(row=2, column=0, columnspan=2, sticky="ew", padx=4, pady=4)
+        buttons.grid(row=3, column=0, columnspan=2, sticky="ew", padx=4, pady=4)
         for index, (text, command) in enumerate(
             (
                 ("Delete", self._delete_selected),
                 ("Clear", self._clear),
+                ("Reset", self._reset),
                 ("Save", self._save),
                 ("Load", self._load),
                 ("Play", self._play),
@@ -556,7 +591,7 @@ class TeachPanelApp:
         ):
             ttk.Button(buttons, text=text, command=command).grid(row=0, column=index, padx=2)
         ttk.Label(record, textvariable=self.file_var).grid(
-            row=3, column=0, columnspan=2, sticky="w", padx=4, pady=(2, 0)
+            row=4, column=0, columnspan=2, sticky="w", padx=4, pady=(2, 0)
         )
 
     def _build_base_controls(self, parent: ttk.Frame) -> None:
@@ -619,6 +654,20 @@ class TeachPanelApp:
         self.label_var.set(f"wp_{len(self.waypoints) + 1}")
         self._refresh_waypoints()
 
+    def _add_wait(self) -> None:
+        try:
+            seconds = float(self.wait_var.get())
+        except ValueError:
+            messagebox.showerror("Wait failed", "Wait seconds must be numeric.")
+            return
+        if seconds < 0.0:
+            messagebox.showerror("Wait failed", "Wait seconds must be non-negative.")
+            return
+        waypoint = self.node.record_wait(self.label_var.get(), seconds)
+        self.waypoints.append(waypoint)
+        self.label_var.set(f"wp_{len(self.waypoints) + 1}")
+        self._refresh_waypoints()
+
     def _delete_selected(self) -> None:
         selected = list(self.listbox.curselection())
         for index in reversed(selected):
@@ -627,6 +676,15 @@ class TeachPanelApp:
 
     def _clear(self) -> None:
         self.waypoints.clear()
+        self.label_var.set("wp_1")
+        self._refresh_waypoints()
+
+    def _reset(self) -> None:
+        self.node.stop_all()
+        self.waypoints.clear()
+        self.label_var.set("wp_1")
+        self.wait_var.set("2.0")
+        self.file_var.set("unsaved")
         self._refresh_waypoints()
 
     def _save(self) -> None:
@@ -656,8 +714,9 @@ class TeachPanelApp:
         if not path:
             return
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
-        self.waypoints = [TeachWaypoint(**item) for item in payload.get("waypoints", [])]
+        self.waypoints = [_waypoint_from_dict(item) for item in payload.get("waypoints", [])]
         self.file_var.set(path)
+        self.label_var.set(f"wp_{len(self.waypoints) + 1}")
         self._refresh_waypoints()
 
     def _play(self) -> None:
@@ -666,6 +725,9 @@ class TeachPanelApp:
     def _refresh_waypoints(self) -> None:
         self.listbox.delete(0, tk.END)
         for index, waypoint in enumerate(self.waypoints, start=1):
+            if waypoint.kind == "wait":
+                self.listbox.insert(tk.END, f"{index:02d} {waypoint.label} | wait={waypoint.wait_sec:.1f}s")
+                continue
             x, y, yaw = waypoint.base_pose
             tool = waypoint.tool_position
             self.listbox.insert(

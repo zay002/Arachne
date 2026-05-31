@@ -209,7 +209,9 @@ ros2 launch arachne_operator sequence_executor.launch.py
 - Aubo: X/Y/Z tool jog buttons solve local Aubo i5 FK/IK and send a joint trajectory, preferring `/joint_trajectory_controller/follow_joint_trajectory`.
 - Gripper: publishes `open`, `close`, or `stop` on `/arachne/gripper/command`.
 - Record: stores base odom pose, current Aubo joints, FK tool position, and gripper state.
-- Replay: sends gripper commands and Aubo joint trajectories, then drives Scout to the recorded odom poses with closed-loop `/odom` feedback.
+- Wait: `Add Wait` inserts an N-second wait step into the queue for safe pauses between arm, base, or gripper actions.
+- Replay: sends gripper commands and Aubo joint trajectories, then drives Scout to the recorded odom poses with closed-loop `/odom` feedback; wait steps only sleep and send no motion commands.
+- Reset: `Clear` empties the list and resets the next label to `wp_1`; `Reset` stops current motion, clears the list, resets file state, and resets labels.
 
 Start simulation or real bringup first, then open the panel:
 

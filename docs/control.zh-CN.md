@@ -209,7 +209,9 @@ ros2 launch arachne_operator sequence_executor.launch.py
 - Aubo：按 X/Y/Z 方向对末端做小步笛卡尔 jog，节点用本地 Aubo i5 FK/IK 转成关节轨迹，并优先走 `/joint_trajectory_controller/follow_joint_trajectory` action。
 - 夹具：向 `/arachne/gripper/command` 发布 `open`、`close` 或 `stop`。
 - 记录：保存底盘 odom 位姿、Aubo 当前关节角、FK 得到的末端位置和夹具状态。
-- 回放：按 waypoint 顺序发送夹具命令、Aubo 关节轨迹，并用 `/odom` 闭环把 Scout 驱动到记录位姿。
+- 等待：`Add Wait` 会在队列中插入等待 N 秒的步骤，适合让机械臂、底盘或夹具动作之间留出安全缓冲。
+- 回放：按 waypoint 顺序发送夹具命令、Aubo 关节轨迹，并用 `/odom` 闭环把 Scout 驱动到记录位姿；遇到 wait 步骤时只等待，不发送运动命令。
+- 重置：`Clear` 会清空列表并把下一个标签重置为 `wp_1`；`Reset` 会先停止当前动作，再清空列表、文件状态和标签编号。
 
 启动前先启动仿真或真机 bringup，再打开面板：
 
