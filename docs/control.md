@@ -206,10 +206,12 @@ ros2 launch arachne_operator sequence_executor.launch.py
 `teach_panel.py` is intended for real-hardware demos and small teach-in experiments. It listens to `/odom`, `/joint_states`, and hardware status topics, manually controls the three subsystems, and records the current state as a waypoint:
 
 - Base: hold buttons publish forward, backward, left, and right commands on `/cmd_vel`; releasing the button stops the base.
-- Aubo: X/Y/Z tool jog buttons solve local Aubo i5 FK/IK and send a joint trajectory, preferring `/joint_trajectory_controller/follow_joint_trajectory`.
+- Aubo: X/Y/Z tool jog buttons solve local Aubo i5 FK/IK and send a joint trajectory, preferring `/joint_trajectory_controller/follow_joint_trajectory`. RX/RY/RZ are conservative wrist-orientation jogs that increment the last three wrist joints.
+- Aubo teach mode: `Teach On` / `Teach Off` publishes on `/arachne/aubo/teach_command`; real bringup runs `aubo_teach_command_bridge`, which calls `RobotManage.freedrive(true/false)` through the official `jsonrpc_service`.
 - Gripper: publishes `open`, `close`, or `stop` on `/arachne/gripper/command`.
 - Record: stores base odom pose, current Aubo joints, FK tool position, and gripper state.
 - Wait: `Add Wait` inserts an N-second wait step into the queue for safe pauses between arm, base, or gripper actions.
+- Reuse: select an existing waypoint and click `Duplicate` to append a copy, so the same pose or wait step can be reused later in the sequence.
 - Replay: sends gripper commands and Aubo joint trajectories, then drives Scout to the recorded odom poses with closed-loop `/odom` feedback; wait steps only sleep and send no motion commands.
 - Reset: `Clear` empties the list and resets the next label to `wp_1`; `Reset` stops current motion, clears the list, resets file state, and resets labels.
 
@@ -219,7 +221,7 @@ Start simulation or real bringup first, then open the panel:
 ./scripts/teach_panel.sh
 ```
 
-The default real Aubo joint names are `shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint`. The panel also recognizes matching `aubo_`-prefixed joint states for RViz/mock flows. Override `arm_command_joint_names:=...` when the controller command names differ. Recordings are JSON files under the local `recordings/teach/` directory by default. For safety, replay is slower than manual control by default: base replay uses `0.025 m/s` and `0.10 rad/s`, and each arm waypoint uses `6.0 s`.
+The default real Aubo joint names are `shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint`. The panel also recognizes matching `aubo_`-prefixed joint states for RViz/mock flows. Override `arm_command_joint_names:=...` when the controller command names differ. Recordings are JSON files under the local `recordings/teach/` directory by default. For safety, replay is slower than manual control by default: base replay uses `0.025 m/s` and `0.10 rad/s`, and each arm waypoint uses `6.0 s`. Before entering Aubo freedrive/teach mode, confirm the arm is stably enabled, the workspace is clear, and a person is ready to support the arm if needed.
 
 Launch ros2_control with mock hardware:
 

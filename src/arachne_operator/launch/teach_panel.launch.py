@@ -38,12 +38,18 @@ def generate_launch_description():
                 ),
             ),
             DeclareLaunchArgument("gripper_command_topic", default_value="/arachne/gripper/command"),
+            DeclareLaunchArgument(
+                "aubo_teach_command_topic",
+                default_value="/arachne/aubo/teach_command",
+            ),
             DeclareLaunchArgument("base_linear_speed", default_value="0.06"),
             DeclareLaunchArgument("base_angular_speed", default_value="0.22"),
             DeclareLaunchArgument("base_replay_linear_speed", default_value="0.025"),
             DeclareLaunchArgument("base_replay_angular_speed", default_value="0.10"),
             DeclareLaunchArgument("arm_jog_step_m", default_value="0.02"),
             DeclareLaunchArgument("arm_jog_duration_sec", default_value="1.2"),
+            DeclareLaunchArgument("arm_rotate_step_rad", default_value="0.0872665"),
+            DeclareLaunchArgument("arm_rotate_duration_sec", default_value="1.2"),
             DeclareLaunchArgument("arm_waypoint_duration_sec", default_value="6.0"),
             DeclareLaunchArgument("recording_dir", default_value="recordings/teach"),
             Node(
@@ -66,6 +72,9 @@ def generate_launch_description():
                         "arm_state_joint_names": LaunchConfiguration("arm_state_joint_names"),
                         "arm_command_joint_names": LaunchConfiguration("arm_command_joint_names"),
                         "gripper_command_topic": LaunchConfiguration("gripper_command_topic"),
+                        "aubo_teach_command_topic": LaunchConfiguration(
+                            "aubo_teach_command_topic"
+                        ),
                         "base_linear_speed": ParameterValue(
                             LaunchConfiguration("base_linear_speed"), value_type=float
                         ),
@@ -83,6 +92,12 @@ def generate_launch_description():
                         ),
                         "arm_jog_duration_sec": ParameterValue(
                             LaunchConfiguration("arm_jog_duration_sec"), value_type=float
+                        ),
+                        "arm_rotate_step_rad": ParameterValue(
+                            LaunchConfiguration("arm_rotate_step_rad"), value_type=float
+                        ),
+                        "arm_rotate_duration_sec": ParameterValue(
+                            LaunchConfiguration("arm_rotate_duration_sec"), value_type=float
                         ),
                         "arm_waypoint_duration_sec": ParameterValue(
                             LaunchConfiguration("arm_waypoint_duration_sec"), value_type=float

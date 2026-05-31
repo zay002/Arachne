@@ -207,6 +207,22 @@ def _launch_setup(context, *args, **kwargs):
             )
         )
 
+        actions.append(
+            Node(
+                package="arachne_hardware",
+                executable="aubo_teach_command_bridge",
+                name="aubo_teach_command_bridge",
+                parameters=[
+                    {
+                        "command_topic": LaunchConfiguration("aubo_teach_command_topic"),
+                        "jsonrpc_service": LaunchConfiguration("aubo_jsonrpc_service"),
+                        "teach_method": LaunchConfiguration("aubo_teach_method"),
+                    }
+                ],
+                output="screen",
+            )
+        )
+
     return actions
 
 
@@ -235,6 +251,9 @@ def generate_launch_description():
             DeclareLaunchArgument("ms42dc_speed_tenths", default_value="150"),
             DeclareLaunchArgument("aubo_robot_ip", default_value="192.168.127.128"),
             DeclareLaunchArgument("aubo_port", default_value="80"),
+            DeclareLaunchArgument("aubo_teach_command_topic", default_value="/arachne/aubo/teach_command"),
+            DeclareLaunchArgument("aubo_jsonrpc_service", default_value="jsonrpc_service"),
+            DeclareLaunchArgument("aubo_teach_method", default_value="freedrive"),
             OpaqueFunction(function=_launch_setup),
         ]
     )

@@ -99,12 +99,15 @@ class TeachPanelNode(Node):
         self.declare_parameter("base_yaw_tolerance_deg", 2.0)
         self.declare_parameter("arm_jog_step_m", 0.02)
         self.declare_parameter("arm_jog_duration_sec", 1.2)
+        self.declare_parameter("arm_rotate_step_rad", math.radians(5.0))
+        self.declare_parameter("arm_rotate_duration_sec", 1.2)
         self.declare_parameter("arm_waypoint_duration_sec", 6.0)
         self.declare_parameter("arm_position_tolerance", 0.006)
         self.declare_parameter("arm_ik_damping", 0.08)
         self.declare_parameter("arm_ik_max_iterations", 180)
         self.declare_parameter("arm_ik_max_step", 0.05)
         self.declare_parameter("arm_jog_max_joint_delta", 0.25)
+        self.declare_parameter("aubo_teach_command_topic", "/arachne/aubo/teach_command")
         self.declare_parameter("replay_settle_sec", 0.2)
         self.declare_parameter("recording_dir", "recordings/teach")
 
@@ -119,6 +122,7 @@ class TeachPanelNode(Node):
         odom_topic = str(self.get_parameter("odom_topic").value)
         joint_states_topic = str(self.get_parameter("joint_states_topic").value)
         gripper_topic = str(self.get_parameter("gripper_command_topic").value)
+        aubo_teach_topic = str(self.get_parameter("aubo_teach_command_topic").value)
         arm_topics = []
         for topic in (
             str(self.get_parameter("arm_trajectory_topic").value),
@@ -129,6 +133,7 @@ class TeachPanelNode(Node):
 
         self.cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
         self.gripper_pub = self.create_publisher(String, gripper_topic, 10)
+        self.aubo_teach_pub = self.create_publisher(String, aubo_teach_topic, 10)
         self.arm_publishers = [self.create_publisher(JointTrajectory, topic, 10) for topic in arm_topics]
         self.status_pub = self.create_publisher(String, "/arachne/teach/status", 10)
         self.arm_action_client = ActionClient(
@@ -268,6 +273,13 @@ class TeachPanelNode(Node):
                 self.gripper_state = command
         self._status(f"gripper {command}")
 
+    def set_aubo_teach(self, enabled: bool) -> None:
+        command = "teach_on" if enabled else "teach_off"
+        msg = String()
+        msg.data = command
+        self.aubo_teach_pub.publish(msg)
+        self._status(f"aubo {command}")
+
     def jog_arm(self, axis: str, sign: float) -> None:
         self._start_worker(lambda: self._jog_arm_worker(axis, sign))
 
@@ -303,6 +315,33 @@ class TeachPanelNode(Node):
             [float(value) for value in q_target],
             float(self.get_parameter("arm_jog_duration_sec").value),
             f"jog {axis}",
+            wait=False,
+        )
+
+    def jog_arm_rotation(self, axis: str, sign: float) -> None:
+        self._start_worker(lambda: self._jog_arm_rotation_worker(axis, sign))
+
+    def _jog_arm_rotation_worker(self, axis: str, sign: float) -> None:
+        q_start = self._current_arm_vector()
+        if q_start is None:
+            self._status("arm rotation jog skipped: no joint state", warn=True)
+            return
+        wrist_indices = {"rx": 3, "ry": 4, "rz": 5}
+        if axis not in wrist_indices:
+            self._status(f"arm rotation jog skipped: unknown axis {axis}", warn=True)
+            return
+
+        step = float(self.get_parameter("arm_rotate_step_rad").value)
+        q_target = list(q_start)
+        q_target[wrist_indices[axis]] += float(sign) * step
+        max_delta = max(abs(target - start) for target, start in zip(q_target, q_start))
+        if max_delta > float(self.get_parameter("arm_jog_max_joint_delta").value):
+            self._status(f"arm rotation jog blocked: joint delta {max_delta:.3f} rad", warn=True)
+            return
+        self._send_arm_positions(
+            q_target,
+            float(self.get_parameter("arm_rotate_duration_sec").value),
+            f"rotate {axis}",
             wait=False,
         )
 
@@ -574,13 +613,14 @@ class TeachPanelApp:
         ttk.Entry(wait, textvariable=self.wait_var, width=8).grid(row=0, column=1, padx=4, pady=4)
         ttk.Button(wait, text="Add Wait", command=self._add_wait).grid(row=0, column=2, padx=4, pady=4)
 
-        self.listbox = tk.Listbox(record, height=15, width=70)
+        self.listbox = tk.Listbox(record, height=15, width=70, selectmode=tk.EXTENDED)
         self.listbox.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=4, pady=4)
         buttons = ttk.Frame(record)
         buttons.grid(row=3, column=0, columnspan=2, sticky="ew", padx=4, pady=4)
         for index, (text, command) in enumerate(
             (
                 ("Delete", self._delete_selected),
+                ("Duplicate", self._duplicate_selected),
                 ("Clear", self._clear),
                 ("Reset", self._reset),
                 ("Save", self._save),
@@ -624,6 +664,24 @@ class TeachPanelApp:
             ttk.Button(frame, text="+", command=lambda a=axis: self.node.jog_arm(a, 1.0)).grid(
                 row=row, column=2, padx=4, pady=4
             )
+        for row, axis in enumerate(("rx", "ry", "rz"), start=3):
+            ttk.Label(frame, text=axis.upper()).grid(row=row, column=0, padx=4, pady=4)
+            ttk.Button(
+                frame,
+                text="-",
+                command=lambda a=axis: self.node.jog_arm_rotation(a, -1.0),
+            ).grid(row=row, column=1, padx=4, pady=4)
+            ttk.Button(
+                frame,
+                text="+",
+                command=lambda a=axis: self.node.jog_arm_rotation(a, 1.0),
+            ).grid(row=row, column=2, padx=4, pady=4)
+        ttk.Button(frame, text="Teach On", command=lambda: self.node.set_aubo_teach(True)).grid(
+            row=6, column=0, columnspan=2, padx=4, pady=(8, 4), sticky="ew"
+        )
+        ttk.Button(frame, text="Teach Off", command=lambda: self.node.set_aubo_teach(False)).grid(
+            row=6, column=2, padx=4, pady=(8, 4), sticky="ew"
+        )
 
     def _build_gripper_controls(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="Gripper")
@@ -672,6 +730,24 @@ class TeachPanelApp:
         selected = list(self.listbox.curselection())
         for index in reversed(selected):
             del self.waypoints[index]
+        self._refresh_waypoints()
+
+    def _duplicate_selected(self) -> None:
+        selected = list(self.listbox.curselection())
+        if not selected:
+            messagebox.showinfo("Duplicate", "Select one or more waypoints first.")
+            return
+        base_label = self.label_var.get().strip()
+        for offset, source_index in enumerate(selected):
+            source = self.waypoints[source_index]
+            waypoint = _waypoint_from_dict(asdict(source))
+            if base_label:
+                waypoint.label = base_label if len(selected) == 1 else f"{base_label}_{offset + 1}"
+            else:
+                waypoint.label = f"{source.label}_copy"
+            waypoint.stamp = datetime.now().isoformat(timespec="seconds")
+            self.waypoints.append(waypoint)
+        self.label_var.set(f"wp_{len(self.waypoints) + 1}")
         self._refresh_waypoints()
 
     def _clear(self) -> None:

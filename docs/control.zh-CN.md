@@ -206,10 +206,12 @@ ros2 launch arachne_operator sequence_executor.launch.py
 `teach_panel.py` 面向真机演示和小型实验示教。它监听 `/odom`、`/joint_states` 和硬件状态，手动控制三类设备，并把当前状态记录为 waypoint：
 
 - 底盘：按住按钮向 `/cmd_vel` 发布前进、后退、左转、右转，松开后停止。
-- Aubo：按 X/Y/Z 方向对末端做小步笛卡尔 jog，节点用本地 Aubo i5 FK/IK 转成关节轨迹，并优先走 `/joint_trajectory_controller/follow_joint_trajectory` action。
+- Aubo：按 X/Y/Z 方向对末端做小步笛卡尔 jog，节点用本地 Aubo i5 FK/IK 转成关节轨迹，并优先走 `/joint_trajectory_controller/follow_joint_trajectory` action；RX/RY/RZ 是保守的腕部姿态微调，分别增量控制后三个腕部关节。
+- Aubo 示教：`Teach On` / `Teach Off` 向 `/arachne/aubo/teach_command` 发布命令；真机 bringup 中的 `aubo_teach_command_bridge` 会通过官方 `jsonrpc_service` 调用 `RobotManage.freedrive(true/false)`。
 - 夹具：向 `/arachne/gripper/command` 发布 `open`、`close` 或 `stop`。
 - 记录：保存底盘 odom 位姿、Aubo 当前关节角、FK 得到的末端位置和夹具状态。
 - 等待：`Add Wait` 会在队列中插入等待 N 秒的步骤，适合让机械臂、底盘或夹具动作之间留出安全缓冲。
+- 复用：选中已有 waypoint 后点击 `Duplicate`，会把该点复制到队列末尾，便于重复使用同一姿态或等待步骤。
 - 回放：按 waypoint 顺序发送夹具命令、Aubo 关节轨迹，并用 `/odom` 闭环把 Scout 驱动到记录位姿；遇到 wait 步骤时只等待，不发送运动命令。
 - 重置：`Clear` 会清空列表并把下一个标签重置为 `wp_1`；`Reset` 会先停止当前动作，再清空列表、文件状态和标签编号。
 
@@ -219,7 +221,7 @@ ros2 launch arachne_operator sequence_executor.launch.py
 ./scripts/teach_panel.sh
 ```
 
-默认真机 Aubo 关节名为 `shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint`。如果在 RViz/mock 模型中使用带 `aubo_` 前缀的 joint state，面板会自动识别对应别名；如果底层 controller 的命令关节名不同，则通过 `arm_command_joint_names:=...` 覆盖。记录文件保存为 JSON，默认位于本地 `recordings/teach/`。安全起见，回放默认比手动控制更慢：底盘 `0.025 m/s`、`0.10 rad/s`，机械臂每个 waypoint 默认 `6.0 s`。
+默认真机 Aubo 关节名为 `shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint`。如果在 RViz/mock 模型中使用带 `aubo_` 前缀的 joint state，面板会自动识别对应别名；如果底层 controller 的命令关节名不同，则通过 `arm_command_joint_names:=...` 覆盖。记录文件保存为 JSON，默认位于本地 `recordings/teach/`。安全起见，回放默认比手动控制更慢：底盘 `0.025 m/s`、`0.10 rad/s`，机械臂每个 waypoint 默认 `6.0 s`。进入 Aubo freedrive/示教前，确认机械臂已稳定使能、周围空间安全，并准备好人工扶持。
 
 启动 ros2_control mock 硬件：
 

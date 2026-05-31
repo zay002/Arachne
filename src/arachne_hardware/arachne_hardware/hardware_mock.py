@@ -50,6 +50,7 @@ class ArachneHardwareMock(Node):
         self.right_wheel = 0.0
         self.arm_positions = dict(HOME)
         self.gripper_position = 0.0
+        self.aubo_teach_mode = False
 
         self.odom_pub = self.create_publisher(Odometry, "/odom", 10)
         self.joint_pub = self.create_publisher(JointState, "/joint_states", 10)
@@ -68,6 +69,7 @@ class ArachneHardwareMock(Node):
             JointTrajectory, "/aubo_arm_controller/joint_trajectory", self._on_arm, 10
         )
         self.create_subscription(String, "/arachne/gripper/command", self._on_gripper, 10)
+        self.create_subscription(String, "/arachne/aubo/teach_command", self._on_aubo_teach, 10)
         self.create_timer(self.period, self._tick)
         self.get_logger().info("Arachne hardware mock ready")
 
@@ -89,6 +91,13 @@ class ArachneHardwareMock(Node):
             self.gripper_position = 0.0
         elif command == "close":
             self.gripper_position = 0.6
+
+    def _on_aubo_teach(self, msg: String) -> None:
+        command = msg.data.strip().lower()
+        if command in ("teach_on", "on", "enter", "enable"):
+            self.aubo_teach_mode = True
+        elif command in ("teach_off", "off", "exit", "disable"):
+            self.aubo_teach_mode = False
 
     def _tick(self) -> None:
         self.x += self.vx * math.cos(self.yaw) * self.period
@@ -157,7 +166,8 @@ class ArachneHardwareMock(Node):
         self.base_status_pub.publish(base)
 
         arm = String()
-        arm.data = "mock aubo ready"
+        teach = "on" if self.aubo_teach_mode else "off"
+        arm.data = f"mock aubo ready teach={teach}"
         self.arm_status_pub.publish(arm)
 
         gripper = String()
