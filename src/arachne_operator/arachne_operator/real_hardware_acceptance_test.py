@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 import rclpy
@@ -174,6 +175,7 @@ class RealHardwareAcceptanceTest(Node):
         self.declare_parameter("run_base_test", True)
         self.declare_parameter("run_arm_test", True)
         self.declare_parameter("run_gripper_test", True)
+        self.declare_parameter("sequence_mode", "parallel")
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
         self.declare_parameter("odom_topic", "/odom")
         self.declare_parameter("joint_states_topic", "/joint_states")
@@ -207,6 +209,10 @@ class RealHardwareAcceptanceTest(Node):
         self.declare_parameter("arm_max_joint_delta", 1.0)
         self.declare_parameter("arm_goal_tolerance", 0.03)
         self.declare_parameter("arm_goal_time_margin_sec", 4.0)
+        self.declare_parameter("arm_circle_radius_m", 0.1)
+        self.declare_parameter("arm_circle_points", 32)
+        self.declare_parameter("arm_circle_revolutions", 1.0)
+        self.declare_parameter("arm_circle_max_joint_delta", 0.75)
         self.declare_parameter("gripper_cycles", 5)
         self.declare_parameter("gripper_pause_sec", 0.8)
         self.declare_parameter("gripper_final_state", "open")
@@ -272,14 +278,20 @@ class RealHardwareAcceptanceTest(Node):
 
         try:
             self._status("REAL MOTION CONFIRMED")
-            if bool(self.get_parameter("run_base_test").value):
-                self._wait_for_odom()
-                self._run_base_sequence()
-            if bool(self.get_parameter("run_arm_test").value):
-                self._wait_for_arm_state()
-                self._run_arm_sequence()
-            if bool(self.get_parameter("run_gripper_test").value):
-                self._run_gripper_sequence()
+            sequence_mode = str(self.get_parameter("sequence_mode").value).strip().lower()
+            if sequence_mode == "parallel":
+                self._run_parallel_sequence()
+            elif sequence_mode == "sequential":
+                if bool(self.get_parameter("run_base_test").value):
+                    self._wait_for_odom()
+                    self._run_base_sequence()
+                if bool(self.get_parameter("run_arm_test").value):
+                    self._wait_for_arm_state()
+                    self._run_arm_sequence()
+                if bool(self.get_parameter("run_gripper_test").value):
+                    self._run_gripper_sequence()
+            else:
+                raise RuntimeError("sequence_mode must be parallel or sequential")
             self._publish_stop()
             self._status("acceptance test complete")
             return True
@@ -290,38 +302,111 @@ class RealHardwareAcceptanceTest(Node):
             return False
 
     def _plan_summary(self) -> str:
+        sequence_mode = str(self.get_parameter("sequence_mode").value).strip().lower()
         steps: list[str] = []
         if bool(self.get_parameter("run_base_test").value):
             steps.append("base +0.2m/-0.2m, left 30deg/return, right 30deg/return")
         if bool(self.get_parameter("run_arm_test").value):
-            z_delta = float(self.get_parameter("arm_z_delta_m").value)
-            frame = str(self.get_parameter("arm_z_frame").value)
-            steps.append(f"tool0 z +{z_delta:.3f}m/return in {frame}")
+            if sequence_mode == "parallel":
+                radius = float(self.get_parameter("arm_circle_radius_m").value)
+                steps.append(f"tool0 circle radius {radius:.3f}m around current tool X")
+            else:
+                z_delta = float(self.get_parameter("arm_z_delta_m").value)
+                frame = str(self.get_parameter("arm_z_frame").value)
+                steps.append(f"tool0 z +{z_delta:.3f}m/return in {frame}")
         if bool(self.get_parameter("run_gripper_test").value):
-            steps.append("gripper open-close x5")
+            if sequence_mode == "parallel":
+                steps.append("gripper open-close until base sequence ends")
+            else:
+                steps.append("gripper open-close x5")
         return "; ".join(steps) if steps else "no subsystem selected"
 
-    def _run_base_sequence(self) -> None:
+    def _run_parallel_sequence(self) -> None:
+        if not bool(self.get_parameter("run_base_test").value):
+            raise RuntimeError("parallel sequence requires run_base_test:=true")
+        self._wait_for_odom()
+        if bool(self.get_parameter("run_arm_test").value):
+            self._wait_for_arm_state()
+
+        arm_result_future = None
+        arm_target = None
+        arm_reference = None
+        if bool(self.get_parameter("run_arm_test").value):
+            arm_reference = self._current_arm_vector()
+            arm_duration = self._estimated_base_sequence_duration()
+            trajectory, arm_target = self._make_arm_circle_trajectory(arm_duration)
+            arm_result_future = self._command_arm_async(trajectory, "tool-x-circle")
+
+        gripper_enabled = bool(self.get_parameter("run_gripper_test").value)
+        gripper_pause = float(self.get_parameter("gripper_pause_sec").value)
+        next_gripper_time = time.monotonic()
+        gripper_state = "open"
+        gripper_toggles = 0
+
+        def tick() -> None:
+            nonlocal next_gripper_time, gripper_state, gripper_toggles
+            if not gripper_enabled:
+                return
+            now = time.monotonic()
+            if now < next_gripper_time:
+                return
+            self._publish_gripper(gripper_state)
+            gripper_toggles += 1
+            self._status(f"parallel gripper: {gripper_state} #{gripper_toggles}")
+            gripper_state = "close" if gripper_state == "open" else "open"
+            next_gripper_time = now + max(gripper_pause, 0.1)
+
+        self._status("parallel sequence: base starts, gripper toggles until base ends")
+        self._run_base_sequence(tick=tick)
+
+        if gripper_enabled:
+            final_state = str(self.get_parameter("gripper_final_state").value).strip().lower()
+            if final_state in ("open", "close", "stop"):
+                self._publish_gripper(final_state)
+                self._status(
+                    f"parallel gripper: final_state={final_state}, toggles={gripper_toggles}"
+                )
+
+        if arm_result_future is not None and arm_target is not None:
+            arm_result_timeout = (
+                self._estimated_base_sequence_duration()
+                + float(self.get_parameter("arm_goal_time_margin_sec").value)
+                + float(self.get_parameter("feedback_timeout_sec").value)
+            )
+            self._finish_arm_action(
+                arm_result_future, "tool-x-circle", timeout_sec=arm_result_timeout
+            )
+            self._wait_for_arm_target(arm_target, "tool-x-circle", arm_reference)
+
+    def _estimated_base_sequence_duration(self) -> float:
+        distance = abs(float(self.get_parameter("base_distance_m").value))
+        linear_speed = max(abs(float(self.get_parameter("base_linear_speed").value)), 1e-3)
+        yaw = abs(math.radians(float(self.get_parameter("base_yaw_deg").value)))
+        angular_speed = max(abs(float(self.get_parameter("base_angular_speed").value)), 1e-3)
+        settle = max(float(self.get_parameter("base_settle_sec").value), 0.0)
+        return 2.0 * distance / linear_speed + 4.0 * yaw / angular_speed + 6.0 * settle
+
+    def _run_base_sequence(self, tick: Callable[[], None] | None = None) -> None:
         distance = float(self.get_parameter("base_distance_m").value)
         yaw = math.radians(float(self.get_parameter("base_yaw_deg").value))
         self._status("base test: forward")
-        self._drive_relative(distance)
-        self._settle()
+        self._drive_relative(distance, tick=tick)
+        self._settle(tick=tick)
         self._status("base test: backward")
-        self._drive_relative(-distance)
-        self._settle()
+        self._drive_relative(-distance, tick=tick)
+        self._settle(tick=tick)
         self._status("base test: left yaw")
-        self._turn_relative(yaw)
-        self._settle()
+        self._turn_relative(yaw, tick=tick)
+        self._settle(tick=tick)
         self._status("base test: return from left yaw")
-        self._turn_relative(-yaw)
-        self._settle()
+        self._turn_relative(-yaw, tick=tick)
+        self._settle(tick=tick)
         self._status("base test: right yaw")
-        self._turn_relative(-yaw)
-        self._settle()
+        self._turn_relative(-yaw, tick=tick)
+        self._settle(tick=tick)
         self._status("base test: return from right yaw")
-        self._turn_relative(yaw)
-        self._settle()
+        self._turn_relative(yaw, tick=tick)
+        self._settle(tick=tick)
 
     def _run_arm_sequence(self) -> None:
         q_start = self._current_arm_vector()
@@ -361,6 +446,59 @@ class RealHardwareAcceptanceTest(Node):
         self._wait_for_arm_target(q_start, "return", q_up)
         self._sleep(float(self.get_parameter("arm_settle_sec").value))
 
+    def _make_arm_circle_trajectory(self, duration: float) -> tuple[JointTrajectory, np.ndarray]:
+        q_start = self._current_arm_vector()
+        start_transform = self.kinematics.fk(q_start)
+        start_position = start_transform[:3, 3]
+        tool_y = start_transform[:3, 1]
+        tool_z = start_transform[:3, 2]
+        radius = float(self.get_parameter("arm_circle_radius_m").value)
+        points = max(int(self.get_parameter("arm_circle_points").value), 8)
+        revolutions = float(self.get_parameter("arm_circle_revolutions").value)
+        max_total_delta = float(self.get_parameter("arm_circle_max_joint_delta").value)
+
+        center = start_position - radius * tool_y
+        q_seed = np.array(q_start, dtype=float)
+        path: list[np.ndarray] = [np.array(q_start, dtype=float)]
+        max_delta = 0.0
+        max_error = 0.0
+        for index in range(1, points + 1):
+            theta = 2.0 * math.pi * revolutions * index / points
+            target_position = center + radius * (
+                math.cos(theta) * tool_y + math.sin(theta) * tool_z
+            )
+            ok, q_seed, error, iterations = self.kinematics.solve_position(
+                q_seed,
+                target_position,
+                tolerance=float(self.get_parameter("arm_position_tolerance").value),
+                damping=float(self.get_parameter("arm_ik_damping").value),
+                max_iterations=int(self.get_parameter("arm_ik_max_iterations").value),
+                max_step=float(self.get_parameter("arm_ik_max_step").value),
+            )
+            max_error = max(max_error, error)
+            max_delta = max(max_delta, float(np.max(np.abs(q_seed - q_start))))
+            if not ok:
+                raise RuntimeError(
+                    "arm circle IK failed: "
+                    f"point={index}/{points}, best_error={error:.4f}, iterations={iterations}"
+                )
+            if max_delta > max_total_delta:
+                raise RuntimeError(
+                    "arm circle joint delta too large: "
+                    f"{max_delta:.3f} rad > {max_total_delta:.3f} rad"
+                )
+            path.append(np.array(q_seed, dtype=float))
+
+        # End at the exact measured starting joint pose after one geometric loop.
+        path.append(np.array(q_start, dtype=float))
+        trajectory = self._make_arm_multi_point_trajectory(path, duration)
+        self._status(
+            "arm circle: "
+            f"radius={radius:.3f}m, points={points}, duration={duration:.1f}s, "
+            f"max_ik_error={max_error:.4f}, max_joint_delta={max_delta:.3f}"
+        )
+        return trajectory, np.array(q_start, dtype=float)
+
     def _run_gripper_sequence(self) -> None:
         cycles = int(self.get_parameter("gripper_cycles").value)
         pause = float(self.get_parameter("gripper_pause_sec").value)
@@ -376,7 +514,7 @@ class RealHardwareAcceptanceTest(Node):
             self._publish_gripper(final_state)
             self._status(f"gripper test: final_state={final_state}")
 
-    def _drive_relative(self, distance: float) -> None:
+    def _drive_relative(self, distance: float, tick: Callable[[], None] | None = None) -> None:
         start = self._current_pose2d()
         heading = np.array([math.cos(start.yaw), math.sin(start.yaw)])
         speed = float(self.get_parameter("base_linear_speed").value)
@@ -386,6 +524,8 @@ class RealHardwareAcceptanceTest(Node):
         deadline = time.monotonic() + timeout
 
         while rclpy.ok() and time.monotonic() < deadline:
+            if tick is not None:
+                tick()
             pose = self._current_pose2d()
             offset = np.array([pose.x - start.x, pose.y - start.y])
             progress = float(offset @ heading)
@@ -399,7 +539,7 @@ class RealHardwareAcceptanceTest(Node):
             self._spin_sleep(0.05)
         raise TimeoutError(f"base distance timeout target={distance:.3f}m")
 
-    def _turn_relative(self, angle: float) -> None:
+    def _turn_relative(self, angle: float, tick: Callable[[], None] | None = None) -> None:
         start = self._current_pose2d()
         speed = float(self.get_parameter("base_angular_speed").value)
         tolerance = math.radians(float(self.get_parameter("base_yaw_tolerance_deg").value))
@@ -408,6 +548,8 @@ class RealHardwareAcceptanceTest(Node):
         deadline = time.monotonic() + timeout
 
         while rclpy.ok() and time.monotonic() < deadline:
+            if tick is not None:
+                tick()
             pose = self._current_pose2d()
             delta = self._angle_diff(pose.yaw, start.yaw)
             if sign * delta >= abs(angle) - tolerance:
@@ -424,15 +566,26 @@ class RealHardwareAcceptanceTest(Node):
         raise TimeoutError(f"base yaw timeout target={math.degrees(angle):.2f}deg")
 
     def _make_arm_trajectory(self, positions: np.ndarray) -> JointTrajectory:
+        return self._make_arm_multi_point_trajectory(
+            [np.array(positions, dtype=float)],
+            float(self.get_parameter("arm_duration_sec").value),
+        )
+
+    def _make_arm_multi_point_trajectory(
+        self, positions: list[np.ndarray], duration: float
+    ) -> JointTrajectory:
         trajectory = JointTrajectory()
         trajectory.header.stamp = self.get_clock().now().to_msg()
         trajectory.joint_names = list(self.arm_command_joint_names)
-        point = JointTrajectoryPoint()
-        point.positions = [float(value) for value in positions]
-        duration = float(self.get_parameter("arm_duration_sec").value)
-        point.time_from_start.sec = int(duration)
-        point.time_from_start.nanosec = int((duration % 1.0) * 1e9)
-        trajectory.points = [point]
+        count = max(len(positions), 1)
+        trajectory.points = []
+        for index, joint_positions in enumerate(positions, start=1):
+            point = JointTrajectoryPoint()
+            point.positions = [float(value) for value in joint_positions]
+            point_time = max(duration * index / count, 0.2)
+            point.time_from_start.sec = int(point_time)
+            point.time_from_start.nanosec = int((point_time % 1.0) * 1e9)
+            trajectory.points.append(point)
         return trajectory
 
     def _command_arm(self, positions: np.ndarray, label: str) -> None:
@@ -441,6 +594,12 @@ class RealHardwareAcceptanceTest(Node):
             self._send_arm_action(trajectory, label)
         else:
             self._publish_arm_topic(trajectory, label)
+
+    def _command_arm_async(self, trajectory: JointTrajectory, label: str):
+        if self.arm_command_mode == "action":
+            return self._start_arm_action(trajectory, label)
+        self._publish_arm_topic(trajectory, label)
+        return None
 
     def _publish_arm_topic(self, trajectory: JointTrajectory, label: str) -> None:
         self._wait_for_arm_topic_subscribers()
@@ -451,6 +610,10 @@ class RealHardwareAcceptanceTest(Node):
             publisher.publish(trajectory)
 
     def _send_arm_action(self, trajectory: JointTrajectory, label: str) -> None:
+        result_future = self._start_arm_action(trajectory, label)
+        self._finish_arm_action(result_future, label)
+
+    def _start_arm_action(self, trajectory: JointTrajectory, label: str):
         action_name = str(self.get_parameter("arm_follow_joint_trajectory_action").value)
         timeout = float(self.get_parameter("feedback_timeout_sec").value)
         if not self.arm_action_client.wait_for_server(timeout_sec=timeout):
@@ -471,8 +634,16 @@ class RealHardwareAcceptanceTest(Node):
         if not goal_handle.accepted:
             raise RuntimeError(f"arm {label} action goal rejected")
 
-        result_future = goal_handle.get_result_async()
-        result_timeout = float(self.get_parameter("arm_duration_sec").value) + margin + timeout
+        return goal_handle.get_result_async()
+
+    def _finish_arm_action(self, result_future, label: str, timeout_sec: float | None = None) -> None:
+        timeout = float(self.get_parameter("feedback_timeout_sec").value)
+        margin = float(self.get_parameter("arm_goal_time_margin_sec").value)
+        result_timeout = (
+            timeout_sec
+            if timeout_sec is not None
+            else float(self.get_parameter("arm_duration_sec").value) + margin + timeout
+        )
         rclpy.spin_until_future_complete(self, result_future, timeout_sec=result_timeout)
         result_response = result_future.result()
         if result_response is None:
@@ -539,13 +710,15 @@ class RealHardwareAcceptanceTest(Node):
     def _publish_stop(self) -> None:
         self.cmd_vel_pub.publish(Twist())
 
-    def _settle(self) -> None:
+    def _settle(self, tick: Callable[[], None] | None = None) -> None:
         self._publish_stop()
-        self._sleep(float(self.get_parameter("base_settle_sec").value))
+        self._sleep(float(self.get_parameter("base_settle_sec").value), tick=tick)
 
-    def _sleep(self, seconds: float) -> None:
+    def _sleep(self, seconds: float, tick: Callable[[], None] | None = None) -> None:
         deadline = time.monotonic() + max(seconds, 0.0)
         while rclpy.ok() and time.monotonic() < deadline:
+            if tick is not None:
+                tick()
             self._spin_sleep(min(0.05, max(deadline - time.monotonic(), 0.0)))
 
     def _spin_sleep(self, seconds: float) -> None:

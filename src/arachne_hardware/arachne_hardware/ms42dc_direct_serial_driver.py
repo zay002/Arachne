@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Iterable
 
 import rclpy
@@ -41,6 +42,8 @@ class MS42DCDirectSerialDriver(Node):
         self.declare_parameter("close_angle_tenths", 18720)
         self.declare_parameter("speed_tenths", 200)
         self.declare_parameter("retry_on_error", True)
+        self.declare_parameter("query_after_command", True)
+        self.declare_parameter("feedback_delay_sec", 0.05)
 
         self._lock = threading.Lock()
         self._serial: serial.Serial | None = None
@@ -71,6 +74,8 @@ class MS42DCDirectSerialDriver(Node):
             )
         elif command == "stop":
             self._send_motion(direction=0, angle_tenths=0, speed_tenths=0, label="stop")
+        elif command in ("status", "query"):
+            self._query_and_publish_status("status")
         else:
             self.get_logger().warning(f"Ignoring unknown gripper command: {msg.data!r}")
 
@@ -101,6 +106,10 @@ class MS42DCDirectSerialDriver(Node):
             f"{label}: dir={direction} angle={max(0, min(angle_tenths, 65535))} "
             f"speed={max(0, min(speed, 65535))} sub_divide={self.get_parameter('sub_divide').value}"
         )
+        if bool(self.get_parameter("query_after_command").value):
+            feedback = self._query_state()
+            if feedback:
+                self.last_status = f"{self.last_status}; {feedback}"
         self.get_logger().info(self.last_status)
 
     def _build_frame(
@@ -125,6 +134,22 @@ class MS42DCDirectSerialDriver(Node):
             angle & 0xFF,
             (speed >> 8) & 0xFF,
             speed & 0xFF,
+        ]
+        payload.append(self._xor(payload))
+        payload.append(0x7D)
+        return bytes(payload)
+
+    def _build_state_request_frame(self) -> bytes:
+        payload = [
+            0x7B,
+            int(self.get_parameter("device_id").value) & 0xFF,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
         ]
         payload.append(self._xor(payload))
         payload.append(0x7D)
@@ -178,6 +203,42 @@ class MS42DCDirectSerialDriver(Node):
                 raise RuntimeError("serial port is not open")
             self._serial.write(frame)
             self._serial.flush()
+
+    def _query_and_publish_status(self, label: str) -> None:
+        feedback = self._query_state()
+        self.last_status = f"{label}: {feedback or 'no valid feedback'}"
+        self.get_logger().info(self.last_status)
+
+    def _query_state(self) -> str | None:
+        try:
+            self._open_serial()
+            frame = self._build_state_request_frame()
+            delay = max(float(self.get_parameter("feedback_delay_sec").value), 0.0)
+            with self._lock:
+                if self._serial is None:
+                    raise RuntimeError("serial port is not open")
+                self._serial.reset_input_buffer()
+                self._serial.write(frame)
+                self._serial.flush()
+                if delay:
+                    time.sleep(delay)
+                response = self._serial.read(9)
+        except (OSError, serial.SerialException) as exc:
+            self.get_logger().warning(f"MS42DC state query failed: {exc}")
+            return None
+
+        if len(response) != 9:
+            return f"feedback_timeout bytes={len(response)}"
+        expected = self._xor(response[:8])
+        if expected != response[8]:
+            data = " ".join(f"{byte:02X}" for byte in response)
+            return f"feedback_bad_checksum expected={expected:02X} data={data}"
+
+        device_id = response[0]
+        reached = response[1]
+        speed = (response[2] << 8) | response[3]
+        angle = (response[4] << 24) | (response[5] << 16) | (response[6] << 8) | response[7]
+        return f"feedback id={device_id} reached={reached} speed={speed} angle={angle}"
 
     def _publish_status(self) -> None:
         msg = String()

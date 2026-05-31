@@ -10,6 +10,7 @@ def generate_launch_description():
     run_base_test = LaunchConfiguration("run_base_test")
     run_arm_test = LaunchConfiguration("run_arm_test")
     run_gripper_test = LaunchConfiguration("run_gripper_test")
+    sequence_mode = LaunchConfiguration("sequence_mode")
 
     return LaunchDescription(
         [
@@ -17,6 +18,7 @@ def generate_launch_description():
             DeclareLaunchArgument("run_base_test", default_value="true"),
             DeclareLaunchArgument("run_arm_test", default_value="true"),
             DeclareLaunchArgument("run_gripper_test", default_value="true"),
+            DeclareLaunchArgument("sequence_mode", default_value="parallel"),
             DeclareLaunchArgument("cmd_vel_topic", default_value="/cmd_vel"),
             DeclareLaunchArgument("odom_topic", default_value="/odom"),
             DeclareLaunchArgument("joint_states_topic", default_value="/joint_states"),
@@ -58,6 +60,10 @@ def generate_launch_description():
             DeclareLaunchArgument("arm_max_joint_delta", default_value="1.0"),
             DeclareLaunchArgument("arm_goal_tolerance", default_value="0.03"),
             DeclareLaunchArgument("arm_goal_time_margin_sec", default_value="4.0"),
+            DeclareLaunchArgument("arm_circle_radius_m", default_value="0.1"),
+            DeclareLaunchArgument("arm_circle_points", default_value="32"),
+            DeclareLaunchArgument("arm_circle_revolutions", default_value="1.0"),
+            DeclareLaunchArgument("arm_circle_max_joint_delta", default_value="0.75"),
             DeclareLaunchArgument("gripper_cycles", default_value="5"),
             DeclareLaunchArgument("gripper_pause_sec", default_value="0.8"),
             DeclareLaunchArgument("gripper_final_state", default_value="open"),
@@ -72,6 +78,7 @@ def generate_launch_description():
                         "run_base_test": ParameterValue(run_base_test, value_type=bool),
                         "run_arm_test": ParameterValue(run_arm_test, value_type=bool),
                         "run_gripper_test": ParameterValue(run_gripper_test, value_type=bool),
+                        "sequence_mode": sequence_mode,
                         "cmd_vel_topic": LaunchConfiguration("cmd_vel_topic"),
                         "odom_topic": LaunchConfiguration("odom_topic"),
                         "joint_states_topic": LaunchConfiguration("joint_states_topic"),
@@ -113,6 +120,18 @@ def generate_launch_description():
                         ),
                         "arm_goal_time_margin_sec": ParameterValue(
                             LaunchConfiguration("arm_goal_time_margin_sec"), value_type=float
+                        ),
+                        "arm_circle_radius_m": ParameterValue(
+                            LaunchConfiguration("arm_circle_radius_m"), value_type=float
+                        ),
+                        "arm_circle_points": ParameterValue(
+                            LaunchConfiguration("arm_circle_points"), value_type=int
+                        ),
+                        "arm_circle_revolutions": ParameterValue(
+                            LaunchConfiguration("arm_circle_revolutions"), value_type=float
+                        ),
+                        "arm_circle_max_joint_delta": ParameterValue(
+                            LaunchConfiguration("arm_circle_max_joint_delta"), value_type=float
                         ),
                         "gripper_cycles": ParameterValue(
                             LaunchConfiguration("gripper_cycles"), value_type=int
