@@ -36,6 +36,35 @@ src/vendor/*
 !src/vendor/dh_ag95_description
 !src/vendor/scout_description
 
+# Keep only the names of expected third-party fetch/extract targets.
+!third_party/LARA_AUBOi5_AG95/
+third_party/LARA_AUBOi5_AG95/**
+!third_party/LARA_AUBOi5_AG95/.gitkeep
+!third_party/aubo_description/
+third_party/aubo_description/**
+!third_party/aubo_description/.gitkeep
+!third_party/aubo_ros2_driver/
+third_party/aubo_ros2_driver/**
+!third_party/aubo_ros2_driver/.gitkeep
+!third_party/dh_ag95_gripper_ros2/
+third_party/dh_ag95_gripper_ros2/**
+!third_party/dh_ag95_gripper_ros2/.gitkeep
+!third_party/kenney/
+third_party/kenney/**
+!third_party/kenney/.gitkeep
+!third_party/ms42dc_step_motor_ros2/
+third_party/ms42dc_step_motor_ros2/**
+!third_party/ms42dc_step_motor_ros2/.gitkeep
+!third_party/scout_ros/
+third_party/scout_ros/**
+!third_party/scout_ros/.gitkeep
+!third_party/scout_ros2/
+third_party/scout_ros2/**
+!third_party/scout_ros2/.gitkeep
+!third_party/ugv_sdk/
+third_party/ugv_sdk/**
+!third_party/ugv_sdk/.gitkeep
+
 # Keep the small source assets needed to reproduce the active MS42DC model.
 !third_party/README.md
 !third_party/README.zh-CN.md

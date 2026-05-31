@@ -12,7 +12,14 @@ fetch_repo() {
   local dest="${ROOT_DIR}/third_party/${name}"
 
   if [[ ! -d "${dest}/.git" ]]; then
-    rm -rf "${dest}"
+    if [[ -d "${dest}" ]]; then
+      local unexpected=""
+      unexpected="$(find "${dest}" -mindepth 1 -maxdepth 1 ! -name .gitkeep -print -quit)"
+      if [[ -n "${unexpected}" ]]; then
+        rm -rf "${dest}"
+      fi
+    fi
+    mkdir -p "${dest}"
     git init "${dest}"
     git -C "${dest}" remote add origin "${url}"
   fi
@@ -25,7 +32,9 @@ fetch_repo() {
     return
   fi
 
-  if [[ -n "$(git -C "${dest}" status --porcelain)" ]]; then
+  local dirty_status=""
+  dirty_status="$(git -C "${dest}" status --porcelain | sed '/^?? \.gitkeep$/d')"
+  if [[ -n "${dirty_status}" ]]; then
     echo "Refusing to overwrite dirty third-party repo: ${dest}" >&2
     echo "Commit/stash local changes there, or remove the directory and rerun this script." >&2
     exit 1

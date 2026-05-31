@@ -12,8 +12,8 @@ if [[ ! -f "${ZIP_PATH}" ]]; then
   exit 1
 fi
 
-rm -rf "${DEST_DIR}"
 mkdir -p "${DEST_DIR}" "${ROOT_DIR}/src/vendor"
+find "${DEST_DIR}" -mindepth 1 -maxdepth 1 ! -name .gitkeep -exec rm -rf {} +
 unzip -q "${ZIP_PATH}" -d "${DEST_DIR}"
 
 ln -sfn ../../third_party/ms42dc_step_motor_ros2/Step_Motor_ROS2/src/serial_ros2 \
