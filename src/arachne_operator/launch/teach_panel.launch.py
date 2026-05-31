@@ -42,10 +42,10 @@ def generate_launch_description():
                 "aubo_teach_command_topic",
                 default_value="/arachne/aubo/teach_command",
             ),
-            DeclareLaunchArgument("base_linear_speed", default_value="0.06"),
-            DeclareLaunchArgument("base_angular_speed", default_value="0.22"),
-            DeclareLaunchArgument("base_replay_linear_speed", default_value="0.025"),
-            DeclareLaunchArgument("base_replay_angular_speed", default_value="0.10"),
+            DeclareLaunchArgument("base_linear_speed", default_value="0.08"),
+            DeclareLaunchArgument("base_angular_speed", default_value="0.30"),
+            DeclareLaunchArgument("base_replay_linear_speed", default_value="0.04"),
+            DeclareLaunchArgument("base_replay_angular_speed", default_value="0.14"),
             DeclareLaunchArgument("base_manual_publish_rate", default_value="12.0"),
             DeclareLaunchArgument("base_motion_max_segment_sec", default_value="20.0"),
             DeclareLaunchArgument("arm_jog_step_m", default_value="0.02"),
@@ -53,6 +53,7 @@ def generate_launch_description():
             DeclareLaunchArgument("arm_rotate_step_rad", default_value="0.0872665"),
             DeclareLaunchArgument("arm_rotate_duration_sec", default_value="1.2"),
             DeclareLaunchArgument("arm_waypoint_duration_sec", default_value="6.0"),
+            DeclareLaunchArgument("arm_goal_tolerance", default_value="0.04"),
             DeclareLaunchArgument("recording_dir", default_value="recordings/teach"),
             Node(
                 package="arachne_operator",
@@ -109,6 +110,9 @@ def generate_launch_description():
                         ),
                         "arm_waypoint_duration_sec": ParameterValue(
                             LaunchConfiguration("arm_waypoint_duration_sec"), value_type=float
+                        ),
+                        "arm_goal_tolerance": ParameterValue(
+                            LaunchConfiguration("arm_goal_tolerance"), value_type=float
                         ),
                         "recording_dir": LaunchConfiguration("recording_dir"),
                     }

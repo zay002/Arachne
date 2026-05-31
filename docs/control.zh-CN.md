@@ -221,7 +221,7 @@ ros2 launch arachne_operator sequence_executor.launch.py
 ./scripts/teach_panel.sh
 ```
 
-默认真机 Aubo 关节名为 `shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint`。如果在 RViz/mock 模型中使用带 `aubo_` 前缀的 joint state，面板会自动识别对应别名；如果底层 controller 的命令关节名不同，则通过 `arm_command_joint_names:=...` 覆盖。记录文件保存为 JSON，默认位于本地 `recordings/teach/`。安全起见，回放默认比手动控制更慢：底盘 `0.025 m/s`、`0.10 rad/s`，机械臂每个 waypoint 默认 `6.0 s`。进入 Aubo freedrive/示教前，确认机械臂已稳定使能、周围空间安全，并准备好人工扶持。
+默认真机 Aubo 关节名为 `shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint`。如果在 RViz/mock 模型中使用带 `aubo_` 前缀的 joint state，面板会自动识别对应别名；如果底层 controller 的命令关节名不同，则通过 `arm_command_joint_names:=...` 覆盖。记录文件保存为 JSON，默认位于本地 `recordings/teach/`。安全起见，回放默认比手动控制更慢：底盘 `0.04 m/s`、`0.14 rad/s`，机械臂每个 waypoint 默认 `6.0 s` 并检查关节反馈。进入 Aubo freedrive/示教前，确认机械臂已稳定使能、周围空间安全，并准备好人工扶持。
 
 启动 ros2_control mock 硬件：
 

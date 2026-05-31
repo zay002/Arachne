@@ -103,6 +103,8 @@ class AuboTeachCommandBridge(Node):
         self.declare_parameter("teach_method", "freedrive")
         self.declare_parameter("teach_flag_path", "/tmp/arachne_aubo_teach_mode")
         self.declare_parameter("teach_enter_settle_sec", 0.35)
+        self.declare_parameter("teach_exit_timeout_sec", 3.0)
+        self.declare_parameter("teach_exit_poll_sec", 0.15)
         self.status_pub = self.create_publisher(String, "/arachne/hardware/aubo_status", 10)
         self.create_subscription(
             String,
@@ -141,7 +143,7 @@ class AuboTeachCommandBridge(Node):
 
             with AuboDirectJsonRpc(ip, port, timeout) as rpc:
                 result = self._send_teach_rpc(rpc, method, False)
-                status = self._read_teach_status(rpc, method)
+                status = self._wait_teach_disabled(rpc, method)
             self._clear_teach_flag(flag_path)
             self._publish_status(
                 f"aubo teach off complete via {method}: result={result} status={status}"
@@ -150,7 +152,11 @@ class AuboTeachCommandBridge(Node):
             if enabled:
                 self._clear_teach_flag(flag_path)
             else:
-                self._clear_teach_flag(flag_path)
+                self._publish_status(
+                    f"aubo teach {method} failed; keeping ROS teach gate active: {exc}",
+                    warn=True,
+                )
+                return
             self._publish_status(f"aubo teach {method} failed: {exc}", warn=True)
 
     def _send_teach_rpc(self, rpc: AuboDirectJsonRpc, method: str, enabled: bool) -> Any:
@@ -175,6 +181,25 @@ class AuboTeachCommandBridge(Node):
         except Exception as exc:
             return f"status unavailable: {exc}"
         return "unknown"
+
+    def _wait_teach_disabled(self, rpc: AuboDirectJsonRpc, method: str) -> Any:
+        timeout = max(float(self.get_parameter("teach_exit_timeout_sec").value), 0.0)
+        poll = max(float(self.get_parameter("teach_exit_poll_sec").value), 0.05)
+        deadline = time.monotonic() + timeout
+        status: Any = "unknown"
+        while time.monotonic() <= deadline:
+            status = self._read_teach_status(rpc, method)
+            if status is False or str(status).strip().lower() in ("false", "0", "disabled", "off"):
+                return status
+            if isinstance(status, str) and status.startswith("status unavailable"):
+                time.sleep(min(timeout, poll))
+                return status
+            try:
+                self._send_teach_rpc(rpc, method, False)
+            except Exception as exc:
+                status = f"disable retry failed: {exc}"
+            time.sleep(poll)
+        raise TimeoutError(f"teach mode did not report disabled before timeout; last status={status}")
 
     def _clear_teach_flag(self, path: Path) -> None:
         try:

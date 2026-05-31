@@ -6,7 +6,7 @@
 
 ## 核心文件
 
-- `src/arachne_operator/arachne_operator/teach_panel.py`：默认本地录制目录改为 `recordings/teach`，回放底盘速度降到 `0.025 m/s` 与 `0.10 rad/s`，机械臂每个 waypoint 默认 `6.0 s`。
+- `src/arachne_operator/arachne_operator/teach_panel.py`：默认本地录制目录改为 `recordings/teach`，底盘回放保持保守速度，机械臂每个 waypoint 默认 `6.0 s`。
 - `src/arachne_operator/launch/teach_panel.launch.py`：同步 launch 默认参数。
 - `scripts/teach_panel.sh` / `scripts/real_teach_demo.sh`：启动时传入仓库内绝对录制目录 `${ROOT_DIR}/recordings/teach`，避免从不同工作目录启动时记录文件分散。
 

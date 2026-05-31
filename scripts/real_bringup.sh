@@ -10,6 +10,8 @@ SCOUT_DRIVER="${SCOUT_DRIVER:-waveshare}"
 AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
 SKIP_AUBO_CHECK="${SKIP_AUBO_CHECK:-false}"
 HURRY_AUTO_ATTACH="${HURRY_AUTO_ATTACH:-true}"
+AUBO_TEACH_FLAG_PATH="${AUBO_TEACH_FLAG_PATH:-/tmp/arachne_aubo_teach_mode}"
+AUBO_KEEP_TEACH_FLAG="${AUBO_KEEP_TEACH_FLAG:-false}"
 SHOW_ARGS=false
 EXTRA_ARGS=()
 
@@ -32,6 +34,7 @@ Useful environment overrides:
   MS42DC_PORT=/dev/...      Override MS42DC serial path.
   AUBO_ROBOT_IP=...         Override Aubo controller IP.
   HURRY_AUTO_ATTACH=false   Disable automatic WSL2 usbipd attach attempts.
+  AUBO_KEEP_TEACH_FLAG=true Keep an existing Aubo teach gate flag for debugging.
 EOF
 }
 
@@ -194,6 +197,10 @@ fi
 
 if [[ "${USE_AUBO}" == "true" && "${SKIP_AUBO_CHECK}" != "true" ]]; then
   "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}"
+fi
+
+if [[ "${USE_AUBO}" == "true" && "${AUBO_KEEP_TEACH_FLAG}" != "true" ]]; then
+  rm -f "${AUBO_TEACH_FLAG_PATH}"
 fi
 
 echo "Arachne real bringup:"

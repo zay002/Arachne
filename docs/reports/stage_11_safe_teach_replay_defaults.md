@@ -6,7 +6,7 @@ Keep teach recordings in a stable local project directory and make one-button re
 
 ## Core Files
 
-- `src/arachne_operator/arachne_operator/teach_panel.py`: defaults recordings to `recordings/teach`, lowers base replay to `0.025 m/s` and `0.10 rad/s`, and stretches each arm waypoint to `6.0 s`.
+- `src/arachne_operator/arachne_operator/teach_panel.py`: defaults recordings to `recordings/teach`, keeps base replay conservative, and stretches each arm waypoint to `6.0 s`.
 - `src/arachne_operator/launch/teach_panel.launch.py`: mirrors the launch defaults.
 - `scripts/teach_panel.sh` / `scripts/real_teach_demo.sh`: pass the absolute project-local recording path `${ROOT_DIR}/recordings/teach`, so recordings do not scatter when launched from different directories.
 

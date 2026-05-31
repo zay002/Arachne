@@ -386,6 +386,60 @@ source.write_text(s)
 PY
 fi
 
+# Teach mode exits can briefly leave Aubo's servo mode unavailable even though
+# RobotMode already reports Running. Keep ros2_control active and retry instead
+# of returning ERROR, otherwise the trajectory controller is deactivated and
+# teach replay cannot command the arm again.
+if [[ -f "${aubo_hw_source}" ]] && ! grep -q 'holding measured joints and retrying' "${aubo_hw_source}"; then
+  "${PYTHON_BIN}" - "${aubo_hw_header}" "${aubo_hw_source}" <<'PY'
+from pathlib import Path
+import sys
+
+header = Path(sys.argv[1])
+source = Path(sys.argv[2])
+
+h = header.read_text()
+if "servo_mode_recovery_warned_" not in h:
+    h = h.replace(
+"""    bool first_servoj_logged_{ false };
+    bool teach_mode_warned_{ false };
+""",
+"""    bool first_servoj_logged_{ false };
+    bool teach_mode_warned_{ false };
+    bool servo_mode_recovery_warned_{ false };
+""",
+    )
+header.write_text(h)
+
+s = source.read_text()
+s = s.replace(
+"""        if (!servo_mode_start_ && startServoMode() != 0) {
+            RCLCPP_ERROR(rclcpp::get_logger("AuboHardwareInterface"),
+                         "Failed to enter Aubo servo mode; refusing to write commands.");
+            return hardware_interface::return_type::ERROR;
+        }
+        try {
+""",
+"""        if (!servo_mode_start_ && startServoMode() != 0) {
+            readActualQ();
+            aubo_position_commands_ = actual_q_copy_;
+            aubo_velocity_commands_.fill(0.0);
+            if (!servo_mode_recovery_warned_) {
+                RCLCPP_WARN(
+                    rclcpp::get_logger("AuboHardwareInterface"),
+                    "Aubo servo mode is not ready after teach/prestart; holding measured joints and retrying.");
+                servo_mode_recovery_warned_ = true;
+            }
+            return hardware_interface::return_type::OK;
+        }
+        servo_mode_recovery_warned_ = false;
+        try {
+""",
+)
+source.write_text(s)
+PY
+fi
+
 fetch_repo dh_ag95_gripper_ros2 \
   https://github.com/ian-chuang/dh_ag95_gripper_ros2.git \
   fc4f80fdfb3acae5626df4359aec1401cb71a9a3

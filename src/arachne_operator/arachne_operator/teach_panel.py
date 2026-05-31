@@ -92,10 +92,10 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_state_joint_names", ",".join(DEFAULT_REAL_ARM_JOINTS))
         self.declare_parameter("arm_command_joint_names", ",".join(DEFAULT_REAL_ARM_JOINTS))
         self.declare_parameter("gripper_command_topic", "/arachne/gripper/command")
-        self.declare_parameter("base_linear_speed", 0.06)
-        self.declare_parameter("base_angular_speed", 0.22)
-        self.declare_parameter("base_replay_linear_speed", 0.025)
-        self.declare_parameter("base_replay_angular_speed", 0.10)
+        self.declare_parameter("base_linear_speed", 0.08)
+        self.declare_parameter("base_angular_speed", 0.30)
+        self.declare_parameter("base_replay_linear_speed", 0.04)
+        self.declare_parameter("base_replay_angular_speed", 0.14)
         self.declare_parameter("base_position_tolerance", 0.02)
         self.declare_parameter("base_yaw_tolerance_deg", 2.0)
         self.declare_parameter("base_manual_publish_rate", 12.0)
@@ -105,6 +105,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_rotate_step_rad", math.radians(5.0))
         self.declare_parameter("arm_rotate_duration_sec", 1.2)
         self.declare_parameter("arm_waypoint_duration_sec", 6.0)
+        self.declare_parameter("arm_goal_tolerance", 0.04)
         self.declare_parameter("arm_position_tolerance", 0.006)
         self.declare_parameter("arm_ik_damping", 0.08)
         self.declare_parameter("arm_ik_max_iterations", 180)
@@ -294,6 +295,8 @@ class TeachPanelNode(Node):
                     goal_handle.cancel_goal_async()
                 except Exception as exc:  # pragma: no cover - best effort stop path.
                     self.get_logger().warning(f"arm cancel before teach failed: {exc}")
+        else:
+            self.cancel_event.clear()
         command = "teach_on" if enabled else "teach_off"
         msg = String()
         msg.data = command
@@ -301,6 +304,7 @@ class TeachPanelNode(Node):
         self._status(f"aubo {command}")
 
     def jog_arm(self, axis: str, sign: float) -> None:
+        self.cancel_event.clear()
         self._start_worker(lambda: self._jog_arm_worker(axis, sign))
 
     def _track_base_motion(self, direction: str, linear_x: float, angular_z: float) -> None:
@@ -451,6 +455,7 @@ class TeachPanelNode(Node):
         )
 
     def jog_arm_rotation(self, axis: str, sign: float) -> None:
+        self.cancel_event.clear()
         self._start_worker(lambda: self._jog_arm_rotation_worker(axis, sign))
 
     def _jog_arm_rotation_worker(self, axis: str, sign: float) -> None:
@@ -735,6 +740,13 @@ class TeachPanelNode(Node):
             if error_code != 0:
                 self._status(f"arm action failed: {label} code={error_code}", warn=True)
                 return False
+            if not self._wait_for_arm_target(
+                [float(value) for value in positions],
+                float(self.get_parameter("arm_goal_tolerance").value),
+                max(2.0, duration + 2.0),
+            ):
+                self._status(f"arm feedback did not reach target: {label}", warn=True)
+                return False
             return True
 
         for publisher in self.arm_publishers:
@@ -743,6 +755,22 @@ class TeachPanelNode(Node):
         if wait:
             self._sleep(duration)
         return True
+
+    def _wait_for_arm_target(
+        self, target: list[float], tolerance: float, timeout_sec: float
+    ) -> bool:
+        deadline = time.monotonic() + max(timeout_sec, 0.0)
+        best_error = float("inf")
+        while time.monotonic() < deadline and not self.cancel_event.is_set():
+            current = self._current_arm_vector()
+            if current is not None and len(current) == len(target):
+                error = max(abs(a - b) for a, b in zip(current, target))
+                best_error = min(best_error, error)
+                if error <= tolerance:
+                    return True
+            time.sleep(0.05)
+        self.get_logger().warning(f"arm target feedback timeout: best_error={best_error:.4f}")
+        return False
 
     def _wait_future(self, future, timeout_sec: float) -> bool:
         deadline = time.monotonic() + timeout_sec
