@@ -214,7 +214,7 @@ class RealHardwareAcceptanceTest(Node):
         self.declare_parameter("arm_circle_revolutions", 1.0)
         self.declare_parameter("arm_circle_max_joint_delta", 0.75)
         self.declare_parameter("gripper_cycles", 5)
-        self.declare_parameter("gripper_pause_sec", 0.8)
+        self.declare_parameter("gripper_pause_sec", 4.5)
         self.declare_parameter("gripper_final_state", "open")
         self.declare_parameter("feedback_timeout_sec", 8.0)
 

@@ -65,7 +65,7 @@ def generate_launch_description():
             DeclareLaunchArgument("arm_circle_revolutions", default_value="1.0"),
             DeclareLaunchArgument("arm_circle_max_joint_delta", default_value="0.75"),
             DeclareLaunchArgument("gripper_cycles", default_value="5"),
-            DeclareLaunchArgument("gripper_pause_sec", default_value="0.8"),
+            DeclareLaunchArgument("gripper_pause_sec", default_value="4.5"),
             DeclareLaunchArgument("gripper_final_state", default_value="open"),
             Node(
                 package="arachne_operator",

@@ -8,5 +8,5 @@ exec "${ROOT_DIR}/scripts/real_hardware_acceptance_test.sh" \
   run_base_test:=false \
   run_arm_test:=false \
   run_gripper_test:=true \
-  gripper_pause_sec:=2.0 \
+  gripper_pause_sec:=4.5 \
   "$@"
