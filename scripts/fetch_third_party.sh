@@ -298,6 +298,94 @@ source.write_text(s)
 PY
 fi
 
+# Let the teach panel hand-guide the real Aubo arm without fighting the
+# ros2_control servo hold loop. The bridge writes this local flag before
+# calling RobotManage.freedrive(true); the hardware interface then stops servo
+# mode and skips servoJoint writes until the flag is cleared.
+if [[ -f "${aubo_hw_source}" ]] && ! grep -q 'teachControlEnabled' "${aubo_hw_source}"; then
+  "${PYTHON_BIN}" - "${aubo_hw_header}" "${aubo_hw_source}" <<'PY'
+from pathlib import Path
+import sys
+
+header = Path(sys.argv[1])
+source = Path(sys.argv[2])
+
+h = header.read_text()
+h = h.replace(
+"""    void readActualQ();
+
+    void setInput(RtdeClientPtr cli);
+""",
+"""    void readActualQ();
+
+    bool teachControlEnabled();
+
+    void setInput(RtdeClientPtr cli);
+""",
+)
+h = h.replace(
+"""    bool waiting_for_running_warned_{ false };
+    bool first_servoj_logged_{ false };
+""",
+"""    bool waiting_for_running_warned_{ false };
+    bool first_servoj_logged_{ false };
+    bool teach_mode_warned_{ false };
+""",
+)
+header.write_text(h)
+
+s = source.read_text()
+if "#include <fstream>" not in s:
+    s = s.replace("#include <ctime>\n", "#include <ctime>\n#include <fstream>\n")
+s = s.replace(
+"""    return hardware_interface::return_type::OK;
+}
+hardware_interface::return_type AuboHardwareInterface::write(
+""",
+"""    return hardware_interface::return_type::OK;
+}
+
+bool AuboHardwareInterface::teachControlEnabled()
+{
+    std::ifstream flag("/tmp/arachne_aubo_teach_mode");
+    char value = '0';
+    return flag.good() && (flag >> value) && value == '1';
+}
+
+hardware_interface::return_type AuboHardwareInterface::write(
+""",
+)
+s = s.replace(
+"""    const bool safety_ok =
+        safety_mode_ == SafetyModeType::Normal || safety_mode_ == SafetyModeType::ReducedMode;
+    if (robot_mode_ == RobotModeType::Running && safety_ok) {
+""",
+"""    const bool safety_ok =
+        safety_mode_ == SafetyModeType::Normal || safety_mode_ == SafetyModeType::ReducedMode;
+    if (safety_ok && teachControlEnabled()) {
+        readActualQ();
+        aubo_position_commands_ = actual_q_copy_;
+        aubo_velocity_commands_.fill(0.0);
+        if (servo_mode_start_ && stopServoMode() != 0) {
+            RCLCPP_ERROR(rclcpp::get_logger("AuboHardwareInterface"),
+                         "Failed to stop Aubo servo mode for teach control.");
+            return hardware_interface::return_type::ERROR;
+        }
+        if (!teach_mode_warned_) {
+            RCLCPP_WARN(rclcpp::get_logger("AuboHardwareInterface"),
+                        "Arachne teach mode gate is active; skipping servoJoint writes.");
+            teach_mode_warned_ = true;
+        }
+        return hardware_interface::return_type::OK;
+    }
+    teach_mode_warned_ = false;
+    if (robot_mode_ == RobotModeType::Running && safety_ok) {
+""",
+)
+source.write_text(s)
+PY
+fi
+
 fetch_repo dh_ag95_gripper_ros2 \
   https://github.com/ian-chuang/dh_ag95_gripper_ros2.git \
   fc4f80fdfb3acae5626df4359aec1401cb71a9a3

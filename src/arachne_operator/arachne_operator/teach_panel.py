@@ -51,6 +51,7 @@ class TeachWaypoint:
     gripper: str = "open"
     kind: str = "pose"
     wait_sec: float = 0.0
+    base_motion: list[dict] = field(default_factory=list)
 
 
 def _angle_diff(target: float, current: float) -> float:
@@ -97,6 +98,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("base_replay_angular_speed", 0.10)
         self.declare_parameter("base_position_tolerance", 0.02)
         self.declare_parameter("base_yaw_tolerance_deg", 2.0)
+        self.declare_parameter("base_motion_max_segment_sec", 20.0)
         self.declare_parameter("arm_jog_step_m", 0.02)
         self.declare_parameter("arm_jog_duration_sec", 1.2)
         self.declare_parameter("arm_rotate_step_rad", math.radians(5.0))
@@ -153,6 +155,8 @@ class TeachPanelNode(Node):
         self.kinematics = AuboI5Kinematics()
         self.lock = threading.Lock()
         self.base_pose: Pose2D | None = None
+        self.base_motion_segments: list[dict] = []
+        self.active_base_motion: dict | None = None
         self.current_arm: dict[str, float] = {}
         self.tool_position: tuple[float, float, float] | None = None
         self.gripper_state = "open"
@@ -250,10 +254,12 @@ class TeachPanelNode(Node):
             "stop": (0.0, 0.0),
         }
         vx, wz = mapping.get(direction, (0.0, 0.0))
+        self._track_base_motion(direction, vx, wz)
         self.set_base_velocity(vx, wz)
 
     def stop_all(self) -> None:
         self.cancel_event.set()
+        self._track_base_motion("stop", 0.0, 0.0)
         self.set_base_velocity(0.0, 0.0)
         self.publish_gripper("stop")
         goal_handle = self._active_goal_handle
@@ -274,6 +280,15 @@ class TeachPanelNode(Node):
         self._status(f"gripper {command}")
 
     def set_aubo_teach(self, enabled: bool) -> None:
+        if enabled:
+            self.cancel_event.set()
+            self.set_base_velocity(0.0, 0.0)
+            goal_handle = self._active_goal_handle
+            if goal_handle is not None:
+                try:
+                    goal_handle.cancel_goal_async()
+                except Exception as exc:  # pragma: no cover - best effort stop path.
+                    self.get_logger().warning(f"arm cancel before teach failed: {exc}")
         command = "teach_on" if enabled else "teach_off"
         msg = String()
         msg.data = command
@@ -282,6 +297,40 @@ class TeachPanelNode(Node):
 
     def jog_arm(self, axis: str, sign: float) -> None:
         self._start_worker(lambda: self._jog_arm_worker(axis, sign))
+
+    def _track_base_motion(self, direction: str, linear_x: float, angular_z: float) -> None:
+        now = time.monotonic()
+        with self.lock:
+            if direction == "stop" or (abs(linear_x) < 1e-9 and abs(angular_z) < 1e-9):
+                self._close_base_motion_locked(now)
+                return
+            self._close_base_motion_locked(now)
+            self.active_base_motion = {
+                "command": direction,
+                "linear_x": float(linear_x),
+                "angular_z": float(angular_z),
+                "start_pose": self._base_pose_values_locked(),
+                "start_stamp": datetime.now().isoformat(timespec="seconds"),
+                "_start_monotonic": now,
+            }
+
+    def _close_base_motion_locked(self, now: float) -> None:
+        if self.active_base_motion is None:
+            return
+        segment = dict(self.active_base_motion)
+        start = float(segment.pop("_start_monotonic", now))
+        duration = max(0.0, now - start)
+        if duration >= 0.05:
+            segment["duration_sec"] = duration
+            segment["end_pose"] = self._base_pose_values_locked()
+            segment["end_stamp"] = datetime.now().isoformat(timespec="seconds")
+            self.base_motion_segments.append(segment)
+        self.active_base_motion = None
+
+    def _base_pose_values_locked(self) -> list[float]:
+        if self.base_pose is None:
+            return []
+        return [self.base_pose.x, self.base_pose.y, self.base_pose.yaw]
 
     def _jog_arm_worker(self, axis: str, sign: float) -> None:
         q_start = self._current_arm_vector()
@@ -347,10 +396,13 @@ class TeachPanelNode(Node):
 
     def record_waypoint(self, label: str) -> TeachWaypoint:
         with self.lock:
+            self._close_base_motion_locked(time.monotonic())
             base = self.base_pose
             arm = self._current_arm_vector_locked()
             tool = self.tool_position
             gripper = self.gripper_state
+            base_motion = [dict(item) for item in self.base_motion_segments]
+            self.base_motion_segments.clear()
         if base is None:
             raise RuntimeError("missing /odom")
         if arm is None or tool is None:
@@ -364,6 +416,7 @@ class TeachPanelNode(Node):
             tool_position=[float(value) for value in tool],
             gripper=gripper,
             kind="pose",
+            base_motion=base_motion,
         )
         self._status(f"recorded {clean_label}")
         return waypoint
@@ -407,6 +460,11 @@ class TeachPanelNode(Node):
                     self._status(f"wait {waypoint.wait_sec:.1f}s: {waypoint.label}")
                     self._sleep(float(waypoint.wait_sec))
                     continue
+
+                if waypoint.base_motion:
+                    self._replay_base_motion(waypoint.base_motion, waypoint.label)
+                if len(waypoint.base_pose) == 3:
+                    self._drive_base_to_pose(Pose2D(*waypoint.base_pose))
                 if waypoint.gripper in ("open", "close"):
                     self.publish_gripper(waypoint.gripper)
                 if not self._send_arm_positions(
@@ -416,13 +474,31 @@ class TeachPanelNode(Node):
                     wait=True,
                 ):
                     raise RuntimeError(f"arm waypoint failed: {waypoint.label}")
-                self._drive_base_to_pose(Pose2D(*waypoint.base_pose))
                 self._sleep(float(self.get_parameter("replay_settle_sec").value))
             self.set_base_velocity(0.0, 0.0)
             self._status("replay complete" if not self.cancel_event.is_set() else "replay stopped")
         except Exception as exc:
             self.set_base_velocity(0.0, 0.0)
             self._status(f"replay failed: {exc}", warn=True)
+
+    def _replay_base_motion(self, segments: list[dict], label: str) -> None:
+        max_duration = float(self.get_parameter("base_motion_max_segment_sec").value)
+        for index, segment in enumerate(segments, start=1):
+            if self.cancel_event.is_set():
+                break
+            duration = max(0.0, min(float(segment.get("duration_sec", 0.0)), max_duration))
+            linear_x = float(segment.get("linear_x", 0.0))
+            angular_z = float(segment.get("angular_z", 0.0))
+            self._status(
+                f"base motion {index}/{len(segments)} for {label}: "
+                f"vx={linear_x:.3f} wz={angular_z:.3f} t={duration:.1f}s"
+            )
+            deadline = time.monotonic() + duration
+            while not self.cancel_event.is_set() and time.monotonic() < deadline:
+                self.set_base_velocity(linear_x, angular_z)
+                time.sleep(0.05)
+            self.set_base_velocity(0.0, 0.0)
+            self._sleep(0.1)
 
     def _drive_base_to_pose(self, target: Pose2D) -> None:
         current = self._current_base_pose()
@@ -554,6 +630,11 @@ class TeachPanelNode(Node):
 
     def _start_worker(self, target) -> None:
         threading.Thread(target=target, daemon=True).start()
+
+    def clear_base_motion_history(self) -> None:
+        with self.lock:
+            self.base_motion_segments.clear()
+            self.active_base_motion = None
 
     def _status(self, text: str, *, warn: bool = False) -> None:
         with self.lock:
@@ -752,12 +833,14 @@ class TeachPanelApp:
 
     def _clear(self) -> None:
         self.waypoints.clear()
+        self.node.clear_base_motion_history()
         self.label_var.set("wp_1")
         self._refresh_waypoints()
 
     def _reset(self) -> None:
         self.node.stop_all()
         self.waypoints.clear()
+        self.node.clear_base_motion_history()
         self.label_var.set("wp_1")
         self.wait_var.set("2.0")
         self.file_var.set("unsaved")
@@ -811,7 +894,8 @@ class TeachPanelApp:
                 (
                     f"{index:02d} {waypoint.label} | base=({x:.2f},{y:.2f},"
                     f"{math.degrees(yaw):.0f}deg) tool=({tool[0]:.2f},{tool[1]:.2f},"
-                    f"{tool[2]:.2f}) gripper={waypoint.gripper}"
+                    f"{tool[2]:.2f}) gripper={waypoint.gripper} "
+                    f"base_moves={len(waypoint.base_motion)}"
                 ),
             )
 

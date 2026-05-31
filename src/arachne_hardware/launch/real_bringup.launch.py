@@ -215,8 +215,15 @@ def _launch_setup(context, *args, **kwargs):
                 parameters=[
                     {
                         "command_topic": LaunchConfiguration("aubo_teach_command_topic"),
-                        "jsonrpc_service": LaunchConfiguration("aubo_jsonrpc_service"),
+                        "robot_ip": LaunchConfiguration("aubo_robot_ip"),
+                        "rpc_port": ParameterValue(
+                            LaunchConfiguration("aubo_rpc_port"), value_type=int
+                        ),
+                        "rpc_timeout_sec": ParameterValue(
+                            LaunchConfiguration("aubo_rpc_timeout_sec"), value_type=float
+                        ),
                         "teach_method": LaunchConfiguration("aubo_teach_method"),
+                        "teach_flag_path": LaunchConfiguration("aubo_teach_flag_path"),
                     }
                 ],
                 output="screen",
@@ -252,8 +259,10 @@ def generate_launch_description():
             DeclareLaunchArgument("aubo_robot_ip", default_value="192.168.127.128"),
             DeclareLaunchArgument("aubo_port", default_value="80"),
             DeclareLaunchArgument("aubo_teach_command_topic", default_value="/arachne/aubo/teach_command"),
-            DeclareLaunchArgument("aubo_jsonrpc_service", default_value="jsonrpc_service"),
+            DeclareLaunchArgument("aubo_rpc_port", default_value="30004"),
+            DeclareLaunchArgument("aubo_rpc_timeout_sec", default_value="2.0"),
             DeclareLaunchArgument("aubo_teach_method", default_value="freedrive"),
+            DeclareLaunchArgument("aubo_teach_flag_path", default_value="/tmp/arachne_aubo_teach_mode"),
             OpaqueFunction(function=_launch_setup),
         ]
     )
