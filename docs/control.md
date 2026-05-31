@@ -177,7 +177,7 @@ The pre-hardware control skeleton is split into standard packages:
 - `arachne_moveit_config`: MoveIt2 groups, named arm poses, gripper open/close states, KDL IK, OMPL planning, and controller mapping.
 - `arachne_nav`: Nav2 starter params for Scout using `/cmd_vel`, `/odom`, `map -> odom -> base_link`, and the lidar scan contract.
 - `arachne_hardware/mock_bringup.launch.py`: simulated hardware status and state output without real devices.
-- `arachne_operator`: Tk status panel for safety state, base/Aubo/gripper status, odometry, stop, and gripper Open/Close.
+- `arachne_operator`: Tk status panel, teach/replay panel, sequence executor, and external action-chunk translator.
 - `arachne_operator/sequence_executor.py`: high-level task executor for arm presets, gripper commands, demo sequences, and Nav2 goals, with status, stop, timeout, and Nav2 result handling.
 - `arachne_control/prehardware_control.launch.py`: combined mock bringup for Nav2, MoveIt2, sequence execution, and optional operator panel.
 
@@ -200,6 +200,24 @@ ros2 launch arachne_hardware mock_bringup.launch.py
 ros2 launch arachne_operator operator_panel.launch.py
 ros2 launch arachne_operator sequence_executor.launch.py
 ```
+
+## Teach And Replay Panel
+
+`teach_panel.py` is intended for real-hardware demos and small teach-in experiments. It listens to `/odom`, `/joint_states`, and hardware status topics, manually controls the three subsystems, and records the current state as a waypoint:
+
+- Base: hold buttons publish forward, backward, left, and right commands on `/cmd_vel`; releasing the button stops the base.
+- Aubo: X/Y/Z tool jog buttons solve local Aubo i5 FK/IK and send a joint trajectory, preferring `/joint_trajectory_controller/follow_joint_trajectory`.
+- Gripper: publishes `open`, `close`, or `stop` on `/arachne/gripper/command`.
+- Record: stores base odom pose, current Aubo joints, FK tool position, and gripper state.
+- Replay: sends gripper commands and Aubo joint trajectories, then drives Scout to the recorded odom poses with closed-loop `/odom` feedback.
+
+Start simulation or real bringup first, then open the panel:
+
+```bash
+./scripts/teach_panel.sh
+```
+
+The default real Aubo joint names are `shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint`. The panel also recognizes matching `aubo_`-prefixed joint states for RViz/mock flows. Override `arm_command_joint_names:=...` when the controller command names differ. Recordings are JSON files under `recordings/` by default.
 
 Launch ros2_control with mock hardware:
 

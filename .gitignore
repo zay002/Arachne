@@ -19,6 +19,9 @@ godot/**/assets/vendor/*
 __pycache__/
 .pytest_cache/
 
+# Local teach/replay recordings from demos.
+recordings/
+
 # Local planning notes are not part of the public repository.
 plan.md
 PLAN.md

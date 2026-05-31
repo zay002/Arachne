@@ -177,7 +177,7 @@ ros2 launch arachne_hardware real_bringup.launch.py \
 - `arachne_moveit_config`：MoveIt2 group、机械臂命名姿态、夹爪 open/close 状态、KDL IK、OMPL 规划和控制器映射。
 - `arachne_nav`：Scout 的 Nav2 起步参数，使用 `/cmd_vel`、`/odom`、`map -> odom -> base_link` 和 lidar scan 契约。
 - `arachne_hardware/mock_bringup.launch.py`：无真实设备时发布仿真硬件状态。
-- `arachne_operator`：Tk 状态面板，用于查看 safety、底盘/Aubo/夹爪状态、里程计，并提供停止和夹爪 Open/Close。
+- `arachne_operator`：Tk 状态面板、示教回放面板、sequence executor 和外部 action chunk translator。
 - `arachne_operator/sequence_executor.py`：机械臂预设、夹爪命令、demo 序列和 Nav2 目标的高层任务执行器，带状态、停止、超时和 Nav2 结果处理。
 - `arachne_control/prehardware_control.launch.py`：组合启动 Nav2、MoveIt2、sequence executor 和可选 operator 面板的 mock bringup。
 
@@ -200,6 +200,24 @@ ros2 launch arachne_hardware mock_bringup.launch.py
 ros2 launch arachne_operator operator_panel.launch.py
 ros2 launch arachne_operator sequence_executor.launch.py
 ```
+
+## 示教与回放面板
+
+`teach_panel.py` 面向真机演示和小型实验示教。它监听 `/odom`、`/joint_states` 和硬件状态，手动控制三类设备，并把当前状态记录为 waypoint：
+
+- 底盘：按住按钮向 `/cmd_vel` 发布前进、后退、左转、右转，松开后停止。
+- Aubo：按 X/Y/Z 方向对末端做小步笛卡尔 jog，节点用本地 Aubo i5 FK/IK 转成关节轨迹，并优先走 `/joint_trajectory_controller/follow_joint_trajectory` action。
+- 夹具：向 `/arachne/gripper/command` 发布 `open`、`close` 或 `stop`。
+- 记录：保存底盘 odom 位姿、Aubo 当前关节角、FK 得到的末端位置和夹具状态。
+- 回放：按 waypoint 顺序发送夹具命令、Aubo 关节轨迹，并用 `/odom` 闭环把 Scout 驱动到记录位姿。
+
+启动前先启动仿真或真机 bringup，再打开面板：
+
+```bash
+./scripts/teach_panel.sh
+```
+
+默认真机 Aubo 关节名为 `shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint`。如果在 RViz/mock 模型中使用带 `aubo_` 前缀的 joint state，面板会自动识别对应别名；如果底层 controller 的命令关节名不同，则通过 `arm_command_joint_names:=...` 覆盖。记录文件保存为 JSON，默认位于 `recordings/`。
 
 启动 ros2_control mock 硬件：
 

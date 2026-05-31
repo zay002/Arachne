@@ -65,6 +65,7 @@ source scripts/arachne_env.sh
 | Aubo real driver bringup | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh` |
 | Blocking Aubo remote startup | `ARACHNE_CONFIRM_AUBO_REMOTE_START=YES ./scripts/real_aubo_remote_start.sh` |
 | Small Aubo Z test | `ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh` |
+| Real teach and replay panel | `./scripts/teach_panel.sh` |
 
 <p align="center">
   <img src="docs/demo/gazebo.png" alt="Arachne Gazebo demo" width="48%">
@@ -131,6 +132,8 @@ Real motion tests are dry-run by default. Enable motion only after power, emerge
 ./scripts/real_aubo_z_test.sh
 ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 ```
+
+For demonstrations, start `real_bringup.launch.py` first, then run `./scripts/teach_panel.sh`. The panel manually controls the base, Aubo tool, and MS42DC gripper, records base pose, tool position, arm joints, and gripper state as waypoints, saves them as JSON, and replays the sequence with one button.
 
 ## Project Layout
 

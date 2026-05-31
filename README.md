@@ -65,6 +65,7 @@ source scripts/arachne_env.sh
 | Aubo 真机 driver 启动 | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh` |
 | Aubo 阻塞远程启动 | `ARACHNE_CONFIRM_AUBO_REMOTE_START=YES ./scripts/real_aubo_remote_start.sh` |
 | Aubo 小幅 Z 向测试 | `ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh` |
+| 真机示教与回放面板 | `./scripts/teach_panel.sh` |
 
 <p align="center">
   <img src="docs/demo/gazebo.png" alt="Arachne Gazebo demo" width="48%">
@@ -131,6 +132,8 @@ hurry waveshare-can-a recv \
 ./scripts/real_aubo_z_test.sh
 ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 ```
+
+示教演示时，先启动 `real_bringup.launch.py`，再运行 `./scripts/teach_panel.sh`。面板可以手动控制底盘、Aubo 末端和 MS42DC，记录当前底盘位姿、末端位置、关节角和夹具状态，并将 waypoint 保存为 JSON 后一键回放。
 
 ## 项目结构
 
