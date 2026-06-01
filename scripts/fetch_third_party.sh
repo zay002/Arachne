@@ -10,12 +10,19 @@ fetch_repo() {
   local url="$2"
   local ref="$3"
   local dest="${ROOT_DIR}/third_party/${name}"
+  local existing=""
+
+  if [[ -d "${dest}" ]]; then
+    existing="$(find "${dest}" -mindepth 1 -maxdepth 1 ! -name .git ! -name .gitkeep -print -quit)"
+    if [[ -n "${existing}" && "${ARACHNE_REFRESH_THIRD_PARTY:-false}" != "true" ]]; then
+      echo "Using vendored/local third-party subset: ${name}"
+      return
+    fi
+  fi
 
   if [[ ! -d "${dest}/.git" ]]; then
     if [[ -d "${dest}" ]]; then
-      local unexpected=""
-      unexpected="$(find "${dest}" -mindepth 1 -maxdepth 1 ! -name .gitkeep -print -quit)"
-      if [[ -n "${unexpected}" ]]; then
+      if [[ -n "${existing}" ]]; then
         rm -rf "${dest}"
       fi
     fi

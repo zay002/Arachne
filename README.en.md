@@ -45,7 +45,7 @@ source scripts/arachne_env.sh
 ./scripts/view_model.sh
 ```
 
-Some third-party models, drivers, and SDKs are fetched at pinned versions and patched locally for Arachne's current hardware integration; those upstream repositories are not committed wholesale into this repository. If reproduction fails because of upstream changes, network downloads, platform differences, or patch application, please open a GitHub Issue with your environment and logs.
+The repository vendors a small runnable third-party subset: required Aubo i5 meshes, Scout ROS2, UGV SDK source, the Aubo ROS2 driver, AG95 description, and MS42DC ROS2 examples. Bulky material such as the full Aubo model collection, vendor videos/installers, large UGV PDFs, and external Godot asset packs remains script- or link-downloaded. `fetch_third_party.sh` reuses the vendored content by default and creates the needed symlinks; to refresh full pinned upstream checkouts, run `ARACHNE_REFRESH_THIRD_PARTY=true ./scripts/fetch_third_party.sh`.
 
 `arachne_env.sh` pins the current shell to the Ubuntu system Python used by ROS, such as `/usr/bin/python3.12` on Ubuntu 24.04 + Jazzy, so conda/pyenv Python 3.13 cannot hijack ROS Python modules.
 

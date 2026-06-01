@@ -1,14 +1,30 @@
 # Third-Party Assets
 
-Arachne uses upstream model, driver, and asset packages for the real Scout 2.0 and Aubo i5 stack. Empty directories with only `.gitkeep` mark expected local fetch/extract targets:
+Arachne keeps a minimal third-party subset in `third_party/` so the workspace can build and run demos directly. Large reference material and full asset packs stay out of git and are downloaded from scripts or source links.
 
-- `aubo_description`: cloned from `https://github.com/AuboRobot/aubo_description`
-- `aubo_ros2_driver`: cloned from `https://github.com/AuboRobot/aubo_ros2_driver` and patched locally for Arachne's current Aubo bringup flow
-- `scout_ros2`: cloned from `https://github.com/agilexrobotics/scout_ros2`
-- `ugv_sdk`: cloned from `https://github.com/agilexrobotics/ugv_sdk`
-- `MS42DC.step`: local source CAD for the current flexible gripper. The committed runtime mesh is generated from this file and stored in `src/arachne_description/meshes/gripper/ms42dc/`.
-- `dh_ag95_gripper_ros2`: optional AG95 model package cloned from `https://github.com/ian-chuang/dh_ag95_gripper_ros2`
-- `ms42dc_step_motor_ros2`: extracted locally from the MS42DC vendor ROS2 zip when official examples are needed
-- `kenney`, `LARA_AUBOi5_AG95`, `scout_ros`: optional local asset/model sources used by the Godot showcase when available
+## Vendored In Git
 
-When licensed CAD, STL, SDK, or manual files are added later, keep their source, license, version, and checksum documented here. If a vendor file cannot be redistributed, store it outside the repository and document the expected local path in `docs/references.md`.
+- `aubo_description`: required Aubo i5 `package.xml`, URDF, and `meshes/aubo_i5` runtime subset from `AuboRobot/aubo_description`.
+- `scout_ros2`: Scout 2.0 ROS2 description, messages, and base node from `agilexrobotics/scout_ros2`.
+- `ugv_sdk`: AgileX UGV SDK source and build files, without the large `docs/` manuals.
+- `aubo_ros2_driver`: Aubo ROS2 driver with the Arachne real-arm safe-start patches.
+- `dh_ag95_gripper_ros2`: optional AG95 gripper description and driver.
+- `ms42dc_step_motor_ros2`: Yizhua Robot MS42DC vendor ROS2 example source.
+- `MS42DC.step` and `MS42DC_SPLIT/*.stl`: source assets for the active MS42DC movable model; the split STL parts were prepared manually by the project author.
+
+## Downloaded Locally
+
+- The full Aubo model collection, large UGV PDF manuals, vendor videos/installers, the `kenney` Godot asset pack, optional `LARA_AUBOi5_AG95` assets, and ROS1 `scout_ros` are not committed.
+- To refresh full pinned upstream checkouts:
+
+```bash
+ARACHNE_REFRESH_THIRD_PARTY=true ./scripts/fetch_third_party.sh
+```
+
+- To fetch the Godot office assets:
+
+```bash
+./scripts/fetch_godot_assets.sh
+```
+
+When adding CAD, STL, SDK, or manual files later, record the source, license, version, and checksum. If a vendor file cannot be redistributed, document how to obtain it instead of committing it.

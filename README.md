@@ -45,7 +45,7 @@ source scripts/arachne_env.sh
 ./scripts/view_model.sh
 ```
 
-部分第三方模型、驱动和 SDK 会由脚本按固定版本下载，并在本地应用 Arachne 当前硬件组合所需的适配补丁；这些上游仓库不会整体提交到本仓库。如果复现时遇到上游版本、网络下载、平台差异或补丁应用问题，欢迎在 GitHub Issue 中说明环境和日志。
+仓库随附可直接运行的第三方最小集合：Aubo i5 必要模型、Scout ROS2、UGV SDK 源码、Aubo ROS2 driver、AG95 描述和 MS42DC ROS2 示例。大型资料如完整 Aubo 全系列模型、厂家视频/安装包、UGV 大 PDF、Godot 外部素材包仍由脚本或链接下载。`fetch_third_party.sh` 默认复用随仓库携带的内容并建立符号链接；如需重新拉取固定版本完整上游，可运行 `ARACHNE_REFRESH_THIRD_PARTY=true ./scripts/fetch_third_party.sh`。
 
 `arachne_env.sh` 会把当前 shell 固定到 ROS 使用的系统 Python，例如 Ubuntu 24.04 + Jazzy 下的 `/usr/bin/python3.12`，避免 conda/pyenv 的 Python 3.13 抢走 ROS Python 模块。
 
