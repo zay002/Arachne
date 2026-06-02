@@ -70,7 +70,7 @@ fi
 if [[ -n "${ROS_DISTRO:-}" ]]; then
   ok "ROS_DISTRO=${ROS_DISTRO}"
 else
-  fail_or_warn "ROS_DISTRO is not set; run source /opt/ros/jazzy/setup.bash or /opt/ros/humble/setup.bash"
+  fail_or_warn "ROS_DISTRO is not set; run source scripts/arachne_env.sh or source /opt/ros/humble/setup.bash"
 fi
 echo
 

@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<robot name="$(arg aubo_type)" xmlns:xacro="http://wiki.ros.org/xacro">
+  <xacro:arg name="prefix" default=""/>
+  <xacro:arg name="use_fake_hardware" default="false"/>
+  <xacro:arg name="fake_sensor_commands" default="false"/>
+  <xacro:arg name="robot_ip" default="192.168.127.128"/>
+  <xacro:arg name="aubo_type" default="aubo_i5"/>
+
+  <xacro:include filename="$(find aubo_description)/urdf/aubo_i5.urdf.xacro"/>
+
+  <ros2_control name="$(arg aubo_type)" type="system">
+    <hardware>
+      <plugin>aubo_driver/AuboHardwareInterface</plugin>
+      <param name="robot_ip">$(arg robot_ip)</param>
+    </hardware>
+
+    <joint name="$(arg prefix)shoulder_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="$(arg prefix)upperArm_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="$(arg prefix)foreArm_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="$(arg prefix)wrist1_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="$(arg prefix)wrist2_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="$(arg prefix)wrist3_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+</robot>

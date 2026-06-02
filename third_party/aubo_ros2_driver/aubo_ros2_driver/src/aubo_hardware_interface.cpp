@@ -196,6 +196,8 @@ hardware_interface::return_type AuboHardwareInterface::write(
         safety_mode_ == SafetyModeType::Normal || safety_mode_ == SafetyModeType::ReducedMode;
     const bool recoverable_stop =
         safety_mode_ == SafetyModeType::ProtectiveStop || safety_mode_ == SafetyModeType::SafeguardStop;
+    const bool poweroff_prestart =
+        robot_mode_ == RobotModeType::PowerOff && safety_mode_ == SafetyModeType::Undefined;
     if (teachControlEnabled()) {
         readActualQ();
         aubo_position_commands_ = actual_q_copy_;
@@ -236,7 +238,7 @@ hardware_interface::return_type AuboHardwareInterface::write(
                                 "Servoj exception: " << e.what());
             return hardware_interface::return_type::ERROR;
         }
-    } else if (safety_ok || recoverable_stop) {
+    } else if (safety_ok || recoverable_stop || poweroff_prestart) {
         readActualQ();
         aubo_position_commands_ = actual_q_copy_;
         aubo_velocity_commands_.fill(0.0);

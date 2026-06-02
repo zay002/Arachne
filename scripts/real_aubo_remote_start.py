@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import socket
 import subprocess
 import sys
@@ -27,6 +28,11 @@ JOINTS = (
     "wrist3_joint",
 )
 SAFE_SAFETY_MODES = {"Normal", "ReducedMode"}
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def safety_allows_prestart(mode: str, safety: str) -> bool:
+    return mode == "PowerOff" and safety == "Undefined"
 
 
 class AuboJsonRpc:
@@ -167,13 +173,17 @@ def run_checked(command: list[str]) -> str:
     return result.stdout
 
 
+def strip_ansi(text: str) -> str:
+    return ANSI_ESCAPE_RE.sub("", text)
+
+
 def ensure_controllers_active(timeout: float, poll: float) -> None:
     required_names = ("joint_state_broadcaster", "joint_trajectory_controller")
     deadline = time.monotonic() + timeout
     last_output = ""
     while time.monotonic() < deadline:
         try:
-            output = run_checked(["ros2", "control", "list_controllers"])
+            output = strip_ansi(run_checked(["ros2", "control", "list_controllers"]))
             last_output = output.strip()
         except RuntimeError as exc:
             last_output = str(exc)
@@ -205,7 +215,7 @@ def wait_for_mode(rpc: AuboJsonRpc, expected: set[str], timeout: float, poll: fl
         mode = rpc.mode()
         safety = rpc.safety()
         print(f"state: mode={mode} safety={safety}")
-        if safety not in SAFE_SAFETY_MODES:
+        if safety not in SAFE_SAFETY_MODES and not safety_allows_prestart(mode, safety):
             raise RuntimeError(f"unsafe Aubo safety mode: {safety}")
         if mode in expected:
             return mode
@@ -283,7 +293,7 @@ def main() -> int:
             mode = rpc.mode()
             safety = rpc.safety()
             print(f"initial rpc state: mode={mode} safety={safety}")
-            if safety not in SAFE_SAFETY_MODES:
+            if safety not in SAFE_SAFETY_MODES and not safety_allows_prestart(mode, safety):
                 raise RuntimeError(f"unsafe Aubo safety mode: {safety}")
 
             if mode != "Running":

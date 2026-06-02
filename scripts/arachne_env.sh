@@ -10,6 +10,9 @@ fi
 
 ARACHNE_ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export ARACHNE_ROOT_DIR
+# shellcheck disable=SC1091
+source "${ARACHNE_ROOT_DIR}/scripts/ros_env.sh"
+
 ARACHNE_ENV_SOURCE_WORKSPACE=1
 if [[ "${ARACHNE_ENV_NO_WORKSPACE:-0}" == "1" ]]; then
   ARACHNE_ENV_SOURCE_WORKSPACE=0
@@ -52,25 +55,14 @@ if [[ -n "${PYTHONPATH:-}" ]]; then
 fi
 export PYTHONNOUSERSITE="${PYTHONNOUSERSITE:-1}"
 
-if [[ -z "${ROS_DISTRO:-}" ]]; then
-  if [[ -f /opt/ros/jazzy/setup.bash ]]; then
-    export ROS_DISTRO=jazzy
-  elif [[ -f /opt/ros/humble/setup.bash ]]; then
-    export ROS_DISTRO=humble
-  fi
-fi
-
-if [[ -z "${ROS_DISTRO:-}" || ! -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]]; then
-  echo "ROS setup not found. Set ROS_DISTRO=jazzy or humble, then source this file again." >&2
+if ! arachne_require_ros_distro; then
   return 1
 fi
 
-# shellcheck disable=SC1090
-source "/opt/ros/${ROS_DISTRO}/setup.bash"
+arachne_source_bash_file "/opt/ros/${ROS_DISTRO}/setup.bash" || return 1
 
 if [[ "${ARACHNE_ENV_SOURCE_WORKSPACE}" == "1" && -f "${ARACHNE_ROOT_DIR}/install/setup.bash" ]]; then
-  # shellcheck disable=SC1091
-  source "${ARACHNE_ROOT_DIR}/install/setup.bash"
+  arachne_source_bash_file "${ARACHNE_ROOT_DIR}/install/setup.bash" || return 1
 fi
 
 if [[ "${ARACHNE_ENV_QUIET:-0}" != "1" ]]; then

@@ -126,7 +126,7 @@ The check reports ROS setup, vendor package links, MS42DC serial candidates, Sco
 Build the core bringup packages:
 
 ```bash
-source /opt/ros/jazzy/setup.bash
+source scripts/arachne_env.sh
 colcon build --base-paths src --packages-select \
   ugv_sdk scout_msgs scout_base serial step_motor arachne_hardware \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3

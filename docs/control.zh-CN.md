@@ -126,7 +126,7 @@ ros2 launch arachne_description display.launch.py \
 构建核心 bringup 包：
 
 ```bash
-source /opt/ros/jazzy/setup.bash
+source scripts/arachne_env.sh
 colcon build --base-paths src --packages-select \
   ugv_sdk scout_msgs scout_base serial step_motor arachne_hardware \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3

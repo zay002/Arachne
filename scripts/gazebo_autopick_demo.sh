@@ -2,26 +2,19 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ROS_DISTRO="${ROS_DISTRO:-jazzy}"
+# shellcheck disable=SC1091
+source "${ROOT_DIR}/scripts/ros_env.sh"
+arachne_require_ros_distro
+
 GRIPPER_TYPE="${GRIPPER_TYPE:-ms42dc}"
 GZ_RENDER_BACKEND="${GZ_RENDER_BACKEND:-opengl}"
 GZ_UPDATE_RATE="${GZ_UPDATE_RATE:-180}"
 GAZEBO_CAMERA_DISTANCE="${GAZEBO_CAMERA_DISTANCE:-2.2}"
 
-if [[ ! -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]]; then
-  echo "ROS setup not found: /opt/ros/${ROS_DISTRO}/setup.bash" >&2
-  exit 1
-fi
-
-if [[ ! -f "${ROOT_DIR}/install/setup.bash" ]]; then
-  echo "Workspace is not built yet. Run the README build command first." >&2
-  exit 1
-fi
-
-set +u
-source "/opt/ros/${ROS_DISTRO}/setup.bash"
-source "${ROOT_DIR}/install/setup.bash"
-set -u
+arachne_source_ros_setup
+arachne_source_workspace_setup \
+  "${ROOT_DIR}" \
+  "Workspace is not built yet. Run ./scripts/build_workspace.sh first."
 
 GZ_RESOURCE_DIRS=()
 for package_name in arachne_description aubo_description scout_description dh_ag95_description; do

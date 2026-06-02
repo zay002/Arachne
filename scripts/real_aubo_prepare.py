@@ -84,7 +84,8 @@ def main() -> int:
         print(f"simulation: {sim}")
         print(f"joints: {joints}")
 
-    if safety not in SAFE_SAFETY_MODES:
+    poweroff_prestart = args.allow_not_running and mode == "PowerOff" and safety == "Undefined"
+    if safety not in SAFE_SAFETY_MODES and not poweroff_prestart:
         print(
             "ERROR: Aubo safety state is not safe for remote control. "
             "Resolve it on the teach pendant/control cabinet before retrying.",
@@ -94,6 +95,12 @@ def main() -> int:
 
     if mode != "Running":
         if args.allow_not_running:
+            if poweroff_prestart:
+                print(
+                    "poweroff prestart: continuing because --allow-not-running is set "
+                    "for the guarded remote poweron/startup flow."
+                )
+                return 0
             print(
                 "not running yet: continuing because --allow-not-running is set "
                 "for the guarded remote startup flow."

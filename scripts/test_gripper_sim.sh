@@ -2,19 +2,16 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "${ROOT_DIR}/scripts/ros_env.sh"
 
-if [[ -f "/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash" ]]; then
-  # shellcheck disable=SC1090
-  set +u
-  source "/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash"
-  set -u
+if ROS_DISTRO="$(arachne_detect_ros_distro 2>/dev/null)"; then
+  export ROS_DISTRO
+  arachne_source_bash_file "/opt/ros/${ROS_DISTRO}/setup.bash"
 fi
 
 if [[ -f "${ROOT_DIR}/install/setup.bash" ]]; then
-  # shellcheck disable=SC1091
-  set +u
-  source "${ROOT_DIR}/install/setup.bash"
-  set -u
+  arachne_source_bash_file "${ROOT_DIR}/install/setup.bash"
 fi
 
 test_profile() {

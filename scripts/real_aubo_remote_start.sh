@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ROS_DISTRO="${ROS_DISTRO:-jazzy}"
+# shellcheck disable=SC1091
+source "${ROOT_DIR}/scripts/ros_env.sh"
+
 AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
 
 if [[ "${ARACHNE_CONFIRM_AUBO_REMOTE_START:-}" != "YES" ]]; then
@@ -34,19 +36,15 @@ EOF
   exit 2
 fi
 
-if [[ ! -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]]; then
-  echo "ROS setup not found: /opt/ros/${ROS_DISTRO}/setup.bash" >&2
-  exit 1
-fi
-
-if [[ ! -f "${ROOT_DIR}/install/setup.bash" ]]; then
-  echo "Workspace is not built yet. Build arachne_operator and aubo_ros2_driver first." >&2
-  exit 1
-fi
+arachne_require_ros_distro
 
 set +u
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/scripts/arachne_env.sh"
 set -u
+
+arachne_source_workspace_setup \
+  "${ROOT_DIR}" \
+  "Workspace is not built yet. Build arachne_operator and aubo_ros2_driver first."
 
 exec "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/real_aubo_remote_start.py" --ip "${AUBO_ROBOT_IP}" "$@"

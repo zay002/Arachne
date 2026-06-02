@@ -2,7 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ROS_DISTRO="${ROS_DISTRO:-jazzy}"
+# shellcheck disable=SC1091
+source "${ROOT_DIR}/scripts/ros_env.sh"
+arachne_require_ros_distro
+
 GRIPPER_TYPE="${GRIPPER_TYPE:-ms42dc}"
 USE_GUI="${USE_GUI:-true}"
 WITH_RVIZ="${WITH_RVIZ:-true}"
@@ -30,20 +33,10 @@ pkill -f 'gripper_sim_controller' 2>/dev/null || true
 pkill -f 'gripper_state_gui' 2>/dev/null || true
 ros2 daemon stop 2>/dev/null || true
 
-if [[ ! -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]]; then
-  echo "ROS setup not found: /opt/ros/${ROS_DISTRO}/setup.bash" >&2
-  exit 1
-fi
-
-if [[ ! -f "${ROOT_DIR}/install/setup.bash" ]]; then
-  echo "Workspace is not built yet. Run the README build command first." >&2
-  exit 1
-fi
-
-set +u
-source "/opt/ros/${ROS_DISTRO}/setup.bash"
-source "${ROOT_DIR}/install/setup.bash"
-set -u
+arachne_source_ros_setup
+arachne_source_workspace_setup \
+  "${ROOT_DIR}" \
+  "Workspace is not built yet. Run ./scripts/build_workspace.sh first."
 
 exec ros2 launch arachne_description display.launch.py \
   gripper_type:="${GRIPPER_TYPE}" \

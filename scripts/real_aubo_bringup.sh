@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ROS_DISTRO="${ROS_DISTRO:-jazzy}"
+# shellcheck disable=SC1091
+source "${ROOT_DIR}/scripts/ros_env.sh"
+
 AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
 AUBO_TEACH_FLAG_PATH="${AUBO_TEACH_FLAG_PATH:-/tmp/arachne_aubo_teach_mode}"
 AUBO_KEEP_TEACH_FLAG="${AUBO_KEEP_TEACH_FLAG:-false}"
@@ -32,20 +34,16 @@ EOF
   exit 2
 fi
 
-if [[ ! -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]]; then
-  echo "ROS setup not found: /opt/ros/${ROS_DISTRO}/setup.bash" >&2
-  exit 1
-fi
-
-if [[ ! -f "${ROOT_DIR}/install/setup.bash" ]]; then
-  echo "Workspace is not built yet. Build aubo_ros2_driver and arachne_hardware first." >&2
-  exit 1
-fi
+arachne_require_ros_distro
 
 set +u
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/scripts/arachne_env.sh"
 set -u
+
+arachne_source_workspace_setup \
+  "${ROOT_DIR}" \
+  "Workspace is not built yet. Build aubo_ros2_driver and arachne_hardware first."
 
 if [[ "${ARACHNE_AUBO_ALLOW_PRESTART:-}" == "YES" ]]; then
   "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}" --allow-not-running

@@ -9,6 +9,17 @@ set -u
 
 cd "${ROOT_DIR}"
 
+if [[ -z "${MAKEFLAGS:-}" && "$(uname -m)" == "aarch64" ]]; then
+  export MAKEFLAGS="-j2"
+fi
+
+COLCON_ARGS=()
+if [[ -n "${ARACHNE_COLCON_PARALLEL_WORKERS:-}" ]]; then
+  COLCON_ARGS+=(--parallel-workers "${ARACHNE_COLCON_PARALLEL_WORKERS}")
+elif [[ "$(uname -m)" == "aarch64" ]]; then
+  COLCON_ARGS+=(--parallel-workers 2)
+fi
+
 echo "== Python syntax =="
 /usr/bin/python3 -m py_compile \
   src/arachne_demo/arachne_demo/*.py \
@@ -18,7 +29,7 @@ echo "== Python syntax =="
   src/arachne_sim/arachne_sim/*.py
 
 echo "== Build local packages =="
-colcon build --base-paths src --packages-select \
+colcon build "${COLCON_ARGS[@]}" --base-paths src --packages-select \
   aubo_description scout_description dh_ag95_description \
   arachne_description arachne_sim arachne_gripper arachne_hardware \
   arachne_control arachne_moveit_config arachne_nav arachne_operator \
