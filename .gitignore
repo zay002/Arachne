@@ -19,8 +19,11 @@ godot/**/assets/vendor/*
 __pycache__/
 .pytest_cache/
 
-# Local teach/replay recordings from demos.
-recordings/
+# Versioned teach/replay examples. Keep ad-hoc generated files local unless
+# they are curated JSON recordings under recordings/teach/.
+recordings/*
+!recordings/teach/
+!recordings/teach/*.json
 
 # Internal stage reports are local working notes, not public docs.
 docs/reports/
