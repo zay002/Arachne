@@ -17,6 +17,7 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -169,6 +170,7 @@ class TeachPanelNode(Node):
         self.aubo_teach_ready_event = threading.Event()
         self.aubo_teach_ready_event.set()
         self.last_status = "ready"
+        self.log_lines: list[str] = []
         self.cancel_event = threading.Event()
         self.replay_thread: threading.Thread | None = None
         self._active_goal_handle = None
@@ -246,9 +248,21 @@ class TeachPanelNode(Node):
                 ),
                 "arm": "ready" if arm_ready else "waiting",
                 "gripper": self.gripper_state,
+                "teach": "on" if self.aubo_teach_gate_active else "off",
                 "status": self.last_status,
                 **self.hardware_status,
             }
+
+    def joint_snapshot(self) -> list[tuple[str, float]] | None:
+        with self.lock:
+            vector = self._current_arm_vector_locked()
+            if vector is None:
+                return None
+            return list(zip(self.arm_state_joint_names, vector))
+
+    def log_snapshot(self) -> list[str]:
+        with self.lock:
+            return list(self.log_lines)
 
     def recording_dir(self) -> Path:
         directory = Path(str(self.get_parameter("recording_dir").value))
@@ -867,9 +881,50 @@ class TeachPanelNode(Node):
         with self.lock:
             return len(self.base_motion_segments) + (1 if self.active_base_motion is not None else 0)
 
+    def update_motion_settings(
+        self,
+        *,
+        base_linear_speed: float,
+        base_angular_speed: float,
+        arm_jog_step_m: float,
+        arm_rotate_step_deg: float,
+        waypoint_duration_sec: float,
+    ) -> None:
+        if base_linear_speed <= 0.0 or base_angular_speed <= 0.0:
+            raise ValueError("base speeds must be positive")
+        if arm_jog_step_m <= 0.0 or arm_rotate_step_deg <= 0.0:
+            raise ValueError("arm jog steps must be positive")
+        if waypoint_duration_sec <= 0.0:
+            raise ValueError("waypoint duration must be positive")
+        self.set_parameters(
+            [
+                Parameter("base_linear_speed", Parameter.Type.DOUBLE, float(base_linear_speed)),
+                Parameter("base_angular_speed", Parameter.Type.DOUBLE, float(base_angular_speed)),
+                Parameter("arm_jog_step_m", Parameter.Type.DOUBLE, float(arm_jog_step_m)),
+                Parameter(
+                    "arm_rotate_step_rad",
+                    Parameter.Type.DOUBLE,
+                    math.radians(float(arm_rotate_step_deg)),
+                ),
+                Parameter(
+                    "arm_waypoint_duration_sec",
+                    Parameter.Type.DOUBLE,
+                    float(waypoint_duration_sec),
+                ),
+            ]
+        )
+        self._status(
+            "motion settings applied: "
+            f"base={base_linear_speed:.3f}m/s {base_angular_speed:.3f}rad/s, "
+            f"tcp={arm_jog_step_m:.3f}m, rot={arm_rotate_step_deg:.1f}deg"
+        )
+
     def _status(self, text: str, *, warn: bool = False) -> None:
+        stamp = datetime.now().strftime("%H:%M:%S")
         with self.lock:
             self.last_status = text
+            self.log_lines.append(f"{stamp} {'WARN' if warn else 'INFO'} {text}")
+            self.log_lines = self.log_lines[-300:]
         msg = String()
         msg.data = text
         self.status_pub.publish(msg)
@@ -884,72 +939,237 @@ class TeachPanelApp:
         self.node = node
         self.waypoints: list[TeachWaypoint] = []
         self.root = tk.Tk()
-        self.root.title("Arachne Teach & Replay")
+        self.root.title("Arachne Scope")
+        self.root.geometry("1180x760")
+        self.root.minsize(980, 640)
         self.status_vars: dict[str, tk.StringVar] = {}
         self.label_var = tk.StringVar(value="wp_1")
         self.wait_var = tk.StringVar(value="2.0")
         self.file_var = tk.StringVar(value="unsaved")
+        self.program_var = tk.StringVar(value="0 nodes")
+        self.base_linear_var = tk.StringVar(value=f"{float(node.get_parameter('base_linear_speed').value):.3f}")
+        self.base_angular_var = tk.StringVar(
+            value=f"{float(node.get_parameter('base_angular_speed').value):.3f}"
+        )
+        self.arm_step_var = tk.StringVar(value=f"{float(node.get_parameter('arm_jog_step_m').value):.3f}")
+        self.arm_rotate_var = tk.StringVar(
+            value=f"{math.degrees(float(node.get_parameter('arm_rotate_step_rad').value)):.1f}"
+        )
+        self.waypoint_duration_var = tk.StringVar(
+            value=f"{float(node.get_parameter('arm_waypoint_duration_sec').value):.2f}"
+        )
+        self.listbox: tk.Listbox | None = None
+        self.log_text: tk.Text | None = None
+        self.joint_tree: ttk.Treeview | None = None
         self._build()
         self._refresh()
 
     def _build(self) -> None:
-        self.root.columnconfigure(0, weight=1)
-        main = ttk.Frame(self.root, padding=10)
-        main.grid(row=0, column=0, sticky="nsew")
-        main.columnconfigure(1, weight=1)
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure("Top.TFrame", background="#202833")
+        style.configure("TopTitle.TLabel", background="#202833", foreground="#f6f8fb", font=("TkDefaultFont", 16, "bold"))
+        style.configure("Top.TLabel", background="#202833", foreground="#f6f8fb")
+        style.configure("State.TLabel", font=("TkDefaultFont", 10, "bold"))
+        style.configure("Danger.TButton", foreground="#8a1f11")
 
-        status = ttk.LabelFrame(main, text="State")
-        status.grid(row=0, column=0, columnspan=2, sticky="ew")
-        for row, key in enumerate(("base", "tool", "arm", "gripper", "Base", "Aubo", "Gripper", "status")):
-            ttk.Label(status, text=key, width=10).grid(row=row, column=0, sticky="w", padx=4, pady=2)
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(1, weight=1)
+        self._build_top_bar()
+
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.grid(row=1, column=0, sticky="nsew")
+        self._build_home_tab()
+        self._build_move_tab()
+        self._build_program_tab()
+        self._build_config_tab()
+        self._build_log_tab()
+
+    def _build_top_bar(self) -> None:
+        top = ttk.Frame(self.root, style="Top.TFrame", padding=(12, 8))
+        top.grid(row=0, column=0, sticky="ew")
+        top.columnconfigure(4, weight=1)
+        ttk.Label(top, text="Arachne Scope", style="TopTitle.TLabel").grid(
+            row=0, column=0, rowspan=2, sticky="w", padx=(0, 18)
+        )
+        for column, key in enumerate(("Aubo", "Base", "Gripper"), start=1):
             var = tk.StringVar(value="waiting")
             self.status_vars[key] = var
-            ttk.Label(status, textvariable=var, width=82).grid(row=row, column=1, sticky="w", padx=4, pady=2)
-
-        controls = ttk.Frame(main)
-        controls.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
-        self._build_base_controls(controls)
-        self._build_arm_controls(controls)
-        self._build_gripper_controls(controls)
-
-        record = ttk.LabelFrame(main, text="Waypoints")
-        record.grid(row=1, column=1, sticky="nsew", padx=(10, 0), pady=(10, 0))
-        record.columnconfigure(0, weight=1)
-        ttk.Entry(record, textvariable=self.label_var).grid(row=0, column=0, sticky="ew", padx=4, pady=4)
-        ttk.Button(record, text="Record Current", command=self._record).grid(
-            row=0, column=1, sticky="ew", padx=4, pady=4
+            ttk.Label(top, text=key, style="Top.TLabel").grid(row=0, column=column, sticky="w", padx=8)
+            ttk.Label(top, textvariable=var, style="Top.TLabel", width=22).grid(
+                row=1, column=column, sticky="w", padx=8
+            )
+        status_var = tk.StringVar(value="ready")
+        self.status_vars["status"] = status_var
+        ttk.Label(top, textvariable=status_var, style="Top.TLabel").grid(
+            row=0, column=4, rowspan=2, sticky="ew", padx=(16, 8)
         )
-        wait = ttk.Frame(record)
-        wait.grid(row=1, column=0, columnspan=2, sticky="ew", padx=4, pady=0)
-        ttk.Label(wait, text="Wait s").grid(row=0, column=0, padx=(0, 4), pady=4)
-        ttk.Entry(wait, textvariable=self.wait_var, width=8).grid(row=0, column=1, padx=4, pady=4)
-        ttk.Button(wait, text="Add Wait", command=self._add_wait).grid(row=0, column=2, padx=4, pady=4)
+        ttk.Button(top, text="Run", command=self._play).grid(row=0, column=5, rowspan=2, padx=4)
+        ttk.Button(top, text="Stop", command=self.node.stop_all, style="Danger.TButton").grid(
+            row=0, column=6, rowspan=2, padx=4
+        )
 
-        self.listbox = tk.Listbox(record, height=15, width=70, selectmode=tk.EXTENDED)
-        self.listbox.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=4, pady=4)
-        buttons = ttk.Frame(record)
-        buttons.grid(row=3, column=0, columnspan=2, sticky="ew", padx=4, pady=4)
+    def _build_home_tab(self) -> None:
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="Home")
+        tab.columnconfigure(0, weight=1)
+        tab.columnconfigure(1, weight=1)
+        tab.rowconfigure(1, weight=1)
+
+        overview = ttk.LabelFrame(tab, text="Robot Status")
+        overview.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(0, 8))
+        overview.columnconfigure(1, weight=1)
+        for row, key in enumerate(("base", "tool", "arm", "gripper", "teach", "program")):
+            ttk.Label(overview, text=key, style="State.TLabel", width=10).grid(
+                row=row, column=0, sticky="w", padx=6, pady=4
+            )
+            var = tk.StringVar(value="waiting")
+            self.status_vars[key] = var
+            ttk.Label(overview, textvariable=var).grid(row=row, column=1, sticky="ew", padx=6, pady=4)
+
+        quick = ttk.LabelFrame(tab, text="Quick Control")
+        quick.grid(row=0, column=1, sticky="nsew", pady=(0, 8))
         for index, (text, command) in enumerate(
             (
-                ("Delete", self._delete_selected),
-                ("Update WP", self._update_selected),
+                ("Teach On", lambda: self.node.set_aubo_teach(True)),
+                ("Teach Off", lambda: self.node.set_aubo_teach(False)),
+                ("Record", self._record),
+                ("Replay", self._play),
+                ("Open", lambda: self.node.publish_gripper("open")),
+                ("Close", lambda: self.node.publish_gripper("close")),
+                ("Stop All", self.node.stop_all),
+            )
+        ):
+            ttk.Button(quick, text=text, command=command).grid(
+                row=index // 3, column=index % 3, sticky="ew", padx=5, pady=5
+            )
+        for column in range(3):
+            quick.columnconfigure(column, weight=1)
+
+        joints = ttk.LabelFrame(tab, text="Monitor and Joint")
+        joints.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+        joints.rowconfigure(0, weight=1)
+        joints.columnconfigure(0, weight=1)
+        self.joint_tree = ttk.Treeview(joints, columns=("rad", "deg"), show="headings", height=8)
+        self.joint_tree.heading("rad", text="rad")
+        self.joint_tree.heading("deg", text="deg")
+        self.joint_tree.column("rad", width=120, anchor="e")
+        self.joint_tree.column("deg", width=120, anchor="e")
+        self.joint_tree.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+
+        live_log = ttk.LabelFrame(tab, text="Variables and Log")
+        live_log.grid(row=1, column=1, sticky="nsew")
+        live_log.rowconfigure(0, weight=1)
+        live_log.columnconfigure(0, weight=1)
+        text = tk.Text(live_log, height=10, width=60, state="disabled", wrap="word")
+        text.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        self.home_log_text = text
+
+    def _build_move_tab(self) -> None:
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="Move")
+        tab.columnconfigure(0, weight=1)
+        tab.columnconfigure(1, weight=1)
+        left = ttk.Frame(tab)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        right = ttk.Frame(tab)
+        right.grid(row=0, column=1, sticky="nsew")
+        self._build_arm_controls(left)
+        self._build_base_controls(right)
+        self._build_gripper_controls(right)
+
+    def _build_program_tab(self) -> None:
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="Program")
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(2, weight=1)
+
+        editor = ttk.LabelFrame(tab, text="Node Editor")
+        editor.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        editor.columnconfigure(1, weight=1)
+        ttk.Label(editor, text="Label").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ttk.Entry(editor, textvariable=self.label_var).grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+        ttk.Button(editor, text="Waypoint", command=self._record).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Label(editor, text="Wait s").grid(row=0, column=3, padx=5, pady=5)
+        ttk.Entry(editor, textvariable=self.wait_var, width=8).grid(row=0, column=4, padx=5, pady=5)
+        ttk.Button(editor, text="Wait", command=self._add_wait).grid(row=0, column=5, padx=5, pady=5)
+
+        toolbar = ttk.Frame(tab)
+        toolbar.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        for index, (text, command) in enumerate(
+            (
+                ("Update", self._update_selected),
                 ("Duplicate", self._duplicate_selected),
+                ("Delete", self._delete_selected),
                 ("Clear", self._clear),
                 ("Reset", self._reset),
                 ("Save", self._save),
                 ("Load", self._load),
-                ("Play", self._play),
+                ("Run", self._play),
                 ("Stop", self.node.stop_all),
             )
         ):
-            ttk.Button(buttons, text=text, command=command).grid(row=0, column=index, padx=2)
-        ttk.Label(record, textvariable=self.file_var).grid(
-            row=4, column=0, columnspan=2, sticky="w", padx=4, pady=(2, 0)
+            ttk.Button(toolbar, text=text, command=command).grid(row=0, column=index, padx=3)
+
+        program = ttk.LabelFrame(tab, text="Program Tree")
+        program.grid(row=2, column=0, sticky="nsew")
+        program.rowconfigure(0, weight=1)
+        program.columnconfigure(0, weight=1)
+        self.listbox = tk.Listbox(program, height=18, selectmode=tk.EXTENDED)
+        self.listbox.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        scroll = ttk.Scrollbar(program, command=self.listbox.yview)
+        scroll.grid(row=0, column=1, sticky="ns")
+        self.listbox.configure(yscrollcommand=scroll.set)
+        ttk.Label(tab, textvariable=self.file_var).grid(row=3, column=0, sticky="w", pady=(6, 0))
+
+    def _build_config_tab(self) -> None:
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="Configure")
+        tab.columnconfigure(0, weight=1)
+        motion = ttk.LabelFrame(tab, text="Motion Parameters")
+        motion.grid(row=0, column=0, sticky="ew")
+        fields = (
+            ("Base linear m/s", self.base_linear_var),
+            ("Base angular rad/s", self.base_angular_var),
+            ("TCP step m", self.arm_step_var),
+            ("Wrist step deg", self.arm_rotate_var),
+            ("Waypoint duration s", self.waypoint_duration_var),
         )
+        for row, (label, var) in enumerate(fields):
+            ttk.Label(motion, text=label, width=20).grid(row=row, column=0, sticky="w", padx=6, pady=5)
+            ttk.Entry(motion, textvariable=var, width=12).grid(row=row, column=1, sticky="w", padx=6, pady=5)
+        ttk.Button(motion, text="Apply", command=self._apply_motion_settings).grid(
+            row=len(fields), column=0, columnspan=2, sticky="ew", padx=6, pady=(8, 6)
+        )
+
+        payload = ttk.LabelFrame(tab, text="Aubo Payload")
+        payload.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        ttk.Label(payload, text="Startup payload is configured by scripts/real_full_teach.sh.").grid(
+            row=0, column=0, sticky="w", padx=6, pady=4
+        )
+        ttk.Label(payload, text="Current Jetson default: 2.5kg, CoG 0,0,0.").grid(
+            row=1, column=0, sticky="w", padx=6, pady=4
+        )
+
+    def _build_log_tab(self) -> None:
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="Log")
+        tab.rowconfigure(0, weight=1)
+        tab.columnconfigure(0, weight=1)
+        self.log_text = tk.Text(tab, height=24, state="disabled", wrap="word")
+        self.log_text.grid(row=0, column=0, sticky="nsew")
+        scroll = ttk.Scrollbar(tab, command=self.log_text.yview)
+        scroll.grid(row=0, column=1, sticky="ns")
+        self.log_text.configure(yscrollcommand=scroll.set)
 
     def _build_base_controls(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="Base")
         frame.grid(row=0, column=0, sticky="ew")
+        for column in range(3):
+            frame.columnconfigure(column, weight=1)
         buttons = {
             "Forward": ("forward", 0, 1),
             "Back": ("back", 2, 1),
@@ -967,8 +1187,10 @@ class TeachPanelApp:
                 button.bind("<ButtonRelease-1>", lambda _event: self._base_release())
 
     def _build_arm_controls(self, parent: ttk.Frame) -> None:
-        frame = ttk.LabelFrame(parent, text="Aubo Tool Jog")
+        frame = ttk.LabelFrame(parent, text="Aubo Move / HandGuide")
         frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        for column in range(3):
+            frame.columnconfigure(column, weight=1)
         for row, axis in enumerate(("x", "y", "z")):
             ttk.Label(frame, text=axis.upper()).grid(row=row, column=0, padx=4, pady=4)
             ttk.Button(frame, text="-", command=lambda a=axis: self.node.jog_arm(a, -1.0)).grid(
@@ -1011,9 +1233,54 @@ class TeachPanelApp:
 
     def _refresh(self) -> None:
         snapshot = self.node.snapshot()
+        snapshot["program"] = f"{len(self.waypoints)} nodes"
         for key, var in self.status_vars.items():
             var.set(snapshot.get(key, "waiting"))
+        self._refresh_joint_tree()
+        self._refresh_logs()
         self.root.after(100, self._refresh)
+
+    def _refresh_joint_tree(self) -> None:
+        if self.joint_tree is None:
+            return
+        for item in self.joint_tree.get_children():
+            self.joint_tree.delete(item)
+        joints = self.node.joint_snapshot()
+        if joints is None:
+            self.joint_tree.insert("", tk.END, values=("waiting", "waiting"))
+            return
+        for name, value in joints:
+            self.joint_tree.insert(
+                "",
+                tk.END,
+                values=(f"{name}: {value:.4f}", f"{math.degrees(value):.1f}"),
+            )
+
+    def _refresh_logs(self) -> None:
+        lines = "\n".join(self.node.log_snapshot()[-120:])
+        for text in (getattr(self, "home_log_text", None), self.log_text):
+            if text is None:
+                continue
+            current = text.get("1.0", tk.END).strip()
+            if current == lines:
+                continue
+            text.configure(state="normal")
+            text.delete("1.0", tk.END)
+            text.insert(tk.END, lines)
+            text.see(tk.END)
+            text.configure(state="disabled")
+
+    def _apply_motion_settings(self) -> None:
+        try:
+            self.node.update_motion_settings(
+                base_linear_speed=float(self.base_linear_var.get()),
+                base_angular_speed=float(self.base_angular_var.get()),
+                arm_jog_step_m=float(self.arm_step_var.get()),
+                arm_rotate_step_deg=float(self.arm_rotate_var.get()),
+                waypoint_duration_sec=float(self.waypoint_duration_var.get()),
+            )
+        except Exception as exc:
+            messagebox.showerror("Apply failed", str(exc))
 
     def _base_press(self, direction: str) -> None:
         self.node.drive_base_manual(direction)
