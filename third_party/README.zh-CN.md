@@ -4,7 +4,7 @@ Arachne 在 `third_party/` 中保留可直接构建和演示所需的最小第�
 
 ## 随仓库保留
 
-- `aubo_description`：Aubo i5 必要 `package.xml`、URDF 和 `meshes/aubo_i5` 运行子集，来源为 `AuboRobot/aubo_description`。
+- `aubo_description`：Aubo 官方描述包元信息、完整 URDF/xacro 文本，以及 Aubo i5 系列 DAE/STL 运行网格，来源为 `AuboRobot/aubo_description`；这样桌面端和 Jetson 分支会共用官方 i5 尺寸与关节定义。
 - `scout_ros2`：Scout 2.0 ROS2 描述、消息和 base 节点，来源为 `agilexrobotics/scout_ros2`。
 - `ugv_sdk`：AgileX UGV SDK 源码和构建文件，不包含大型 `docs/` 手册。
 - `aubo_ros2_driver`：Aubo ROS2 driver，并保留 Arachne 当前真机安全启动流程所需补丁。
@@ -14,7 +14,7 @@ Arachne 在 `third_party/` 中保留可直接构建和演示所需的最小第�
 
 ## 本地下载
 
-- 完整 Aubo 全系列模型、UGV 大 PDF 手册、厂家视频/安装包、`kenney` Godot 素材包、`LARA_AUBOi5_AG95` 可选素材和 ROS1 `scout_ros` 不随仓库上传。
+- Aubo 非 i5 系列大型网格、UGV 大 PDF 手册、厂家视频/安装包、`kenney` Godot 素材包、`LARA_AUBOi5_AG95` 可选素材和 ROS1 `scout_ros` 不随仓库上传。
 - 需要刷新完整上游时运行：
 
 ```bash
