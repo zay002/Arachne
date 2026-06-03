@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="rear_rack_mesh_scale" value="0.001"/>
+  <xacro:property name="rear_rack_visual_xyz" value="-0.137 0.164499191 -0.242736588"/>
+
+  <xacro:macro name="arachne_rear_sensor_rack" params="parent xyz:='-0.24 0 0.155' rpy:='0 0 0'">
+    <link name="rear_rack_link">
+      <visual>
+        <origin xyz="${rear_rack_visual_xyz}" rpy="1.57079632679 0 0"/>
+        <geometry>
+          <mesh filename="package://arachne_description/meshes/homemade/quanb_colored.dae"/>
+        </geometry>
+        <material name="arachne_rear_rack">
+          <color rgba="0.72 0.74 0.72 1.0"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0.311138451" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.274 0.329 0.622"/>
+        </geometry>
+      </collision>
+      <xacro:box_inertial mass="1.2" x="0.274" y="0.329" z="0.622"/>
+    </link>
+    <joint name="rear_rack_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="rear_rack_link"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+    </joint>
+  </xacro:macro>
+</robot>

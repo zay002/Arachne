@@ -6,7 +6,14 @@
   <xacro:arg name="tool_adapter_rpy" default="0.0 0.0 0.0"/>
   <xacro:arg name="gripper_type" default="ms42dc"/>
   <xacro:arg name="with_lidar" default="true"/>
-  <xacro:arg name="with_ee_camera" default="false"/>
+  <xacro:arg name="with_ee_camera" default="true"/>
+  <xacro:arg name="with_rear_rack" default="true"/>
+  <xacro:arg name="rear_rack_xyz" default="-0.16 0.0 0.105"/>
+  <xacro:arg name="rear_rack_rpy" default="0.0 0.0 1.57079632679"/>
+  <xacro:arg name="lidar_xyz" default="0.0 0.035 0.6223"/>
+  <xacro:arg name="lidar_rpy" default="0.0 0.0 0.0"/>
+  <xacro:arg name="ee_camera_xyz" default="0.0 0.0 0.0"/>
+  <xacro:arg name="ee_camera_rpy" default="0.0 0.0 0.0"/>
   <xacro:arg name="with_ros2_control" default="false"/>
   <xacro:arg name="with_gazebo_plugins" default="false"/>
   <xacro:arg name="with_mimic_joints" default="true"/>
@@ -23,6 +30,7 @@
   <xacro:include filename="gripper/ag95_ros2_control.xacro"/>
   <xacro:include filename="mounts/scout_aubo_mount.xacro"/>
   <xacro:include filename="mounts/aubo_ms42dc_adapter.xacro"/>
+  <xacro:include filename="sensors/rear_rack.xacro"/>
   <xacro:include filename="sensors/lidar.xacro"/>
   <xacro:include filename="sensors/ee_camera.xacro"/>
   <xacro:include filename="gazebo/arachne_gazebo_plugins.xacro"/>
@@ -39,17 +47,21 @@
     <xacro:arachne_ag95 parent="gripper_adapter_link"/>
   </xacro:if>
 
+  <xacro:if value="$(arg with_rear_rack)">
+    <xacro:arachne_rear_sensor_rack parent="base_link" xyz="$(arg rear_rack_xyz)" rpy="$(arg rear_rack_rpy)"/>
+  </xacro:if>
+
   <xacro:if value="$(arg with_lidar)">
-    <xacro:arachne_lidar parent="base_link"/>
+    <xacro:if value="$(arg with_rear_rack)">
+      <xacro:arachne_lidar parent="rear_rack_link" xyz="$(arg lidar_xyz)" rpy="$(arg lidar_rpy)"/>
+    </xacro:if>
+    <xacro:if value="${'$(arg with_rear_rack)' == 'false'}">
+      <xacro:arachne_lidar parent="base_link"/>
+    </xacro:if>
   </xacro:if>
 
   <xacro:if value="$(arg with_ee_camera)">
-    <xacro:if value="${'$(arg gripper_type)' == 'ms42dc'}">
-      <xacro:arachne_ee_camera parent="ms42dc_body_link"/>
-    </xacro:if>
-    <xacro:if value="${'$(arg gripper_type)' == 'ag95'}">
-      <xacro:arachne_ee_camera parent="ag95_body"/>
-    </xacro:if>
+    <xacro:arachne_ee_camera parent="gripper_adapter_link" xyz="$(arg ee_camera_xyz)" rpy="$(arg ee_camera_rpy)"/>
   </xacro:if>
 
   <xacro:if value="$(arg with_ros2_control)">
