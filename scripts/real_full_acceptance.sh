@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
 WAIT_TIMEOUT_SEC="${WAIT_TIMEOUT_SEC:-60}"
+AUBO_PAYLOAD_MASS="${ARACHNE_AUBO_PAYLOAD_MASS:-2.5}"
+AUBO_PAYLOAD_COG="${ARACHNE_AUBO_PAYLOAD_COG:-0,0,0}"
+AUBO_PAYLOAD_AOM="${ARACHNE_AUBO_PAYLOAD_AOM:-0,0,0}"
+AUBO_PAYLOAD_INERTIA="${ARACHNE_AUBO_PAYLOAD_INERTIA:-0,0,0,0,0,0}"
 RUN_ENV_CHECK=true
 KEEP_RUNNING=false
 CONFIRM=false
@@ -31,6 +35,8 @@ Options:
 Environment:
   AUBO_ROBOT_IP=${AUBO_ROBOT_IP}
   WAIT_TIMEOUT_SEC=${WAIT_TIMEOUT_SEC}
+  ARACHNE_AUBO_PAYLOAD_MASS=${AUBO_PAYLOAD_MASS}
+  ARACHNE_AUBO_PAYLOAD_COG=${AUBO_PAYLOAD_COG}
 
 Example:
   ./scripts/real_full_acceptance.sh --yes
@@ -207,6 +213,7 @@ wait_for_action() {
 echo "Arachne full real-hardware acceptance"
 echo "  workspace: ${ROOT_DIR}"
 echo "  Aubo IP: ${AUBO_ROBOT_IP}"
+echo "  Aubo payload: mass=${AUBO_PAYLOAD_MASS}kg cog=${AUBO_PAYLOAD_COG}"
 echo "  logs: ${LOG_DIR}"
 
 cd "${ROOT_DIR}"
@@ -224,28 +231,38 @@ start_background "Aubo driver" \
       AUBO_ROBOT_IP="${AUBO_ROBOT_IP}" \
       "${ROOT_DIR}/scripts/real_aubo_bringup.sh"
 
+run_logged "Aubo payload configure" \
+  "${LOG_DIR}/03_aubo_payload.log" \
+  env ARACHNE_CONFIRM_AUBO_PAYLOAD=YES \
+      AUBO_ROBOT_IP="${AUBO_ROBOT_IP}" \
+      "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/real_aubo_payload.py" \
+      --mass "${AUBO_PAYLOAD_MASS}" \
+      --cog "${AUBO_PAYLOAD_COG}" \
+      --aom "${AUBO_PAYLOAD_AOM}" \
+      --inertia "${AUBO_PAYLOAD_INERTIA}"
+
 run_logged "Aubo guarded remote startup" \
-  "${LOG_DIR}/03_aubo_remote_start.log" \
+  "${LOG_DIR}/04_aubo_remote_start.log" \
   env ARACHNE_CONFIRM_AUBO_REMOTE_START=YES \
       AUBO_ROBOT_IP="${AUBO_ROBOT_IP}" \
       "${ROOT_DIR}/scripts/real_aubo_remote_start.sh"
 
 run_logged "Aubo running/safety check" \
-  "${LOG_DIR}/04_aubo_prepare.log" \
+  "${LOG_DIR}/05_aubo_prepare.log" \
   "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}"
 
 wait_for_topic "/joint_states" "Aubo joint states"
 wait_for_action "/joint_trajectory_controller/follow_joint_trajectory" "Aubo trajectory action"
 
 start_background "Scout + MS42DC bringup" \
-  "${LOG_DIR}/05_base_gripper_bringup.log" \
+  "${LOG_DIR}/06_base_gripper_bringup.log" \
   "${ROOT_DIR}/scripts/real_bringup.sh" --no-aubo
 
 wait_for_topic "/odom" "Scout odometry"
 wait_for_topic "/arachne/hardware/gripper_status" "MS42DC status"
 
 run_logged "joint acceptance test" \
-  "${LOG_DIR}/06_real_hardware_acceptance_test.log" \
+  "${LOG_DIR}/07_real_hardware_acceptance_test.log" \
   env ARACHNE_CONFIRM_REAL_MOTION=YES \
       "${ROOT_DIR}/scripts/real_hardware_acceptance_test.sh" \
       "${ACCEPTANCE_ARGS[@]}"
