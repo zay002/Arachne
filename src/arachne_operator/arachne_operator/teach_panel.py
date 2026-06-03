@@ -103,12 +103,12 @@ class TeachPanelNode(Node):
         self.declare_parameter("base_yaw_tolerance_deg", 2.0)
         self.declare_parameter("base_manual_publish_rate", 12.0)
         self.declare_parameter("base_motion_max_segment_sec", 20.0)
-        self.declare_parameter("arm_jog_step_m", 0.006)
-        self.declare_parameter("arm_jog_duration_sec", 0.30)
-        self.declare_parameter("arm_rotate_step_rad", math.radians(1.5))
-        self.declare_parameter("arm_rotate_duration_sec", 0.30)
-        self.declare_parameter("arm_joint_step_rad", math.radians(1.0))
-        self.declare_parameter("arm_hold_period_sec", 0.30)
+        self.declare_parameter("arm_jog_step_m", 0.003)
+        self.declare_parameter("arm_jog_duration_sec", 0.60)
+        self.declare_parameter("arm_rotate_step_rad", math.radians(0.75))
+        self.declare_parameter("arm_rotate_duration_sec", 0.60)
+        self.declare_parameter("arm_joint_step_rad", math.radians(0.5))
+        self.declare_parameter("arm_hold_period_sec", 0.60)
         self.declare_parameter("arm_waypoint_duration_sec", 3.75)
         self.declare_parameter("arm_home_joints_deg", DEFAULT_ARM_HOME_JOINTS_DEG)
         self.declare_parameter("arm_goal_tolerance", 0.04)
@@ -1365,7 +1365,7 @@ class TeachPanelApp:
         ttk.Label(payload, text="Startup payload is configured by scripts/real_full_teach.sh.").grid(
             row=0, column=0, sticky="w", padx=6, pady=4
         )
-        ttk.Label(payload, text="Current Jetson default: 2.5kg, CoG 0,0,0.").grid(
+        ttk.Label(payload, text="Current Jetson heavy-tool estimate: 3.5kg, CoG 0,0,0.18.").grid(
             row=1, column=0, sticky="w", padx=6, pady=4
         )
 

@@ -3,9 +3,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
-AUBO_Z_DELTA_M="${AUBO_Z_DELTA_M:-0.02}"
-AUBO_ARM_DURATION_SEC="${AUBO_ARM_DURATION_SEC:-5.0}"
-AUBO_ARM_MAX_JOINT_DELTA="${AUBO_ARM_MAX_JOINT_DELTA:-0.25}"
+AUBO_Z_DELTA_M="${AUBO_Z_DELTA_M:-0.01}"
+AUBO_ARM_DURATION_SEC="${AUBO_ARM_DURATION_SEC:-8.0}"
+AUBO_ARM_MAX_JOINT_DELTA="${AUBO_ARM_MAX_JOINT_DELTA:-0.12}"
 AUBO_REAL_JOINTS="shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint"
 
 cat <<EOF
