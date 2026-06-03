@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
+AUBO_TYPE="${AUBO_TYPE:-aubo_i5}"
 WAIT_TIMEOUT_SEC="${WAIT_TIMEOUT_SEC:-60}"
 RECORDING_DIR="${ARACHNE_TEACH_RECORDING_DIR:-${ROOT_DIR}/recordings/teach}"
 AUBO_PAYLOAD_MASS="${ARACHNE_AUBO_PAYLOAD_MASS:-2.5}"
@@ -35,6 +36,7 @@ Options:
 
 Environment:
   AUBO_ROBOT_IP=${AUBO_ROBOT_IP}
+  AUBO_TYPE=${AUBO_TYPE}
   WAIT_TIMEOUT_SEC=${WAIT_TIMEOUT_SEC}
   ARACHNE_TEACH_RECORDING_DIR=${RECORDING_DIR}
   ARACHNE_AUBO_PAYLOAD_MASS=${AUBO_PAYLOAD_MASS}
@@ -221,7 +223,7 @@ done
 
 echo "Arachne full real teach startup"
 echo "  workspace: ${ROOT_DIR}"
-echo "  Aubo IP: ${AUBO_ROBOT_IP}"
+echo "  Aubo IP/model: ${AUBO_ROBOT_IP} / ${AUBO_TYPE}"
 echo "  Aubo payload: mass=${AUBO_PAYLOAD_MASS}kg cog=${AUBO_PAYLOAD_COG}"
 echo "  recording dir: ${RECORDING_DIR}"
 echo "  logs: ${LOG_DIR}"
@@ -239,6 +241,7 @@ start_background "Aubo driver" \
   env ARACHNE_CONFIRM_AUBO_DRIVER=YES \
       ARACHNE_AUBO_ALLOW_PRESTART=YES \
       AUBO_ROBOT_IP="${AUBO_ROBOT_IP}" \
+      AUBO_TYPE="${AUBO_TYPE}" \
       "${ROOT_DIR}/scripts/real_aubo_bringup.sh"
 
 run_logged "Aubo payload configure" \

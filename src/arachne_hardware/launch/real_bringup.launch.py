@@ -183,7 +183,7 @@ def _launch_setup(context, *args, **kwargs):
             IncludeLaunchDescription(
                 _package_launch("aubo_ros2_driver", "launch", "aubo_control.launch.py"),
                 launch_arguments={
-                    "aubo_type": "aubo_i5",
+                    "aubo_type": LaunchConfiguration("aubo_type"),
                     "robot_ip": LaunchConfiguration("aubo_robot_ip"),
                     "use_fake_hardware": "false",
                 }.items(),
@@ -257,6 +257,7 @@ def generate_launch_description():
             DeclareLaunchArgument("ms42dc_close_angle_tenths", default_value="18720"),
             DeclareLaunchArgument("ms42dc_speed_tenths", default_value="150"),
             DeclareLaunchArgument("aubo_robot_ip", default_value="192.168.127.128"),
+            DeclareLaunchArgument("aubo_type", default_value="aubo_i5"),
             DeclareLaunchArgument("aubo_port", default_value="80"),
             DeclareLaunchArgument("aubo_teach_command_topic", default_value="/arachne/aubo/teach_command"),
             DeclareLaunchArgument("aubo_rpc_port", default_value="30004"),

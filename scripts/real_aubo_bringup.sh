@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT_DIR}/scripts/ros_env.sh"
 
 AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
+AUBO_TYPE="${AUBO_TYPE:-aubo_i5}"
 AUBO_TEACH_FLAG_PATH="${AUBO_TEACH_FLAG_PATH:-/tmp/arachne_aubo_teach_mode}"
 AUBO_KEEP_TEACH_FLAG="${AUBO_KEEP_TEACH_FLAG:-false}"
 
@@ -30,6 +31,9 @@ Start driver:
 
 Remote-start driver terminal:
   ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES AUBO_ROBOT_IP=${AUBO_ROBOT_IP} ./scripts/real_aubo_bringup.sh
+
+Optional official model override:
+  AUBO_TYPE=${AUBO_TYPE}
 EOF
   exit 2
 fi
@@ -60,4 +64,5 @@ exec ros2 launch arachne_hardware real_bringup.launch.py \
   use_ms42dc:=false \
   use_aubo:=true \
   aubo_robot_ip:="${AUBO_ROBOT_IP}" \
+  aubo_type:="${AUBO_TYPE}" \
   "$@"

@@ -8,6 +8,7 @@ USE_MS42DC="${USE_MS42DC:-true}"
 USE_AUBO="${USE_AUBO:-true}"
 SCOUT_DRIVER="${SCOUT_DRIVER:-waveshare}"
 AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
+AUBO_TYPE="${AUBO_TYPE:-aubo_i5}"
 SKIP_AUBO_CHECK="${SKIP_AUBO_CHECK:-false}"
 HURRY_AUTO_ATTACH="${HURRY_AUTO_ATTACH:-true}"
 AUBO_TEACH_FLAG_PATH="${AUBO_TEACH_FLAG_PATH:-/tmp/arachne_aubo_teach_mode}"
@@ -33,6 +34,7 @@ Useful environment overrides:
   SCOUT_PORT=/dev/...       Override Scout Waveshare serial path.
   MS42DC_PORT=/dev/...      Override MS42DC serial path.
   AUBO_ROBOT_IP=...         Override Aubo controller IP.
+  AUBO_TYPE=aubo_i5_31      Override Aubo official URDF/model type.
   HURRY_AUTO_ATTACH=false   Disable automatic WSL2 usbipd attach attempts.
   AUBO_KEEP_TEACH_FLAG=true Keep an existing Aubo teach gate flag for debugging.
 EOF
@@ -206,7 +208,7 @@ fi
 echo "Arachne real bringup:"
 echo "  Scout: ${USE_SCOUT} ${SCOUT_PORT_RESOLVED:+(${SCOUT_PORT_RESOLVED})}"
 echo "  MS42DC: ${USE_MS42DC} ${MS42DC_PORT_RESOLVED:+(${MS42DC_PORT_RESOLVED})}"
-echo "  Aubo: ${USE_AUBO} (${AUBO_ROBOT_IP})"
+echo "  Aubo: ${USE_AUBO} (${AUBO_ROBOT_IP}, ${AUBO_TYPE})"
 
 exec ros2 launch arachne_hardware real_bringup.launch.py \
   use_scout:="${USE_SCOUT}" \
@@ -217,4 +219,5 @@ exec ros2 launch arachne_hardware real_bringup.launch.py \
   ms42dc_port:="${MS42DC_PORT_RESOLVED:-${MS42DC_PORT:-/dev/motor_serial}}" \
   use_aubo:="${USE_AUBO}" \
   aubo_robot_ip:="${AUBO_ROBOT_IP}" \
+  aubo_type:="${AUBO_TYPE}" \
   "${EXTRA_ARGS[@]}"

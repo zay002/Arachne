@@ -34,6 +34,8 @@ DEFAULT_REAL_ARM_JOINTS = (
     "wrist3_joint",
 )
 
+DEFAULT_ARM_HOME_JOINTS_DEG = "-88.28,3.40,116.60,103.48,88.33,-0.13"
+
 
 @dataclass
 class Pose2D:
@@ -101,12 +103,14 @@ class TeachPanelNode(Node):
         self.declare_parameter("base_yaw_tolerance_deg", 2.0)
         self.declare_parameter("base_manual_publish_rate", 12.0)
         self.declare_parameter("base_motion_max_segment_sec", 20.0)
-        self.declare_parameter("arm_jog_step_m", 0.02)
-        self.declare_parameter("arm_jog_duration_sec", 0.83)
-        self.declare_parameter("arm_rotate_step_rad", math.radians(5.0))
-        self.declare_parameter("arm_rotate_duration_sec", 0.83)
-        self.declare_parameter("arm_joint_step_rad", math.radians(2.0))
+        self.declare_parameter("arm_jog_step_m", 0.006)
+        self.declare_parameter("arm_jog_duration_sec", 0.30)
+        self.declare_parameter("arm_rotate_step_rad", math.radians(1.5))
+        self.declare_parameter("arm_rotate_duration_sec", 0.30)
+        self.declare_parameter("arm_joint_step_rad", math.radians(1.0))
+        self.declare_parameter("arm_hold_period_sec", 0.16)
         self.declare_parameter("arm_waypoint_duration_sec", 3.75)
+        self.declare_parameter("arm_home_joints_deg", DEFAULT_ARM_HOME_JOINTS_DEG)
         self.declare_parameter("arm_goal_tolerance", 0.04)
         self.declare_parameter("arm_position_tolerance", 0.006)
         self.declare_parameter("arm_ik_damping", 0.08)
@@ -160,6 +164,7 @@ class TeachPanelNode(Node):
 
         self.kinematics = AuboI5Kinematics()
         self.lock = threading.Lock()
+        self.manual_arm_command_lock = threading.Lock()
         self.base_pose: Pose2D | None = None
         self.base_motion_segments: list[dict] = []
         self.active_base_motion: dict | None = None
@@ -317,6 +322,14 @@ class TeachPanelNode(Node):
             self._active_goal_handle = None
         self._status("arm stop requested")
 
+    def hold_arm_current(self) -> None:
+        self.stop_arm_motion()
+        current = self._current_arm_vector()
+        if current is None:
+            return
+        self.cancel_event.clear()
+        self._send_arm_positions(current, 0.25, "hold current", wait=False)
+
     def publish_gripper(self, command: str) -> None:
         msg = String()
         msg.data = command
@@ -373,7 +386,7 @@ class TeachPanelNode(Node):
 
     def jog_arm(self, axis: str, sign: float) -> None:
         self.cancel_event.clear()
-        self._start_worker(lambda: self._jog_arm_worker(axis, sign))
+        self._start_manual_arm_worker(lambda: self._jog_arm_worker(axis, sign))
 
     def _track_base_motion(self, direction: str, linear_x: float, angular_z: float) -> None:
         now = time.monotonic()
@@ -524,7 +537,7 @@ class TeachPanelNode(Node):
 
     def jog_arm_rotation(self, axis: str, sign: float) -> None:
         self.cancel_event.clear()
-        self._start_worker(lambda: self._jog_arm_rotation_worker(axis, sign))
+        self._start_manual_arm_worker(lambda: self._jog_arm_rotation_worker(axis, sign))
 
     def _jog_arm_rotation_worker(self, axis: str, sign: float) -> None:
         q_start = self._current_arm_vector()
@@ -552,7 +565,7 @@ class TeachPanelNode(Node):
 
     def jog_arm_joint(self, index: int, sign: float) -> None:
         self.cancel_event.clear()
-        self._start_worker(lambda: self._jog_arm_joint_worker(index, sign))
+        self._start_manual_arm_worker(lambda: self._jog_arm_joint_worker(index, sign))
 
     def _jog_arm_joint_worker(self, index: int, sign: float) -> None:
         q_start = self._current_arm_vector()
@@ -579,6 +592,21 @@ class TeachPanelNode(Node):
     def move_arm_to_joints_degrees(self, degrees: list[float]) -> None:
         self.cancel_event.clear()
         self._start_worker(lambda: self._move_arm_to_joints_worker(degrees))
+
+    def home_joints_degrees(self) -> list[float]:
+        text = str(self.get_parameter("arm_home_joints_deg").value)
+        values = [float(item.strip()) for item in text.replace(";", ",").split(",") if item.strip()]
+        if len(values) != 6:
+            raise ValueError("arm_home_joints_deg must contain 6 comma-separated degrees")
+        return values
+
+    def move_arm_home(self) -> None:
+        try:
+            target = self.home_joints_degrees()
+        except Exception as exc:
+            self._status(f"home skipped: {exc}", warn=True)
+            return
+        self.move_arm_to_joints_degrees(target)
 
     def _move_arm_to_joints_worker(self, degrees: list[float]) -> None:
         if len(degrees) != 6:
@@ -960,6 +988,17 @@ class TeachPanelNode(Node):
     def _start_worker(self, target) -> None:
         threading.Thread(target=target, daemon=True).start()
 
+    def _start_manual_arm_worker(self, target) -> None:
+        def runner() -> None:
+            if not self.manual_arm_command_lock.acquire(blocking=False):
+                return
+            try:
+                target()
+            finally:
+                self.manual_arm_command_lock.release()
+
+        self._start_worker(runner)
+
     def clear_base_motion_history(self) -> None:
         with self.lock:
             self.base_motion_segments.clear()
@@ -978,7 +1017,9 @@ class TeachPanelNode(Node):
         arm_jog_step_m: float,
         arm_rotate_step_deg: float,
         arm_joint_step_deg: float,
+        arm_hold_period_sec: float,
         waypoint_duration_sec: float,
+        arm_home_joints_deg: str,
     ) -> None:
         if base_linear_speed <= 0.0 or base_angular_speed <= 0.0:
             raise ValueError("base speeds must be positive")
@@ -986,8 +1027,17 @@ class TeachPanelNode(Node):
             raise ValueError("arm jog steps must be positive")
         if arm_joint_step_deg <= 0.0:
             raise ValueError("joint jog step must be positive")
+        if arm_hold_period_sec <= 0.0:
+            raise ValueError("hold period must be positive")
         if waypoint_duration_sec <= 0.0:
             raise ValueError("waypoint duration must be positive")
+        home_values = [
+            float(item.strip())
+            for item in str(arm_home_joints_deg).replace(";", ",").split(",")
+            if item.strip()
+        ]
+        if len(home_values) != 6:
+            raise ValueError("home joints must contain 6 comma-separated degrees")
         self.set_parameters(
             [
                 Parameter("base_linear_speed", Parameter.Type.DOUBLE, float(base_linear_speed)),
@@ -1004,9 +1054,19 @@ class TeachPanelNode(Node):
                     math.radians(float(arm_joint_step_deg)),
                 ),
                 Parameter(
+                    "arm_hold_period_sec",
+                    Parameter.Type.DOUBLE,
+                    float(arm_hold_period_sec),
+                ),
+                Parameter(
                     "arm_waypoint_duration_sec",
                     Parameter.Type.DOUBLE,
                     float(waypoint_duration_sec),
+                ),
+                Parameter(
+                    "arm_home_joints_deg",
+                    Parameter.Type.STRING,
+                    ",".join(f"{value:.2f}" for value in home_values),
                 ),
             ]
         )
@@ -1014,7 +1074,7 @@ class TeachPanelNode(Node):
             "motion settings applied: "
             f"base={base_linear_speed:.3f}m/s {base_angular_speed:.3f}rad/s, "
             f"tcp={arm_jog_step_m:.3f}m, rot={arm_rotate_step_deg:.1f}deg, "
-            f"joint={arm_joint_step_deg:.1f}deg"
+            f"joint={arm_joint_step_deg:.1f}deg, hold={arm_hold_period_sec:.2f}s"
         )
 
     def _status(self, text: str, *, warn: bool = False) -> None:
@@ -1056,8 +1116,14 @@ class TeachPanelApp:
         self.arm_joint_step_var = tk.StringVar(
             value=f"{math.degrees(float(node.get_parameter('arm_joint_step_rad').value)):.1f}"
         )
+        self.arm_hold_period_var = tk.StringVar(
+            value=f"{float(node.get_parameter('arm_hold_period_sec').value):.2f}"
+        )
         self.waypoint_duration_var = tk.StringVar(
             value=f"{float(node.get_parameter('arm_waypoint_duration_sec').value):.2f}"
+        )
+        self.home_joints_var = tk.StringVar(
+            value=str(node.get_parameter("arm_home_joints_deg").value)
         )
         self.joint_target_vars = [tk.StringVar(value="") for _ in range(6)]
         self.tool_target_vars = {axis: tk.StringVar(value="") for axis in ("x", "y", "z")}
@@ -1114,9 +1180,12 @@ class TeachPanelApp:
         ttk.Label(top, textvariable=status_var, style="Top.TLabel").grid(
             row=0, column=4, rowspan=2, sticky="ew", padx=(16, 8)
         )
-        ttk.Button(top, text="Run", command=self._play).grid(row=0, column=5, rowspan=2, padx=4)
+        ttk.Button(top, text="Home", command=self.node.move_arm_home).grid(
+            row=0, column=5, rowspan=2, padx=4
+        )
+        ttk.Button(top, text="Run", command=self._play).grid(row=0, column=6, rowspan=2, padx=4)
         ttk.Button(top, text="Stop", command=self.node.stop_all, style="Danger.TButton").grid(
-            row=0, column=6, rowspan=2, padx=4
+            row=0, column=7, rowspan=2, padx=4
         )
 
     def _build_home_tab(self) -> None:
@@ -1143,6 +1212,7 @@ class TeachPanelApp:
             (
                 ("Teach On", lambda: self.node.set_aubo_teach(True)),
                 ("Teach Off", lambda: self.node.set_aubo_teach(False)),
+                ("Home", self.node.move_arm_home),
                 ("Record", self._record),
                 ("Replay", self._play),
                 ("Open", lambda: self.node.publish_gripper("open")),
@@ -1272,14 +1342,23 @@ class TeachPanelApp:
             ("TCP step m", self.arm_step_var),
             ("Wrist step deg", self.arm_rotate_var),
             ("Joint step deg", self.arm_joint_step_var),
+            ("Hold period s", self.arm_hold_period_var),
             ("Waypoint duration s", self.waypoint_duration_var),
         )
         for row, (label, var) in enumerate(fields):
             ttk.Label(motion, text=label, width=20).grid(row=row, column=0, sticky="w", padx=6, pady=5)
             ttk.Entry(motion, textvariable=var, width=12).grid(row=row, column=1, sticky="w", padx=6, pady=5)
-        ttk.Button(motion, text="Apply", command=self._apply_motion_settings).grid(
-            row=len(fields), column=0, columnspan=2, sticky="ew", padx=6, pady=(8, 6)
+        home_row = len(fields)
+        ttk.Label(motion, text="Home joints deg", width=20).grid(
+            row=home_row, column=0, sticky="w", padx=6, pady=5
         )
+        ttk.Entry(motion, textvariable=self.home_joints_var, width=52).grid(
+            row=home_row, column=1, sticky="ew", padx=6, pady=5
+        )
+        ttk.Button(motion, text="Apply", command=self._apply_motion_settings).grid(
+            row=home_row + 1, column=0, columnspan=2, sticky="ew", padx=6, pady=(8, 6)
+        )
+        motion.columnconfigure(1, weight=1)
 
         payload = ttk.LabelFrame(tab, text="Aubo Payload")
         payload.grid(row=1, column=0, sticky="ew", pady=(10, 0))
@@ -1374,8 +1453,14 @@ class TeachPanelApp:
         ttk.Button(frame, text="Use Current", command=self._fill_current_joints).grid(
             row=7, column=0, columnspan=2, sticky="ew", padx=4, pady=(6, 4)
         )
+        ttk.Button(frame, text="Use Home", command=self._fill_home_joints).grid(
+            row=7, column=2, sticky="ew", padx=4, pady=(6, 4)
+        )
         ttk.Button(frame, text="Move Joints", command=self._move_to_joint_targets).grid(
-            row=7, column=2, columnspan=2, sticky="ew", padx=4, pady=(6, 4)
+            row=7, column=3, columnspan=2, sticky="ew", padx=4, pady=(6, 4)
+        )
+        ttk.Button(frame, text="Home Pose", command=self.node.move_arm_home).grid(
+            row=8, column=0, columnspan=5, sticky="ew", padx=4, pady=(0, 4)
         )
 
     def _build_tool_target_controls(self, parent: ttk.Frame) -> None:
@@ -1477,7 +1562,9 @@ class TeachPanelApp:
                 arm_jog_step_m=float(self.arm_step_var.get()),
                 arm_rotate_step_deg=float(self.arm_rotate_var.get()),
                 arm_joint_step_deg=float(self.arm_joint_step_var.get()),
+                arm_hold_period_sec=float(self.arm_hold_period_var.get()),
                 waypoint_duration_sec=float(self.waypoint_duration_var.get()),
+                arm_home_joints_deg=self.home_joints_var.get(),
             )
         except Exception as exc:
             messagebox.showerror("Apply failed", str(exc))
@@ -1490,10 +1577,7 @@ class TeachPanelApp:
             if self._arm_hold_callback is None:
                 return
             self._arm_hold_callback()
-            interval = max(
-                250,
-                int(float(self.node.get_parameter("arm_jog_duration_sec").value) * 700),
-            )
+            interval = max(80, int(float(self.node.get_parameter("arm_hold_period_sec").value) * 1000))
             self._arm_hold_after = self.root.after(interval, tick)
 
         tick()
@@ -1504,7 +1588,7 @@ class TeachPanelApp:
             self._arm_hold_after = None
         self._arm_hold_callback = None
         if cancel_arm:
-            self.node.stop_arm_motion()
+            self.node.hold_arm_current()
 
     def _fill_current_joints(self) -> None:
         joints = self.node.joint_snapshot()
@@ -1513,6 +1597,15 @@ class TeachPanelApp:
             return
         for var, (_name, value) in zip(self.joint_target_vars, joints):
             var.set(f"{math.degrees(value):.2f}")
+
+    def _fill_home_joints(self) -> None:
+        try:
+            joints = self.node.home_joints_degrees()
+        except Exception as exc:
+            messagebox.showerror("Home target", str(exc))
+            return
+        for var, value in zip(self.joint_target_vars, joints):
+            var.set(f"{value:.2f}")
 
     def _move_to_joint_targets(self) -> None:
         try:

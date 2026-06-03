@@ -6,7 +6,7 @@
   <xacro:arg name="robot_ip" default="192.168.127.128"/>
   <xacro:arg name="aubo_type" default="aubo_i5"/>
 
-  <xacro:include filename="$(find aubo_description)/urdf/aubo_i5.urdf.xacro"/>
+  <xacro:include filename="$(find aubo_description)/urdf/$(arg aubo_type).urdf.xacro"/>
 
   <ros2_control name="$(arg aubo_type)" type="system">
     <hardware>
