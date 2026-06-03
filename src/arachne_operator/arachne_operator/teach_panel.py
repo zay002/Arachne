@@ -105,6 +105,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_jog_duration_sec", 0.83)
         self.declare_parameter("arm_rotate_step_rad", math.radians(5.0))
         self.declare_parameter("arm_rotate_duration_sec", 0.83)
+        self.declare_parameter("arm_joint_step_rad", math.radians(2.0))
         self.declare_parameter("arm_waypoint_duration_sec", 3.75)
         self.declare_parameter("arm_goal_tolerance", 0.04)
         self.declare_parameter("arm_position_tolerance", 0.006)
@@ -112,6 +113,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_ik_max_iterations", 180)
         self.declare_parameter("arm_ik_max_step", 0.05)
         self.declare_parameter("arm_jog_max_joint_delta", 0.25)
+        self.declare_parameter("arm_target_max_joint_delta", 1.2)
         self.declare_parameter("aubo_teach_command_topic", "/arachne/aubo/teach_command")
         self.declare_parameter("aubo_teach_exit_wait_sec", 8.0)
         self.declare_parameter("replay_settle_sec", 0.2)
@@ -260,6 +262,10 @@ class TeachPanelNode(Node):
                 return None
             return list(zip(self.arm_state_joint_names, vector))
 
+    def tool_snapshot(self) -> tuple[float, float, float] | None:
+        with self.lock:
+            return tuple(self.tool_position) if self.tool_position is not None else None
+
     def log_snapshot(self) -> list[str]:
         with self.lock:
             return list(self.log_lines)
@@ -297,13 +303,19 @@ class TeachPanelNode(Node):
         self.cancel_event.set()
         self.drive_base_manual("stop")
         self.publish_gripper("stop")
+        self.stop_arm_motion()
+        self._status("stop requested")
+
+    def stop_arm_motion(self) -> None:
+        self.cancel_event.set()
         goal_handle = self._active_goal_handle
         if goal_handle is not None:
             try:
                 goal_handle.cancel_goal_async()
             except Exception as exc:  # pragma: no cover - best effort stop path.
                 self.get_logger().warning(f"arm cancel failed: {exc}")
-        self._status("stop requested")
+            self._active_goal_handle = None
+        self._status("arm stop requested")
 
     def publish_gripper(self, command: str) -> None:
         msg = String()
@@ -535,6 +547,83 @@ class TeachPanelNode(Node):
             q_target,
             float(self.get_parameter("arm_rotate_duration_sec").value),
             f"rotate {axis}",
+            wait=False,
+        )
+
+    def jog_arm_joint(self, index: int, sign: float) -> None:
+        self.cancel_event.clear()
+        self._start_worker(lambda: self._jog_arm_joint_worker(index, sign))
+
+    def _jog_arm_joint_worker(self, index: int, sign: float) -> None:
+        q_start = self._current_arm_vector()
+        if q_start is None:
+            self._status("joint jog skipped: no joint state", warn=True)
+            return
+        if index < 0 or index >= len(q_start):
+            self._status(f"joint jog skipped: invalid joint {index + 1}", warn=True)
+            return
+        step = float(self.get_parameter("arm_joint_step_rad").value)
+        q_target = list(q_start)
+        q_target[index] += float(sign) * step
+        max_delta = max(abs(target - start) for target, start in zip(q_target, q_start))
+        if max_delta > float(self.get_parameter("arm_jog_max_joint_delta").value):
+            self._status(f"joint jog blocked: joint delta {max_delta:.3f} rad", warn=True)
+            return
+        self._send_arm_positions(
+            q_target,
+            float(self.get_parameter("arm_rotate_duration_sec").value),
+            f"jog J{index + 1}",
+            wait=False,
+        )
+
+    def move_arm_to_joints_degrees(self, degrees: list[float]) -> None:
+        self.cancel_event.clear()
+        self._start_worker(lambda: self._move_arm_to_joints_worker(degrees))
+
+    def _move_arm_to_joints_worker(self, degrees: list[float]) -> None:
+        if len(degrees) != 6:
+            self._status("joint target skipped: expected 6 joint angles", warn=True)
+            return
+        target = [math.radians(float(value)) for value in degrees]
+        self._send_arm_positions(
+            target,
+            float(self.get_parameter("arm_waypoint_duration_sec").value),
+            "joint target",
+            wait=False,
+        )
+
+    def move_tool_to_position(self, position: list[float]) -> None:
+        self.cancel_event.clear()
+        self._start_worker(lambda: self._move_tool_to_position_worker(position))
+
+    def _move_tool_to_position_worker(self, position: list[float]) -> None:
+        if len(position) != 3:
+            self._status("TCP target skipped: expected x,y,z", warn=True)
+            return
+        q_start = self._current_arm_vector()
+        if q_start is None:
+            self._status("TCP target skipped: no joint state", warn=True)
+            return
+        target = np.array([float(value) for value in position], dtype=float)
+        ok, q_target, error, iterations = self.kinematics.solve_position(
+            np.array(q_start, dtype=float),
+            target,
+            tolerance=float(self.get_parameter("arm_position_tolerance").value),
+            damping=float(self.get_parameter("arm_ik_damping").value),
+            max_iterations=int(self.get_parameter("arm_ik_max_iterations").value),
+            max_step=float(self.get_parameter("arm_ik_max_step").value),
+        )
+        max_delta = float(np.max(np.abs(q_target - np.array(q_start, dtype=float))))
+        if not ok:
+            self._status(f"TCP target IK failed: error={error:.4f} iterations={iterations}", warn=True)
+            return
+        if max_delta > float(self.get_parameter("arm_target_max_joint_delta").value):
+            self._status(f"TCP target blocked: joint delta {max_delta:.3f} rad", warn=True)
+            return
+        self._send_arm_positions(
+            [float(value) for value in q_target],
+            float(self.get_parameter("arm_waypoint_duration_sec").value),
+            "TCP target",
             wait=False,
         )
 
@@ -888,12 +977,15 @@ class TeachPanelNode(Node):
         base_angular_speed: float,
         arm_jog_step_m: float,
         arm_rotate_step_deg: float,
+        arm_joint_step_deg: float,
         waypoint_duration_sec: float,
     ) -> None:
         if base_linear_speed <= 0.0 or base_angular_speed <= 0.0:
             raise ValueError("base speeds must be positive")
         if arm_jog_step_m <= 0.0 or arm_rotate_step_deg <= 0.0:
             raise ValueError("arm jog steps must be positive")
+        if arm_joint_step_deg <= 0.0:
+            raise ValueError("joint jog step must be positive")
         if waypoint_duration_sec <= 0.0:
             raise ValueError("waypoint duration must be positive")
         self.set_parameters(
@@ -907,6 +999,11 @@ class TeachPanelNode(Node):
                     math.radians(float(arm_rotate_step_deg)),
                 ),
                 Parameter(
+                    "arm_joint_step_rad",
+                    Parameter.Type.DOUBLE,
+                    math.radians(float(arm_joint_step_deg)),
+                ),
+                Parameter(
                     "arm_waypoint_duration_sec",
                     Parameter.Type.DOUBLE,
                     float(waypoint_duration_sec),
@@ -916,7 +1013,8 @@ class TeachPanelNode(Node):
         self._status(
             "motion settings applied: "
             f"base={base_linear_speed:.3f}m/s {base_angular_speed:.3f}rad/s, "
-            f"tcp={arm_jog_step_m:.3f}m, rot={arm_rotate_step_deg:.1f}deg"
+            f"tcp={arm_jog_step_m:.3f}m, rot={arm_rotate_step_deg:.1f}deg, "
+            f"joint={arm_joint_step_deg:.1f}deg"
         )
 
     def _status(self, text: str, *, warn: bool = False) -> None:
@@ -955,9 +1053,18 @@ class TeachPanelApp:
         self.arm_rotate_var = tk.StringVar(
             value=f"{math.degrees(float(node.get_parameter('arm_rotate_step_rad').value)):.1f}"
         )
+        self.arm_joint_step_var = tk.StringVar(
+            value=f"{math.degrees(float(node.get_parameter('arm_joint_step_rad').value)):.1f}"
+        )
         self.waypoint_duration_var = tk.StringVar(
             value=f"{float(node.get_parameter('arm_waypoint_duration_sec').value):.2f}"
         )
+        self.joint_target_vars = [tk.StringVar(value="") for _ in range(6)]
+        self.tool_target_vars = {axis: tk.StringVar(value="") for axis in ("x", "y", "z")}
+        self.move_status_vars: dict[str, tk.StringVar] = {}
+        self.move_joint_vars: list[tk.StringVar] = []
+        self._arm_hold_after: str | None = None
+        self._arm_hold_callback = None
         self.listbox: tk.Listbox | None = None
         self.log_text: tk.Text | None = None
         self.joint_tree: ttk.Treeview | None = None
@@ -1073,13 +1180,41 @@ class TeachPanelApp:
         self.notebook.add(tab, text="Move")
         tab.columnconfigure(0, weight=1)
         tab.columnconfigure(1, weight=1)
+        tab.rowconfigure(1, weight=1)
+        self._build_move_monitor(tab)
         left = ttk.Frame(tab)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
         right = ttk.Frame(tab)
-        right.grid(row=0, column=1, sticky="nsew")
+        right.grid(row=1, column=1, sticky="nsew")
+        right.columnconfigure(0, weight=1)
         self._build_arm_controls(left)
-        self._build_base_controls(right)
-        self._build_gripper_controls(right)
+        self._build_joint_target_controls(left)
+        target = ttk.Frame(right)
+        target.grid(row=0, column=0, sticky="ew")
+        hardware = ttk.Frame(right)
+        hardware.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        self._build_tool_target_controls(target)
+        self._build_base_controls(hardware)
+        self._build_gripper_controls(hardware)
+
+    def _build_move_monitor(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="Realtime")
+        frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        for column in range(4):
+            frame.columnconfigure(column, weight=1)
+        for column, key in enumerate(("base", "tool", "arm", "gripper")):
+            ttk.Label(frame, text=key, style="State.TLabel").grid(
+                row=0, column=column, sticky="w", padx=6, pady=(4, 0)
+            )
+            var = tk.StringVar(value="waiting")
+            self.move_status_vars[key] = var
+            ttk.Label(frame, textvariable=var).grid(row=1, column=column, sticky="w", padx=6, pady=(0, 4))
+        for index in range(6):
+            var = tk.StringVar(value=f"J{index + 1}: waiting")
+            self.move_joint_vars.append(var)
+            ttk.Label(frame, textvariable=var, width=23).grid(
+                row=2 + index // 3, column=index % 3, sticky="w", padx=6, pady=2
+            )
 
     def _build_program_tab(self) -> None:
         tab = ttk.Frame(self.notebook, padding=10)
@@ -1136,6 +1271,7 @@ class TeachPanelApp:
             ("Base angular rad/s", self.base_angular_var),
             ("TCP step m", self.arm_step_var),
             ("Wrist step deg", self.arm_rotate_var),
+            ("Joint step deg", self.arm_joint_step_var),
             ("Waypoint duration s", self.waypoint_duration_var),
         )
         for row, (label, var) in enumerate(fields):
@@ -1188,35 +1324,83 @@ class TeachPanelApp:
 
     def _build_arm_controls(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="Aubo Move / HandGuide")
-        frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        frame.grid(row=0, column=0, sticky="ew")
         for column in range(3):
             frame.columnconfigure(column, weight=1)
         for row, axis in enumerate(("x", "y", "z")):
             ttk.Label(frame, text=axis.upper()).grid(row=row, column=0, padx=4, pady=4)
-            ttk.Button(frame, text="-", command=lambda a=axis: self.node.jog_arm(a, -1.0)).grid(
-                row=row, column=1, padx=4, pady=4
+            self._make_arm_hold_button(frame, "-", lambda a=axis: self.node.jog_arm(a, -1.0)).grid(
+                row=row, column=1, padx=4, pady=4, sticky="ew"
             )
-            ttk.Button(frame, text="+", command=lambda a=axis: self.node.jog_arm(a, 1.0)).grid(
-                row=row, column=2, padx=4, pady=4
+            self._make_arm_hold_button(frame, "+", lambda a=axis: self.node.jog_arm(a, 1.0)).grid(
+                row=row, column=2, padx=4, pady=4, sticky="ew"
             )
         for row, axis in enumerate(("rx", "ry", "rz"), start=3):
             ttk.Label(frame, text=axis.upper()).grid(row=row, column=0, padx=4, pady=4)
-            ttk.Button(
-                frame,
-                text="-",
-                command=lambda a=axis: self.node.jog_arm_rotation(a, -1.0),
-            ).grid(row=row, column=1, padx=4, pady=4)
-            ttk.Button(
-                frame,
-                text="+",
-                command=lambda a=axis: self.node.jog_arm_rotation(a, 1.0),
-            ).grid(row=row, column=2, padx=4, pady=4)
+            self._make_arm_hold_button(
+                frame, "-", lambda a=axis: self.node.jog_arm_rotation(a, -1.0)
+            ).grid(row=row, column=1, padx=4, pady=4, sticky="ew")
+            self._make_arm_hold_button(
+                frame, "+", lambda a=axis: self.node.jog_arm_rotation(a, 1.0)
+            ).grid(row=row, column=2, padx=4, pady=4, sticky="ew")
         ttk.Button(frame, text="Teach On", command=lambda: self.node.set_aubo_teach(True)).grid(
             row=6, column=0, columnspan=2, padx=4, pady=(8, 4), sticky="ew"
         )
         ttk.Button(frame, text="Teach Off", command=lambda: self.node.set_aubo_teach(False)).grid(
             row=6, column=2, padx=4, pady=(8, 4), sticky="ew"
         )
+
+    def _build_joint_target_controls(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="Joint Jog / Target")
+        frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        for column in range(5):
+            frame.columnconfigure(column, weight=1 if column in (2, 4) else 0)
+        ttk.Label(frame, text="Joint").grid(row=0, column=0, padx=4, pady=3)
+        ttk.Label(frame, text="Hold").grid(row=0, column=1, columnspan=2, padx=4, pady=3)
+        ttk.Label(frame, text="Target deg").grid(row=0, column=3, padx=4, pady=3)
+        for index, name in enumerate(self.node.arm_state_joint_names):
+            row = index + 1
+            label = name.replace("_joint", "").replace("upperArm", "upper").replace("foreArm", "fore")
+            ttk.Label(frame, text=f"J{index + 1} {label}").grid(row=row, column=0, sticky="w", padx=4, pady=2)
+            self._make_arm_hold_button(
+                frame, "-", lambda i=index: self.node.jog_arm_joint(i, -1.0)
+            ).grid(row=row, column=1, padx=2, pady=2, sticky="ew")
+            self._make_arm_hold_button(
+                frame, "+", lambda i=index: self.node.jog_arm_joint(i, 1.0)
+            ).grid(row=row, column=2, padx=2, pady=2, sticky="ew")
+            ttk.Entry(frame, textvariable=self.joint_target_vars[index], width=9).grid(
+                row=row, column=3, padx=4, pady=2
+            )
+        ttk.Button(frame, text="Use Current", command=self._fill_current_joints).grid(
+            row=7, column=0, columnspan=2, sticky="ew", padx=4, pady=(6, 4)
+        )
+        ttk.Button(frame, text="Move Joints", command=self._move_to_joint_targets).grid(
+            row=7, column=2, columnspan=2, sticky="ew", padx=4, pady=(6, 4)
+        )
+
+    def _build_tool_target_controls(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="TCP Target")
+        frame.grid(row=0, column=0, sticky="ew")
+        for column in range(3):
+            frame.columnconfigure(column, weight=1)
+        for column, axis in enumerate(("x", "y", "z")):
+            ttk.Label(frame, text=f"{axis.upper()} m").grid(row=0, column=column, padx=4, pady=(4, 0))
+            ttk.Entry(frame, textvariable=self.tool_target_vars[axis], width=10).grid(
+                row=1, column=column, padx=4, pady=(0, 4), sticky="ew"
+            )
+        ttk.Button(frame, text="Use Current TCP", command=self._fill_current_tool).grid(
+            row=2, column=0, columnspan=2, padx=4, pady=4, sticky="ew"
+        )
+        ttk.Button(frame, text="Move TCP", command=self._move_to_tool_target).grid(
+            row=2, column=2, padx=4, pady=4, sticky="ew"
+        )
+
+    def _make_arm_hold_button(self, parent: ttk.Frame, text: str, callback):
+        button = ttk.Button(parent, text=text)
+        button.bind("<ButtonPress-1>", lambda _event: self._arm_hold_start(callback))
+        button.bind("<ButtonRelease-1>", lambda _event: self._arm_hold_release())
+        button.bind("<Leave>", lambda _event: self._arm_hold_release())
+        return button
 
     def _build_gripper_controls(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="Gripper")
@@ -1236,9 +1420,24 @@ class TeachPanelApp:
         snapshot["program"] = f"{len(self.waypoints)} nodes"
         for key, var in self.status_vars.items():
             var.set(snapshot.get(key, "waiting"))
+        for key, var in self.move_status_vars.items():
+            var.set(snapshot.get(key, "waiting"))
+        self._refresh_move_joint_values()
         self._refresh_joint_tree()
         self._refresh_logs()
         self.root.after(100, self._refresh)
+
+    def _refresh_move_joint_values(self) -> None:
+        joints = self.node.joint_snapshot()
+        if joints is None:
+            for index, var in enumerate(self.move_joint_vars):
+                var.set(f"J{index + 1}: waiting")
+            return
+        for index, (name, value) in enumerate(joints):
+            if index >= len(self.move_joint_vars):
+                break
+            short = name.replace("_joint", "")
+            self.move_joint_vars[index].set(f"J{index + 1} {short}: {math.degrees(value):.1f} deg")
 
     def _refresh_joint_tree(self) -> None:
         if self.joint_tree is None:
@@ -1277,10 +1476,70 @@ class TeachPanelApp:
                 base_angular_speed=float(self.base_angular_var.get()),
                 arm_jog_step_m=float(self.arm_step_var.get()),
                 arm_rotate_step_deg=float(self.arm_rotate_var.get()),
+                arm_joint_step_deg=float(self.arm_joint_step_var.get()),
                 waypoint_duration_sec=float(self.waypoint_duration_var.get()),
             )
         except Exception as exc:
             messagebox.showerror("Apply failed", str(exc))
+
+    def _arm_hold_start(self, callback) -> None:
+        self._arm_hold_release(cancel_arm=False)
+        self._arm_hold_callback = callback
+
+        def tick() -> None:
+            if self._arm_hold_callback is None:
+                return
+            self._arm_hold_callback()
+            interval = max(
+                250,
+                int(float(self.node.get_parameter("arm_jog_duration_sec").value) * 700),
+            )
+            self._arm_hold_after = self.root.after(interval, tick)
+
+        tick()
+
+    def _arm_hold_release(self, *, cancel_arm: bool = True) -> None:
+        if self._arm_hold_after is not None:
+            self.root.after_cancel(self._arm_hold_after)
+            self._arm_hold_after = None
+        self._arm_hold_callback = None
+        if cancel_arm:
+            self.node.stop_arm_motion()
+
+    def _fill_current_joints(self) -> None:
+        joints = self.node.joint_snapshot()
+        if joints is None:
+            messagebox.showerror("Joint target", "No Aubo joint state is available.")
+            return
+        for var, (_name, value) in zip(self.joint_target_vars, joints):
+            var.set(f"{math.degrees(value):.2f}")
+
+    def _move_to_joint_targets(self) -> None:
+        try:
+            targets = [float(var.get()) for var in self.joint_target_vars]
+        except ValueError:
+            messagebox.showerror("Move Joints", "All joint target angles must be numeric degrees.")
+            return
+        if len(targets) != 6:
+            messagebox.showerror("Move Joints", "Expected 6 joint target angles.")
+            return
+        self.node.move_arm_to_joints_degrees(targets)
+
+    def _fill_current_tool(self) -> None:
+        tool = self.node.tool_snapshot()
+        if tool is None:
+            messagebox.showerror("TCP target", "No Aubo TCP position is available.")
+            return
+        for axis, value in zip(("x", "y", "z"), tool):
+            self.tool_target_vars[axis].set(f"{value:.4f}")
+
+    def _move_to_tool_target(self) -> None:
+        try:
+            target = [float(self.tool_target_vars[axis].get()) for axis in ("x", "y", "z")]
+        except ValueError:
+            messagebox.showerror("Move TCP", "TCP target x/y/z must be numeric meters.")
+            return
+        self.node.move_tool_to_position(target)
 
     def _base_press(self, direction: str) -> None:
         self.node.drive_base_manual(direction)
