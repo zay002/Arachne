@@ -95,6 +95,7 @@ private:
     bool first_servoj_logged_{ false };
     bool teach_mode_warned_{ false };
     bool servo_mode_recovery_warned_{ false };
+    bool servo_joint_retry_warned_{ false };
 
     std::atomic<bool> robot_program_running_;
     std::atomic<bool> controller_reset_necessary_{ false };

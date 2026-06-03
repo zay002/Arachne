@@ -313,7 +313,12 @@ class RealHardwareAcceptanceTest(Node):
         sequence_mode = str(self.get_parameter("sequence_mode").value).strip().lower()
         steps: list[str] = []
         if bool(self.get_parameter("run_base_test").value):
-            steps.append("base +0.2m/-0.2m, left 30deg/return, right 30deg/return")
+            distance = float(self.get_parameter("base_distance_m").value)
+            yaw_deg = float(self.get_parameter("base_yaw_deg").value)
+            steps.append(
+                f"base +{distance:.3f}m/-{distance:.3f}m, "
+                f"left {yaw_deg:.1f}deg/return, right {yaw_deg:.1f}deg/return"
+            )
         if bool(self.get_parameter("run_arm_test").value):
             if sequence_mode == "parallel":
                 axis = self._arm_circle_axis()
@@ -625,15 +630,27 @@ class RealHardwareAcceptanceTest(Node):
         trajectory.header.stamp = self.get_clock().now().to_msg()
         trajectory.joint_names = list(self.arm_command_joint_names)
         count = max(len(positions), 1)
+        point_times = [max(duration * index / count, 0.2) for index in range(1, count + 1)]
         trajectory.points = []
-        for index, joint_positions in enumerate(positions, start=1):
+        for index, joint_positions in enumerate(positions):
             point = JointTrajectoryPoint()
             point.positions = [float(value) for value in joint_positions]
-            point_time = max(duration * index / count, 0.2)
+            point.velocities = self._trajectory_point_velocities(positions, point_times, index)
+            point.accelerations = [0.0 for _ in point.positions]
+            point_time = point_times[index]
             point.time_from_start.sec = int(point_time)
             point.time_from_start.nanosec = int((point_time % 1.0) * 1e9)
             trajectory.points.append(point)
         return trajectory
+
+    def _trajectory_point_velocities(
+        self, positions: list[np.ndarray], point_times: list[float], index: int
+    ) -> list[float]:
+        if len(positions) <= 1 or index <= 0 or index >= len(positions) - 1:
+            return [0.0 for _ in positions[index]]
+        dt = max(point_times[index + 1] - point_times[index - 1], 1e-6)
+        velocity = (positions[index + 1] - positions[index - 1]) / dt
+        return [float(value) for value in velocity]
 
     def _command_arm(self, positions: np.ndarray, label: str) -> None:
         trajectory = self._make_arm_trajectory(positions)

@@ -893,6 +893,8 @@ class TeachPanelNode(Node):
         trajectory.joint_names = list(self.arm_command_joint_names)
         point = JointTrajectoryPoint()
         point.positions = [float(value) for value in positions]
+        point.velocities = [0.0 for _ in point.positions]
+        point.accelerations = [0.0 for _ in point.positions]
         point.time_from_start.sec = int(duration)
         point.time_from_start.nanosec = int((duration % 1.0) * 1e9)
         trajectory.points = [point]

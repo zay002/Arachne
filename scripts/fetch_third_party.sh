@@ -520,6 +520,75 @@ source.write_text(s)
 PY
 fi
 
+# Arachne Jetson servoJoint jitter mitigation. The original SDK write path can
+# sleep/retry inside ros2_control's hardware write() and uses t=10ms while the
+# Aubo controller config runs at 200Hz. Keep write() deterministic and align the
+# servoJoint period with the controller update period.
+if [[ -f "${aubo_hw_source}" ]] && ! grep -q 'Arachne servoJoint tuning' "${aubo_hw_source}"; then
+  "${PYTHON_BIN}" - "${aubo_hw_header}" "${aubo_hw_source}" <<'PY'
+from pathlib import Path
+import sys
+
+header = Path(sys.argv[1])
+source = Path(sys.argv[2])
+
+h = header.read_text()
+if "servo_joint_retry_warned_" not in h:
+    h = h.replace(
+"""    bool teach_mode_warned_{ false };
+    bool servo_mode_recovery_warned_{ false };
+""",
+"""    bool teach_mode_warned_{ false };
+    bool servo_mode_recovery_warned_{ false };
+    bool servo_joint_retry_warned_{ false };
+""",
+    )
+header.write_text(h)
+
+s = source.read_text()
+old = """    // 接口调用: servoJoint
+    while (true) {
+        int servoJoint_num = rpc_client_->getRobotInterface(robot_name)
+                                ->getMotionControl()
+                                ->servoJoint(traj, 0.2, 0.2, 0.01, 0.1, 200);
+        if(servoJoint_num != 2){
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+"""
+new = """    // Arachne servoJoint tuning: keep one bounded SDK call per ros2_control
+    // write cycle. The controller config runs at 200 Hz, so t must be 5 ms.
+    constexpr double kServoJointVelocity = 0.2;
+    constexpr double kServoJointAcceleration = 0.2;
+    constexpr double kServoJointPeriodSec = 0.005;
+    constexpr double kServoJointLookaheadSec = 0.12;
+    constexpr int kServoJointGain = 150;
+    const int servoJoint_num = rpc_client_->getRobotInterface(robot_name)
+                                   ->getMotionControl()
+                                   ->servoJoint(
+                                       traj,
+                                       kServoJointVelocity,
+                                       kServoJointAcceleration,
+                                       kServoJointPeriodSec,
+                                       kServoJointLookaheadSec,
+                                       kServoJointGain);
+    if (servoJoint_num == 2 && !servo_joint_retry_warned_) {
+        RCLCPP_WARN(
+            rclcpp::get_logger("AuboHardwareInterface"),
+            "servoJoint returned retry/busy status; not blocking the write loop. "
+            "The next controller cycle will send the next command.");
+        servo_joint_retry_warned_ = true;
+    } else if (servoJoint_num != 2) {
+        servo_joint_retry_warned_ = false;
+    }
+"""
+if old in s:
+    s = s.replace(old, new)
+source.write_text(s)
+PY
+fi
+
 fetch_repo dh_ag95_gripper_ros2 \
   https://github.com/ian-chuang/dh_ag95_gripper_ros2.git \
   fc4f80fdfb3acae5626df4359aec1401cb71a9a3

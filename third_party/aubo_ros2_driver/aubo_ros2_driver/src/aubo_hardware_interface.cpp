@@ -403,15 +403,30 @@ int AuboHardwareInterface::Servoj(
         ->getMotionControl()
         ->setServoMode(true);           
     }
-    // 接口调用: servoJoint
-    while (true) {
-        int servoJoint_num = rpc_client_->getRobotInterface(robot_name)
-                                ->getMotionControl()
-                                ->servoJoint(traj, 0.2, 0.2, 0.01, 0.1, 200);
-        if(servoJoint_num != 2){
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    // Arachne servoJoint tuning: keep one bounded SDK call per ros2_control
+    // write cycle. The controller config runs at 200 Hz, so t must be 5 ms.
+    constexpr double kServoJointVelocity = 0.2;
+    constexpr double kServoJointAcceleration = 0.2;
+    constexpr double kServoJointPeriodSec = 0.005;
+    constexpr double kServoJointLookaheadSec = 0.12;
+    constexpr int kServoJointGain = 150;
+    const int servoJoint_num = rpc_client_->getRobotInterface(robot_name)
+                                   ->getMotionControl()
+                                   ->servoJoint(
+                                       traj,
+                                       kServoJointVelocity,
+                                       kServoJointAcceleration,
+                                       kServoJointPeriodSec,
+                                       kServoJointLookaheadSec,
+                                       kServoJointGain);
+    if (servoJoint_num == 2 && !servo_joint_retry_warned_) {
+        RCLCPP_WARN(
+            rclcpp::get_logger("AuboHardwareInterface"),
+            "servoJoint returned retry/busy status; not blocking the write loop. "
+            "The next controller cycle will send the next command.");
+        servo_joint_retry_warned_ = true;
+    } else if (servoJoint_num != 2) {
+        servo_joint_retry_warned_ = false;
     }
 
     return 0;

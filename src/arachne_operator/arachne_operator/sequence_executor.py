@@ -348,6 +348,8 @@ class SequenceExecutor(Node):
 
         point = JointTrajectoryPoint()
         point.positions = list(ARM_PRESETS[preset])
+        point.velocities = [0.0 for _ in point.positions]
+        point.accelerations = [0.0 for _ in point.positions]
         point.time_from_start.sec = int(self.arm_motion_time)
         point.time_from_start.nanosec = int((self.arm_motion_time % 1.0) * 1e9)
         trajectory.points = [point]
