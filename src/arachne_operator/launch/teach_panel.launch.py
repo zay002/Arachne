@@ -72,23 +72,39 @@ def generate_launch_description():
             DeclareLaunchArgument("base_replay_angular_speed", default_value="0.24"),
             DeclareLaunchArgument("base_manual_publish_rate", default_value="12.0"),
             DeclareLaunchArgument("base_motion_max_segment_sec", default_value="20.0"),
-            DeclareLaunchArgument("arm_jog_step_m", default_value="0.005"),
-            DeclareLaunchArgument("arm_jog_duration_sec", default_value="0.14"),
-            DeclareLaunchArgument("arm_rotate_step_rad", default_value="0.00698132"),
-            DeclareLaunchArgument("arm_rotate_duration_sec", default_value="0.14"),
-            DeclareLaunchArgument("arm_joint_step_rad", default_value="0.00523599"),
-            DeclareLaunchArgument("arm_hold_period_sec", default_value="0.08"),
+            DeclareLaunchArgument("arm_jog_step_m", default_value="0.008"),
+            DeclareLaunchArgument("arm_jog_duration_sec", default_value="0.11"),
+            DeclareLaunchArgument("arm_rotate_step_rad", default_value="0.0122173"),
+            DeclareLaunchArgument("arm_rotate_duration_sec", default_value="0.11"),
+            DeclareLaunchArgument("arm_joint_step_rad", default_value="0.00698132"),
+            DeclareLaunchArgument("arm_hold_period_sec", default_value="0.07"),
             DeclareLaunchArgument("arm_waypoint_duration_sec", default_value="3.75"),
             DeclareLaunchArgument("arm_jog_position_tolerance", default_value="0.0008"),
             DeclareLaunchArgument("arm_orientation_tolerance", default_value="0.01"),
             DeclareLaunchArgument("arm_jog_orientation_tolerance", default_value="0.004"),
+            DeclareLaunchArgument("arm_keepout_enabled", default_value="true"),
+            DeclareLaunchArgument("arm_base_xyz", default_value="0.22,0.0,0.155"),
+            DeclareLaunchArgument("arm_base_rpy", default_value="0.0,0.0,1.57079632679"),
+            DeclareLaunchArgument("rear_rack_keepout_min_xyz", default_value="-0.41,-0.22,0.04"),
+            DeclareLaunchArgument("rear_rack_keepout_max_xyz", default_value="0.09,0.22,0.82"),
+            DeclareLaunchArgument("arm_keepout_sample_step_m", default_value="0.035"),
+            DeclareLaunchArgument("arm_keepout_joint_step_rad", default_value="0.06"),
             DeclareLaunchArgument(
                 "arm_home_joints_deg",
+                default_value="-88.28,3.40,116.60,103.48,88.33,-0.13",
+            ),
+            DeclareLaunchArgument(
+                "arm_install_joints_deg",
                 default_value="-88.28,3.40,116.60,103.48,88.33,-0.13",
             ),
             DeclareLaunchArgument("arm_goal_tolerance", default_value="0.04"),
             DeclareLaunchArgument("aubo_teach_exit_wait_sec", default_value="8.0"),
             DeclareLaunchArgument("recording_dir", default_value="recordings/teach"),
+            DeclareLaunchArgument(
+                "teach_config_path",
+                default_value="recordings/teach/teach_panel_config.json",
+            ),
+            DeclareLaunchArgument("teach_config_autoload", default_value="true"),
             visualization,
             Node(
                 package="arachne_operator",
@@ -164,11 +180,33 @@ def generate_launch_description():
                         "arm_jog_orientation_tolerance": ParameterValue(
                             LaunchConfiguration("arm_jog_orientation_tolerance"), value_type=float
                         ),
+                        "arm_keepout_enabled": ParameterValue(
+                            LaunchConfiguration("arm_keepout_enabled"), value_type=bool
+                        ),
+                        "arm_base_xyz": LaunchConfiguration("arm_base_xyz"),
+                        "arm_base_rpy": LaunchConfiguration("arm_base_rpy"),
+                        "rear_rack_keepout_min_xyz": LaunchConfiguration(
+                            "rear_rack_keepout_min_xyz"
+                        ),
+                        "rear_rack_keepout_max_xyz": LaunchConfiguration(
+                            "rear_rack_keepout_max_xyz"
+                        ),
+                        "arm_keepout_sample_step_m": ParameterValue(
+                            LaunchConfiguration("arm_keepout_sample_step_m"), value_type=float
+                        ),
+                        "arm_keepout_joint_step_rad": ParameterValue(
+                            LaunchConfiguration("arm_keepout_joint_step_rad"), value_type=float
+                        ),
                         "arm_home_joints_deg": LaunchConfiguration("arm_home_joints_deg"),
+                        "arm_install_joints_deg": LaunchConfiguration("arm_install_joints_deg"),
                         "arm_goal_tolerance": ParameterValue(
                             LaunchConfiguration("arm_goal_tolerance"), value_type=float
                         ),
                         "recording_dir": LaunchConfiguration("recording_dir"),
+                        "teach_config_path": LaunchConfiguration("teach_config_path"),
+                        "teach_config_autoload": ParameterValue(
+                            LaunchConfiguration("teach_config_autoload"), value_type=bool
+                        ),
                     }
                 ],
             ),

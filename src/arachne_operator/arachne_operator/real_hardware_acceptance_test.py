@@ -45,6 +45,15 @@ class RevoluteJoint:
 class AuboI5Kinematics:
     """FK/IK for the Aubo i5 chain from aubo_base_link to tool0."""
 
+    LINK_NAMES = (
+        "aubo_shoulder_Link",
+        "aubo_upperArm_Link",
+        "aubo_foreArm_Link",
+        "aubo_wrist1_Link",
+        "aubo_wrist2_Link",
+        "aubo_wrist3_Link",
+    )
+
     JOINTS = (
         RevoluteJoint(
             "aubo_shoulder_joint",
@@ -92,6 +101,21 @@ class AuboI5Kinematics:
             transform = transform @ self._origin(joint.xyz, joint.rpy)
             transform = transform @ self._axis_rotation(joint.axis, float(angle))
         return transform @ self._origin((0.0, 0.0, 0.0), self.TOOL0_FIXED_RPY)
+
+    def link_transforms(self, q: np.ndarray) -> list[tuple[str, np.ndarray]]:
+        transform = np.eye(4)
+        transforms: list[tuple[str, np.ndarray]] = [("aubo_base_link", np.array(transform))]
+        for joint, link_name, angle in zip(self.JOINTS, self.LINK_NAMES, q):
+            transform = transform @ self._origin(joint.xyz, joint.rpy)
+            transform = transform @ self._axis_rotation(joint.axis, float(angle))
+            transforms.append((link_name, np.array(transform)))
+        transforms.append(
+            (
+                "tool0",
+                np.array(transform @ self._origin((0.0, 0.0, 0.0), self.TOOL0_FIXED_RPY)),
+            )
+        )
+        return transforms
 
     def solve_position(
         self,

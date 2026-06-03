@@ -35,6 +35,12 @@ DEFAULT_REAL_ARM_JOINTS = (
 )
 
 DEFAULT_ARM_HOME_JOINTS_DEG = "-88.28,3.40,116.60,103.48,88.33,-0.13"
+DEFAULT_ARM_INSTALL_JOINTS_DEG = DEFAULT_ARM_HOME_JOINTS_DEG
+DEFAULT_ARM_BASE_XYZ = "0.22,0.0,0.155"
+DEFAULT_ARM_BASE_RPY = "0.0,0.0,1.57079632679"
+DEFAULT_REAR_RACK_KEEPOUT_MIN_XYZ = "-0.41,-0.22,0.04"
+DEFAULT_REAR_RACK_KEEPOUT_MAX_XYZ = "0.09,0.22,0.82"
+DEFAULT_TEACH_CONFIG_PATH = "recordings/teach/teach_panel_config.json"
 
 
 @dataclass
@@ -57,6 +63,13 @@ class TeachWaypoint:
     base_motion: list[dict] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class KeepoutBox:
+    name: str
+    minimum: np.ndarray
+    maximum: np.ndarray
+
+
 def _angle_diff(target: float, current: float) -> float:
     return math.atan2(math.sin(target - current), math.cos(target - current))
 
@@ -70,6 +83,59 @@ def _yaw_from_odom(msg: Odometry) -> float:
 
 def _parse_names(text: str) -> list[str]:
     return [item.strip() for item in text.split(",") if item.strip()]
+
+
+def _parse_vector3(text: str) -> np.ndarray:
+    values = [
+        float(item.strip())
+        for item in str(text).replace(";", ",").replace(" ", ",").split(",")
+        if item.strip()
+    ]
+    if len(values) != 3:
+        raise ValueError(f"expected 3 values, got {len(values)}")
+    return np.array(values, dtype=float)
+
+
+def _parse_joint_degrees(text: str, *, label: str) -> list[float]:
+    values = [
+        float(item.strip())
+        for item in str(text).replace(";", ",").split(",")
+        if item.strip()
+    ]
+    if len(values) != 6:
+        raise ValueError(f"{label} must contain 6 comma-separated degrees")
+    return values
+
+
+def _format_joint_degrees(values: list[float]) -> str:
+    if len(values) != 6:
+        raise ValueError("joint pose must contain 6 values")
+    return ",".join(f"{float(value):.2f}" for value in values)
+
+
+def _bool_value(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+def _rotation_matrix_from_rpy(roll: float, pitch: float, yaw: float) -> np.ndarray:
+    cr, sr = math.cos(roll), math.sin(roll)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]], dtype=float)
+    ry = np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]], dtype=float)
+    rz = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]], dtype=float)
+    return rz @ ry @ rx
+
+
+def _transform_from_xyz_rpy(xyz: np.ndarray, rpy: np.ndarray) -> np.ndarray:
+    transform = np.eye(4)
+    transform[:3, :3] = _rotation_matrix_from_rpy(float(rpy[0]), float(rpy[1]), float(rpy[2]))
+    transform[:3, 3] = xyz
+    return transform
 
 
 def _waypoint_from_dict(data: dict) -> TeachWaypoint:
@@ -103,14 +169,15 @@ class TeachPanelNode(Node):
         self.declare_parameter("base_yaw_tolerance_deg", 2.0)
         self.declare_parameter("base_manual_publish_rate", 12.0)
         self.declare_parameter("base_motion_max_segment_sec", 20.0)
-        self.declare_parameter("arm_jog_step_m", 0.005)
-        self.declare_parameter("arm_jog_duration_sec", 0.14)
-        self.declare_parameter("arm_rotate_step_rad", math.radians(0.4))
-        self.declare_parameter("arm_rotate_duration_sec", 0.14)
-        self.declare_parameter("arm_joint_step_rad", math.radians(0.3))
-        self.declare_parameter("arm_hold_period_sec", 0.08)
+        self.declare_parameter("arm_jog_step_m", 0.008)
+        self.declare_parameter("arm_jog_duration_sec", 0.11)
+        self.declare_parameter("arm_rotate_step_rad", math.radians(0.7))
+        self.declare_parameter("arm_rotate_duration_sec", 0.11)
+        self.declare_parameter("arm_joint_step_rad", math.radians(0.4))
+        self.declare_parameter("arm_hold_period_sec", 0.07)
         self.declare_parameter("arm_waypoint_duration_sec", 3.75)
         self.declare_parameter("arm_home_joints_deg", DEFAULT_ARM_HOME_JOINTS_DEG)
+        self.declare_parameter("arm_install_joints_deg", DEFAULT_ARM_INSTALL_JOINTS_DEG)
         self.declare_parameter("arm_goal_tolerance", 0.04)
         self.declare_parameter("arm_position_tolerance", 0.006)
         self.declare_parameter("arm_jog_position_tolerance", 0.0008)
@@ -121,10 +188,19 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_ik_max_step", 0.05)
         self.declare_parameter("arm_jog_max_joint_delta", 0.25)
         self.declare_parameter("arm_target_max_joint_delta", 1.2)
+        self.declare_parameter("arm_keepout_enabled", True)
+        self.declare_parameter("arm_base_xyz", DEFAULT_ARM_BASE_XYZ)
+        self.declare_parameter("arm_base_rpy", DEFAULT_ARM_BASE_RPY)
+        self.declare_parameter("rear_rack_keepout_min_xyz", DEFAULT_REAR_RACK_KEEPOUT_MIN_XYZ)
+        self.declare_parameter("rear_rack_keepout_max_xyz", DEFAULT_REAR_RACK_KEEPOUT_MAX_XYZ)
+        self.declare_parameter("arm_keepout_sample_step_m", 0.035)
+        self.declare_parameter("arm_keepout_joint_step_rad", 0.06)
         self.declare_parameter("aubo_teach_command_topic", "/arachne/aubo/teach_command")
         self.declare_parameter("aubo_teach_exit_wait_sec", 8.0)
         self.declare_parameter("replay_settle_sec", 0.2)
         self.declare_parameter("recording_dir", "recordings/teach")
+        self.declare_parameter("teach_config_path", DEFAULT_TEACH_CONFIG_PATH)
+        self.declare_parameter("teach_config_autoload", True)
 
         self.arm_state_joint_names = _parse_names(str(self.get_parameter("arm_state_joint_names").value))
         self.arm_command_joint_names = _parse_names(
@@ -184,6 +260,8 @@ class TeachPanelNode(Node):
         self.cancel_event = threading.Event()
         self.replay_thread: threading.Thread | None = None
         self._active_goal_handle = None
+        if bool(self.get_parameter("teach_config_autoload").value):
+            self.load_teach_config(status=False)
         publish_rate = max(float(self.get_parameter("base_manual_publish_rate").value), 1.0)
         self.create_timer(1.0 / publish_rate, self._publish_manual_base_velocity)
         self._status("ready")
@@ -284,6 +362,243 @@ class TeachPanelNode(Node):
             directory = Path.cwd() / directory
         directory.mkdir(parents=True, exist_ok=True)
         return directory
+
+    def teach_config_path(self, path: str | Path | None = None) -> Path:
+        config_path = Path(str(path if path is not None else self.get_parameter("teach_config_path").value))
+        if not config_path.is_absolute():
+            config_path = Path.cwd() / config_path
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        return config_path
+
+    def current_joints_degrees(self) -> list[float] | None:
+        current = self._current_arm_vector()
+        if current is None:
+            return None
+        return [math.degrees(float(value)) for value in current]
+
+    def teach_config_payload(self) -> dict:
+        return {
+            "format": "arachne_teach_config_v1",
+            "saved_at": datetime.now().isoformat(timespec="seconds"),
+            "motion": {
+                "base_linear_speed": float(self.get_parameter("base_linear_speed").value),
+                "base_angular_speed": float(self.get_parameter("base_angular_speed").value),
+                "arm_jog_step_m": float(self.get_parameter("arm_jog_step_m").value),
+                "arm_rotate_step_deg": math.degrees(
+                    float(self.get_parameter("arm_rotate_step_rad").value)
+                ),
+                "arm_joint_step_deg": math.degrees(
+                    float(self.get_parameter("arm_joint_step_rad").value)
+                ),
+                "arm_hold_period_sec": float(
+                    self.get_parameter("arm_hold_period_sec").value
+                ),
+                "arm_waypoint_duration_sec": float(
+                    self.get_parameter("arm_waypoint_duration_sec").value
+                ),
+            },
+            "poses": {
+                "home_joints_deg": str(self.get_parameter("arm_home_joints_deg").value),
+                "install_joints_deg": str(self.get_parameter("arm_install_joints_deg").value),
+            },
+            "safety": {
+                "arm_keepout_enabled": bool(self.get_parameter("arm_keepout_enabled").value),
+                "rear_rack_keepout_min_xyz": str(
+                    self.get_parameter("rear_rack_keepout_min_xyz").value
+                ),
+                "rear_rack_keepout_max_xyz": str(
+                    self.get_parameter("rear_rack_keepout_max_xyz").value
+                ),
+                "arm_keepout_sample_step_m": float(
+                    self.get_parameter("arm_keepout_sample_step_m").value
+                ),
+                "arm_keepout_joint_step_rad": float(
+                    self.get_parameter("arm_keepout_joint_step_rad").value
+                ),
+            },
+        }
+
+    def apply_teach_config(self, payload: dict) -> None:
+        motion = payload.get("motion", {})
+        poses = payload.get("poses", {})
+        safety = payload.get("safety", {})
+
+        home_values = _parse_joint_degrees(
+            poses.get("home_joints_deg", self.get_parameter("arm_home_joints_deg").value),
+            label="home joints",
+        )
+        install_values = _parse_joint_degrees(
+            poses.get(
+                "install_joints_deg",
+                self.get_parameter("arm_install_joints_deg").value,
+            ),
+            label="install joints",
+        )
+        keepout_min = safety.get(
+            "rear_rack_keepout_min_xyz",
+            self.get_parameter("rear_rack_keepout_min_xyz").value,
+        )
+        keepout_max = safety.get(
+            "rear_rack_keepout_max_xyz",
+            self.get_parameter("rear_rack_keepout_max_xyz").value,
+        )
+        _parse_vector3(str(keepout_min))
+        _parse_vector3(str(keepout_max))
+
+        self.set_parameters(
+            [
+                Parameter(
+                    "base_linear_speed",
+                    Parameter.Type.DOUBLE,
+                    float(motion.get("base_linear_speed", self.get_parameter("base_linear_speed").value)),
+                ),
+                Parameter(
+                    "base_angular_speed",
+                    Parameter.Type.DOUBLE,
+                    float(motion.get("base_angular_speed", self.get_parameter("base_angular_speed").value)),
+                ),
+                Parameter(
+                    "arm_jog_step_m",
+                    Parameter.Type.DOUBLE,
+                    float(motion.get("arm_jog_step_m", self.get_parameter("arm_jog_step_m").value)),
+                ),
+                Parameter(
+                    "arm_rotate_step_rad",
+                    Parameter.Type.DOUBLE,
+                    math.radians(
+                        float(
+                            motion.get(
+                                "arm_rotate_step_deg",
+                                math.degrees(
+                                    float(self.get_parameter("arm_rotate_step_rad").value)
+                                ),
+                            )
+                        )
+                    ),
+                ),
+                Parameter(
+                    "arm_joint_step_rad",
+                    Parameter.Type.DOUBLE,
+                    math.radians(
+                        float(
+                            motion.get(
+                                "arm_joint_step_deg",
+                                math.degrees(
+                                    float(self.get_parameter("arm_joint_step_rad").value)
+                                ),
+                            )
+                        )
+                    ),
+                ),
+                Parameter(
+                    "arm_hold_period_sec",
+                    Parameter.Type.DOUBLE,
+                    float(
+                        motion.get(
+                            "arm_hold_period_sec",
+                            self.get_parameter("arm_hold_period_sec").value,
+                        )
+                    ),
+                ),
+                Parameter(
+                    "arm_waypoint_duration_sec",
+                    Parameter.Type.DOUBLE,
+                    float(
+                        motion.get(
+                            "arm_waypoint_duration_sec",
+                            self.get_parameter("arm_waypoint_duration_sec").value,
+                        )
+                    ),
+                ),
+                Parameter(
+                    "arm_home_joints_deg",
+                    Parameter.Type.STRING,
+                    _format_joint_degrees(home_values),
+                ),
+                Parameter(
+                    "arm_install_joints_deg",
+                    Parameter.Type.STRING,
+                    _format_joint_degrees(install_values),
+                ),
+                Parameter(
+                    "arm_keepout_enabled",
+                    Parameter.Type.BOOL,
+                    _bool_value(
+                        safety.get(
+                            "arm_keepout_enabled",
+                            self.get_parameter("arm_keepout_enabled").value,
+                        )
+                    ),
+                ),
+                Parameter(
+                    "rear_rack_keepout_min_xyz",
+                    Parameter.Type.STRING,
+                    str(keepout_min),
+                ),
+                Parameter(
+                    "rear_rack_keepout_max_xyz",
+                    Parameter.Type.STRING,
+                    str(keepout_max),
+                ),
+                Parameter(
+                    "arm_keepout_sample_step_m",
+                    Parameter.Type.DOUBLE,
+                    float(
+                        safety.get(
+                            "arm_keepout_sample_step_m",
+                            self.get_parameter("arm_keepout_sample_step_m").value,
+                        )
+                    ),
+                ),
+                Parameter(
+                    "arm_keepout_joint_step_rad",
+                    Parameter.Type.DOUBLE,
+                    float(
+                        safety.get(
+                            "arm_keepout_joint_step_rad",
+                            self.get_parameter("arm_keepout_joint_step_rad").value,
+                        )
+                    ),
+                ),
+            ]
+        )
+
+    def save_teach_config(self, path: str | Path | None = None, *, status: bool = True) -> Path:
+        config_path = self.teach_config_path(path)
+        if path is not None:
+            self.set_parameters(
+                [Parameter("teach_config_path", Parameter.Type.STRING, str(config_path))]
+            )
+        config_path.write_text(
+            json.dumps(self.teach_config_payload(), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        if status:
+            self._status(f"config saved: {config_path}")
+        return config_path
+
+    def load_teach_config(self, path: str | Path | None = None, *, status: bool = True) -> bool:
+        config_path = self.teach_config_path(path)
+        if path is not None:
+            self.set_parameters(
+                [Parameter("teach_config_path", Parameter.Type.STRING, str(config_path))]
+            )
+        if not config_path.exists():
+            if status:
+                self._status(f"config not found: {config_path}", warn=True)
+            return False
+        try:
+            payload = json.loads(config_path.read_text(encoding="utf-8"))
+            self.apply_teach_config(payload)
+        except Exception as exc:
+            if status:
+                self._status(f"config load failed: {exc}", warn=True)
+            else:
+                self.get_logger().warning(f"config autoload failed: {exc}")
+            return False
+        if status:
+            self._status(f"config loaded: {config_path}")
+        return True
 
     def set_base_velocity(self, linear_x: float, angular_z: float) -> None:
         twist = Twist()
@@ -615,21 +930,40 @@ class TeachPanelNode(Node):
         self._start_worker(lambda: self._move_arm_to_joints_worker(degrees))
 
     def home_joints_degrees(self) -> list[float]:
-        text = str(self.get_parameter("arm_home_joints_deg").value)
-        values = [float(item.strip()) for item in text.replace(";", ",").split(",") if item.strip()]
-        if len(values) != 6:
-            raise ValueError("arm_home_joints_deg must contain 6 comma-separated degrees")
-        return values
+        return _parse_joint_degrees(
+            str(self.get_parameter("arm_home_joints_deg").value),
+            label="arm_home_joints_deg",
+        )
+
+    def install_joints_degrees(self) -> list[float]:
+        return _parse_joint_degrees(
+            str(self.get_parameter("arm_install_joints_deg").value),
+            label="arm_install_joints_deg",
+        )
+
+    def preset_joints_degrees(self, preset: str) -> list[float]:
+        if preset == "home":
+            return self.home_joints_degrees()
+        if preset == "install":
+            return self.install_joints_degrees()
+        raise ValueError(f"unknown preset: {preset}")
 
     def move_arm_home(self) -> None:
-        try:
-            target = self.home_joints_degrees()
-        except Exception as exc:
-            self._status(f"home skipped: {exc}", warn=True)
-            return
-        self.move_arm_to_joints_degrees(target)
+        self.move_arm_preset("home")
 
-    def _move_arm_to_joints_worker(self, degrees: list[float]) -> None:
+    def move_arm_install(self) -> None:
+        self.move_arm_preset("install")
+
+    def move_arm_preset(self, preset: str) -> None:
+        try:
+            target = self.preset_joints_degrees(preset)
+        except Exception as exc:
+            self._status(f"{preset} skipped: {exc}", warn=True)
+            return
+        self.cancel_event.clear()
+        self._start_worker(lambda: self._move_arm_to_joints_worker(target, label=preset))
+
+    def _move_arm_to_joints_worker(self, degrees: list[float], label: str = "joint target") -> None:
         if len(degrees) != 6:
             self._status("joint target skipped: expected 6 joint angles", warn=True)
             return
@@ -637,7 +971,7 @@ class TeachPanelNode(Node):
         self._send_arm_positions(
             target,
             float(self.get_parameter("arm_waypoint_duration_sec").value),
-            "joint target",
+            label,
             wait=False,
         )
 
@@ -932,6 +1266,12 @@ class TeachPanelNode(Node):
         wait: bool,
         velocities: list[float] | None = None,
     ) -> bool:
+        if label != "hold current":
+            violation = self._arm_keepout_violation(positions, label)
+            if violation is not None:
+                self._status(f"arm motion blocked by safety zone: {violation}", warn=True)
+                return False
+
         trajectory = JointTrajectory()
         trajectory.header.stamp = self.get_clock().now().to_msg()
         trajectory.joint_names = list(self.arm_command_joint_names)
@@ -1059,6 +1399,82 @@ class TeachPanelNode(Node):
         with self.lock:
             return len(self.base_motion_segments) + (1 if self.active_base_motion is not None else 0)
 
+    def _arm_keepout_violation(self, positions: list[float], label: str) -> str | None:
+        if not bool(self.get_parameter("arm_keepout_enabled").value):
+            return None
+        if len(positions) != 6:
+            return "invalid arm target length"
+        try:
+            boxes = self._arm_keepout_boxes()
+            path = self._arm_keepout_path(np.array(positions, dtype=float))
+            for path_index, q in enumerate(path, start=1):
+                for sample_name, point in self._arm_keepout_samples(q):
+                    for box in boxes:
+                        if bool(np.all(point >= box.minimum) and np.all(point <= box.maximum)):
+                            xyz = ",".join(f"{value:.3f}" for value in point)
+                            return (
+                                f"{label} enters {box.name}: {sample_name} "
+                                f"at base_link xyz=({xyz}), path sample {path_index}/{len(path)}"
+                            )
+        except Exception as exc:
+            return f"keepout config invalid: {exc}"
+        return None
+
+    def _arm_keepout_boxes(self) -> list[KeepoutBox]:
+        minimum = _parse_vector3(str(self.get_parameter("rear_rack_keepout_min_xyz").value))
+        maximum = _parse_vector3(str(self.get_parameter("rear_rack_keepout_max_xyz").value))
+        if bool(np.any(maximum <= minimum)):
+            raise ValueError("rear rack keepout max must be greater than min")
+        return [KeepoutBox("rear rack keepout", minimum, maximum)]
+
+    def _arm_keepout_path(self, target: np.ndarray) -> list[np.ndarray]:
+        current = self._current_arm_vector()
+        if current is None or len(current) != len(target):
+            return [target]
+        start = np.array(current, dtype=float)
+        max_delta = float(np.max(np.abs(target - start)))
+        joint_step = max(float(self.get_parameter("arm_keepout_joint_step_rad").value), 0.01)
+        steps = max(1, min(60, int(math.ceil(max_delta / joint_step))))
+        return [start + (target - start) * (index / steps) for index in range(1, steps + 1)]
+
+    def _arm_keepout_samples(self, q: np.ndarray) -> list[tuple[str, np.ndarray]]:
+        arm_base = _transform_from_xyz_rpy(
+            _parse_vector3(str(self.get_parameter("arm_base_xyz").value)),
+            _parse_vector3(str(self.get_parameter("arm_base_rpy").value)),
+        )
+        link_transforms = self.kinematics.link_transforms(q)
+        link_points = [
+            (name, (arm_base @ transform)[:3, 3])
+            for name, transform in link_transforms
+        ]
+        samples: list[tuple[str, np.ndarray]] = []
+        sample_step = max(float(self.get_parameter("arm_keepout_sample_step_m").value), 0.01)
+
+        for name, point in link_points:
+            samples.append((name, point))
+        for (start_name, start), (end_name, end) in zip(link_points, link_points[1:]):
+            distance = float(np.linalg.norm(end - start))
+            steps = max(1, int(math.ceil(distance / sample_step)))
+            for index in range(1, steps):
+                alpha = index / steps
+                samples.append((f"{start_name}->{end_name}", start + (end - start) * alpha))
+
+        tool_transform = arm_base @ link_transforms[-1][1]
+        tool_points = {
+            "tool0": (0.0, 0.0, 0.0),
+            "grasp_frame": (0.0, 0.0, 0.165),
+            "tool_envelope_x+": (0.070, 0.0, 0.090),
+            "tool_envelope_x-": (-0.070, 0.0, 0.090),
+            "tool_envelope_y+": (0.0, 0.070, 0.090),
+            "tool_envelope_y-": (0.0, -0.070, 0.090),
+            "camera_envelope": (0.025, -0.090, 0.050),
+        }
+        tool_origin = tool_transform[:3, 3]
+        for name, local in tool_points.items():
+            point = tool_transform[:3, :3] @ np.array(local, dtype=float) + tool_origin
+            samples.append((name, point))
+        return samples
+
     def update_motion_settings(
         self,
         *,
@@ -1070,6 +1486,7 @@ class TeachPanelNode(Node):
         arm_hold_period_sec: float,
         waypoint_duration_sec: float,
         arm_home_joints_deg: str,
+        arm_install_joints_deg: str,
     ) -> None:
         if base_linear_speed <= 0.0 or base_angular_speed <= 0.0:
             raise ValueError("base speeds must be positive")
@@ -1081,13 +1498,8 @@ class TeachPanelNode(Node):
             raise ValueError("hold period must be positive")
         if waypoint_duration_sec <= 0.0:
             raise ValueError("waypoint duration must be positive")
-        home_values = [
-            float(item.strip())
-            for item in str(arm_home_joints_deg).replace(";", ",").split(",")
-            if item.strip()
-        ]
-        if len(home_values) != 6:
-            raise ValueError("home joints must contain 6 comma-separated degrees")
+        home_values = _parse_joint_degrees(arm_home_joints_deg, label="home joints")
+        install_values = _parse_joint_degrees(arm_install_joints_deg, label="install joints")
         self.set_parameters(
             [
                 Parameter("base_linear_speed", Parameter.Type.DOUBLE, float(base_linear_speed)),
@@ -1116,7 +1528,12 @@ class TeachPanelNode(Node):
                 Parameter(
                     "arm_home_joints_deg",
                     Parameter.Type.STRING,
-                    ",".join(f"{value:.2f}" for value in home_values),
+                    _format_joint_degrees(home_values),
+                ),
+                Parameter(
+                    "arm_install_joints_deg",
+                    Parameter.Type.STRING,
+                    _format_joint_degrees(install_values),
                 ),
             ]
         )
@@ -1148,8 +1565,8 @@ class TeachPanelApp:
         self.waypoints: list[TeachWaypoint] = []
         self.root = tk.Tk()
         self.root.title("Arachne Scope")
-        self.root.geometry("1180x760")
-        self.root.minsize(980, 640)
+        self.root.geometry("1100x720")
+        self.root.minsize(820, 520)
         self.status_vars: dict[str, tk.StringVar] = {}
         self.label_var = tk.StringVar(value="wp_1")
         self.wait_var = tk.StringVar(value="2.0")
@@ -1175,12 +1592,20 @@ class TeachPanelApp:
         self.home_joints_var = tk.StringVar(
             value=str(node.get_parameter("arm_home_joints_deg").value)
         )
+        self.install_joints_var = tk.StringVar(
+            value=str(node.get_parameter("arm_install_joints_deg").value)
+        )
+        self.config_path_var = tk.StringVar(
+            value=str(node.get_parameter("teach_config_path").value)
+        )
         self.joint_target_vars = [tk.StringVar(value="") for _ in range(6)]
         self.tool_target_vars = {axis: tk.StringVar(value="") for axis in ("x", "y", "z")}
         self.move_status_vars: dict[str, tk.StringVar] = {}
         self.move_joint_vars: list[tk.StringVar] = []
         self._arm_hold_after: str | None = None
         self._arm_hold_callback = None
+        self._preset_hold_after: str | None = None
+        self._preset_hold_active = False
         self.listbox: tk.Listbox | None = None
         self.log_text: tk.Text | None = None
         self.joint_tree: ttk.Treeview | None = None
@@ -1211,6 +1636,43 @@ class TeachPanelApp:
         self._build_config_tab()
         self._build_log_tab()
 
+    def _add_scrollable_tab(self, title: str) -> ttk.Frame:
+        outer = ttk.Frame(self.notebook)
+        self.notebook.add(outer, text=title)
+        outer.rowconfigure(0, weight=1)
+        outer.columnconfigure(0, weight=1)
+
+        canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0)
+        scroll = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scroll.grid(row=0, column=1, sticky="ns")
+
+        content = ttk.Frame(canvas, padding=10)
+        window_id = canvas.create_window((0, 0), window=content, anchor="nw")
+
+        def refresh_scrollregion(_event=None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def resize_content(event) -> None:
+            canvas.itemconfigure(window_id, width=event.width)
+
+        def mousewheel(event) -> None:
+            if event.num == 4:
+                canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                canvas.yview_scroll(1, "units")
+            else:
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        content.bind("<Configure>", refresh_scrollregion)
+        canvas.bind("<Configure>", resize_content)
+        for widget in (canvas, content):
+            widget.bind("<MouseWheel>", mousewheel, add=True)
+            widget.bind("<Button-4>", mousewheel, add=True)
+            widget.bind("<Button-5>", mousewheel, add=True)
+        return content
+
     def _build_top_bar(self) -> None:
         top = ttk.Frame(self.root, style="Top.TFrame", padding=(12, 8))
         top.grid(row=0, column=0, sticky="ew")
@@ -1222,7 +1684,7 @@ class TeachPanelApp:
             var = tk.StringVar(value="waiting")
             self.status_vars[key] = var
             ttk.Label(top, text=key, style="Top.TLabel").grid(row=0, column=column, sticky="w", padx=8)
-            ttk.Label(top, textvariable=var, style="Top.TLabel", width=22).grid(
+            ttk.Label(top, textvariable=var, style="Top.TLabel", width=16).grid(
                 row=1, column=column, sticky="w", padx=8
             )
         status_var = tk.StringVar(value="ready")
@@ -1230,17 +1692,17 @@ class TeachPanelApp:
         ttk.Label(top, textvariable=status_var, style="Top.TLabel").grid(
             row=0, column=4, rowspan=2, sticky="ew", padx=(16, 8)
         )
-        ttk.Button(top, text="Home", command=self.node.move_arm_home).grid(
-            row=0, column=5, rowspan=2, padx=4
+        self._make_preset_hold_button(top, "Home", "home").grid(row=0, column=5, rowspan=2, padx=4)
+        self._make_preset_hold_button(top, "Install", "install").grid(
+            row=0, column=6, rowspan=2, padx=4
         )
-        ttk.Button(top, text="Run", command=self._play).grid(row=0, column=6, rowspan=2, padx=4)
+        ttk.Button(top, text="Run", command=self._play).grid(row=0, column=7, rowspan=2, padx=4)
         ttk.Button(top, text="Stop", command=self.node.stop_all, style="Danger.TButton").grid(
-            row=0, column=7, rowspan=2, padx=4
+            row=0, column=8, rowspan=2, padx=4
         )
 
     def _build_home_tab(self) -> None:
-        tab = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(tab, text="Home")
+        tab = self._add_scrollable_tab("Home")
         tab.columnconfigure(0, weight=1)
         tab.columnconfigure(1, weight=1)
         tab.rowconfigure(1, weight=1)
@@ -1258,18 +1720,27 @@ class TeachPanelApp:
 
         quick = ttk.LabelFrame(tab, text="Quick Control")
         quick.grid(row=0, column=1, sticky="nsew", pady=(0, 8))
-        for index, (text, command) in enumerate(
-            (
-                ("Teach On", lambda: self.node.set_aubo_teach(True)),
-                ("Teach Off", lambda: self.node.set_aubo_teach(False)),
-                ("Home", self.node.move_arm_home),
-                ("Record", self._record),
-                ("Replay", self._play),
-                ("Open", lambda: self.node.publish_gripper("open")),
-                ("Close", lambda: self.node.publish_gripper("close")),
-                ("Stop All", self.node.stop_all),
-            )
-        ):
+        self._make_preset_hold_button(quick, "Hold Home", "home").grid(
+            row=0, column=0, sticky="ew", padx=5, pady=5
+        )
+        self._make_preset_hold_button(quick, "Hold Install", "install").grid(
+            row=0, column=1, sticky="ew", padx=5, pady=5
+        )
+        ttk.Button(quick, text="Stop All", command=self.node.stop_all).grid(
+            row=0, column=2, sticky="ew", padx=5, pady=5
+        )
+        buttons = (
+            ("Teach On", lambda: self.node.set_aubo_teach(True)),
+            ("Teach Off", lambda: self.node.set_aubo_teach(False)),
+            ("Set Home", self._set_home_from_current),
+            ("Set Install", self._set_install_from_current),
+            ("Record", self._record),
+            ("Replay", self._play),
+            ("Open", lambda: self.node.publish_gripper("open")),
+            ("Close", lambda: self.node.publish_gripper("close")),
+            ("Save Config", self._save_config),
+        )
+        for index, (text, command) in enumerate(buttons, start=3):
             ttk.Button(quick, text=text, command=command).grid(
                 row=index // 3, column=index % 3, sticky="ew", padx=5, pady=5
             )
@@ -1296,8 +1767,7 @@ class TeachPanelApp:
         self.home_log_text = text
 
     def _build_move_tab(self) -> None:
-        tab = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(tab, text="Move")
+        tab = self._add_scrollable_tab("Move")
         tab.columnconfigure(0, weight=1)
         tab.columnconfigure(1, weight=1)
         tab.rowconfigure(1, weight=1)
@@ -1337,8 +1807,7 @@ class TeachPanelApp:
             )
 
     def _build_program_tab(self) -> None:
-        tab = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(tab, text="Program")
+        tab = self._add_scrollable_tab("Program")
         tab.columnconfigure(0, weight=1)
         tab.rowconfigure(2, weight=1)
 
@@ -1381,8 +1850,7 @@ class TeachPanelApp:
         ttk.Label(tab, textvariable=self.file_var).grid(row=3, column=0, sticky="w", pady=(6, 0))
 
     def _build_config_tab(self) -> None:
-        tab = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(tab, text="Configure")
+        tab = self._add_scrollable_tab("Configure")
         tab.columnconfigure(0, weight=1)
         motion = ttk.LabelFrame(tab, text="Motion Parameters")
         motion.grid(row=0, column=0, sticky="ew")
@@ -1405,13 +1873,59 @@ class TeachPanelApp:
         ttk.Entry(motion, textvariable=self.home_joints_var, width=52).grid(
             row=home_row, column=1, sticky="ew", padx=6, pady=5
         )
+        install_row = home_row + 1
+        ttk.Label(motion, text="Install joints deg", width=20).grid(
+            row=install_row, column=0, sticky="w", padx=6, pady=5
+        )
+        ttk.Entry(motion, textvariable=self.install_joints_var, width=52).grid(
+            row=install_row, column=1, sticky="ew", padx=6, pady=5
+        )
         ttk.Button(motion, text="Apply", command=self._apply_motion_settings).grid(
-            row=home_row + 1, column=0, columnspan=2, sticky="ew", padx=6, pady=(8, 6)
+            row=install_row + 1, column=0, columnspan=2, sticky="ew", padx=6, pady=(8, 6)
         )
         motion.columnconfigure(1, weight=1)
 
+        presets = ttk.LabelFrame(tab, text="Preset Poses")
+        presets.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        for column in range(4):
+            presets.columnconfigure(column, weight=1)
+        self._make_preset_hold_button(presets, "Hold Home", "home").grid(
+            row=0, column=0, sticky="ew", padx=6, pady=5
+        )
+        self._make_preset_hold_button(presets, "Hold Install", "install").grid(
+            row=0, column=1, sticky="ew", padx=6, pady=5
+        )
+        ttk.Button(presets, text="Set Home From Current", command=self._set_home_from_current).grid(
+            row=0, column=2, sticky="ew", padx=6, pady=5
+        )
+        ttk.Button(
+            presets, text="Set Install From Current", command=self._set_install_from_current
+        ).grid(row=0, column=3, sticky="ew", padx=6, pady=5)
+
+        config = ttk.LabelFrame(tab, text="Local Config")
+        config.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        config.columnconfigure(1, weight=1)
+        ttk.Label(config, text="Config path", width=20).grid(
+            row=0, column=0, sticky="w", padx=6, pady=5
+        )
+        ttk.Entry(config, textvariable=self.config_path_var).grid(
+            row=0, column=1, columnspan=3, sticky="ew", padx=6, pady=5
+        )
+        ttk.Button(config, text="Browse", command=self._browse_config).grid(
+            row=1, column=0, sticky="ew", padx=6, pady=(0, 6)
+        )
+        ttk.Button(config, text="Save Config", command=self._save_config).grid(
+            row=1, column=1, sticky="ew", padx=6, pady=(0, 6)
+        )
+        ttk.Button(config, text="Load Config", command=self._load_config).grid(
+            row=1, column=2, sticky="ew", padx=6, pady=(0, 6)
+        )
+        ttk.Button(config, text="Default Path", command=self._use_default_config_path).grid(
+            row=1, column=3, sticky="ew", padx=6, pady=(0, 6)
+        )
+
         payload = ttk.LabelFrame(tab, text="Aubo Payload")
-        payload.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        payload.grid(row=3, column=0, sticky="ew", pady=(10, 0))
         ttk.Label(payload, text="Startup payload is configured by scripts/real_full_teach.sh.").grid(
             row=0, column=0, sticky="w", padx=6, pady=4
         )
@@ -1420,8 +1934,7 @@ class TeachPanelApp:
         )
 
     def _build_log_tab(self) -> None:
-        tab = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(tab, text="Log")
+        tab = self._add_scrollable_tab("Log")
         tab.rowconfigure(0, weight=1)
         tab.columnconfigure(0, weight=1)
         self.log_text = tk.Text(tab, height=24, state="disabled", wrap="word")
@@ -1506,11 +2019,17 @@ class TeachPanelApp:
         ttk.Button(frame, text="Use Home", command=self._fill_home_joints).grid(
             row=7, column=2, sticky="ew", padx=4, pady=(6, 4)
         )
-        ttk.Button(frame, text="Move Joints", command=self._move_to_joint_targets).grid(
-            row=7, column=3, columnspan=2, sticky="ew", padx=4, pady=(6, 4)
+        ttk.Button(frame, text="Use Install", command=self._fill_install_joints).grid(
+            row=7, column=3, sticky="ew", padx=4, pady=(6, 4)
         )
-        ttk.Button(frame, text="Home Pose", command=self.node.move_arm_home).grid(
-            row=8, column=0, columnspan=5, sticky="ew", padx=4, pady=(0, 4)
+        ttk.Button(frame, text="Move Joints", command=self._move_to_joint_targets).grid(
+            row=7, column=4, sticky="ew", padx=4, pady=(6, 4)
+        )
+        self._make_preset_hold_button(frame, "Hold Home Pose", "home").grid(
+            row=8, column=0, columnspan=3, sticky="ew", padx=4, pady=(0, 4)
+        )
+        self._make_preset_hold_button(frame, "Hold Install Pose", "install").grid(
+            row=8, column=3, columnspan=2, sticky="ew", padx=4, pady=(0, 4)
         )
 
     def _build_tool_target_controls(self, parent: ttk.Frame) -> None:
@@ -1535,6 +2054,13 @@ class TeachPanelApp:
         button.bind("<ButtonPress-1>", lambda _event: self._arm_hold_start(callback))
         button.bind("<ButtonRelease-1>", lambda _event: self._arm_hold_release())
         button.bind("<Leave>", lambda _event: self._arm_hold_release())
+        return button
+
+    def _make_preset_hold_button(self, parent: ttk.Frame, text: str, preset: str):
+        button = ttk.Button(parent, text=text)
+        button.bind("<ButtonPress-1>", lambda _event: self._preset_hold_start(preset))
+        button.bind("<ButtonRelease-1>", lambda _event: self._preset_hold_release())
+        button.bind("<Leave>", lambda _event: self._preset_hold_release())
         return button
 
     def _build_gripper_controls(self, parent: ttk.Frame) -> None:
@@ -1604,7 +2130,7 @@ class TeachPanelApp:
             text.see(tk.END)
             text.configure(state="disabled")
 
-    def _apply_motion_settings(self) -> None:
+    def _apply_motion_settings(self) -> bool:
         try:
             self.node.update_motion_settings(
                 base_linear_speed=float(self.base_linear_var.get()),
@@ -1615,9 +2141,13 @@ class TeachPanelApp:
                 arm_hold_period_sec=float(self.arm_hold_period_var.get()),
                 waypoint_duration_sec=float(self.waypoint_duration_var.get()),
                 arm_home_joints_deg=self.home_joints_var.get(),
+                arm_install_joints_deg=self.install_joints_var.get(),
             )
+            self._sync_config_vars_from_node()
+            return True
         except Exception as exc:
             messagebox.showerror("Apply failed", str(exc))
+            return False
 
     def _arm_hold_start(self, callback) -> None:
         self._arm_hold_release(cancel_arm=False)
@@ -1642,6 +2172,27 @@ class TeachPanelApp:
         if cancel_arm and was_active:
             self.node.hold_arm_current()
 
+    def _preset_hold_start(self, preset: str) -> None:
+        self._preset_hold_release(cancel_arm=False)
+        self._preset_hold_active = True
+
+        def start_motion() -> None:
+            if not self._preset_hold_active:
+                return
+            self._preset_hold_after = None
+            self.node.move_arm_preset(preset)
+
+        self._preset_hold_after = self.root.after(250, start_motion)
+
+    def _preset_hold_release(self, *, cancel_arm: bool = True) -> None:
+        was_active = self._preset_hold_active
+        self._preset_hold_active = False
+        if self._preset_hold_after is not None:
+            self.root.after_cancel(self._preset_hold_after)
+            self._preset_hold_after = None
+        if cancel_arm and was_active:
+            self.node.hold_arm_current()
+
     def _fill_current_joints(self) -> None:
         joints = self.node.joint_snapshot()
         if joints is None:
@@ -1658,6 +2209,81 @@ class TeachPanelApp:
             return
         for var, value in zip(self.joint_target_vars, joints):
             var.set(f"{value:.2f}")
+
+    def _fill_install_joints(self) -> None:
+        try:
+            joints = self.node.install_joints_degrees()
+        except Exception as exc:
+            messagebox.showerror("Install target", str(exc))
+            return
+        for var, value in zip(self.joint_target_vars, joints):
+            var.set(f"{value:.2f}")
+
+    def _set_home_from_current(self) -> None:
+        current = self.node.current_joints_degrees()
+        if current is None:
+            messagebox.showerror("Set Home", "No Aubo joint state is available.")
+            return
+        self.home_joints_var.set(_format_joint_degrees(current))
+        self._apply_motion_settings()
+
+    def _set_install_from_current(self) -> None:
+        current = self.node.current_joints_degrees()
+        if current is None:
+            messagebox.showerror("Set Install", "No Aubo joint state is available.")
+            return
+        self.install_joints_var.set(_format_joint_degrees(current))
+        self._apply_motion_settings()
+
+    def _sync_config_vars_from_node(self) -> None:
+        self.base_linear_var.set(f"{float(self.node.get_parameter('base_linear_speed').value):.3f}")
+        self.base_angular_var.set(f"{float(self.node.get_parameter('base_angular_speed').value):.3f}")
+        self.arm_step_var.set(f"{float(self.node.get_parameter('arm_jog_step_m').value):.3f}")
+        self.arm_rotate_var.set(
+            f"{math.degrees(float(self.node.get_parameter('arm_rotate_step_rad').value)):.1f}"
+        )
+        self.arm_joint_step_var.set(
+            f"{math.degrees(float(self.node.get_parameter('arm_joint_step_rad').value)):.1f}"
+        )
+        self.arm_hold_period_var.set(
+            f"{float(self.node.get_parameter('arm_hold_period_sec').value):.2f}"
+        )
+        self.waypoint_duration_var.set(
+            f"{float(self.node.get_parameter('arm_waypoint_duration_sec').value):.2f}"
+        )
+        self.home_joints_var.set(str(self.node.get_parameter("arm_home_joints_deg").value))
+        self.install_joints_var.set(str(self.node.get_parameter("arm_install_joints_deg").value))
+        self.config_path_var.set(str(self.node.get_parameter("teach_config_path").value))
+
+    def _use_default_config_path(self) -> None:
+        self.config_path_var.set(DEFAULT_TEACH_CONFIG_PATH)
+
+    def _browse_config(self) -> None:
+        default = self.node.teach_config_path(self.config_path_var.get())
+        path = filedialog.askopenfilename(
+            initialdir=str(default.parent),
+            initialfile=default.name,
+            filetypes=(("JSON", "*.json"), ("All files", "*.*")),
+        )
+        if path:
+            self.config_path_var.set(path)
+
+    def _save_config(self) -> None:
+        try:
+            if not self._apply_motion_settings():
+                return
+            path = self.node.save_teach_config(self.config_path_var.get())
+            self.config_path_var.set(str(path))
+        except Exception as exc:
+            messagebox.showerror("Save Config", str(exc))
+
+    def _load_config(self) -> None:
+        try:
+            loaded = self.node.load_teach_config(self.config_path_var.get())
+            if loaded:
+                self._sync_config_vars_from_node()
+        except Exception as exc:
+            messagebox.showerror("Load Config", str(exc))
 
     def _move_to_joint_targets(self) -> None:
         try:
