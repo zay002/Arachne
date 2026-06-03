@@ -1,16 +1,40 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    visualization = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution(
+                [FindPackageShare("arachne_operator"), "launch", "teach_visualization.launch.py"]
+            )
+        ),
+        launch_arguments={
+            "input_joint_states_topic": LaunchConfiguration("joint_states_topic"),
+            "with_rviz": LaunchConfiguration("visualization_with_rviz"),
+            "gripper_type": LaunchConfiguration("visualization_gripper_type"),
+            "with_lidar": LaunchConfiguration("visualization_with_lidar"),
+            "with_ee_camera": LaunchConfiguration("visualization_with_ee_camera"),
+        }.items(),
+        condition=IfCondition(LaunchConfiguration("with_visualization")),
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument("cmd_vel_topic", default_value="/cmd_vel"),
             DeclareLaunchArgument("odom_topic", default_value="/odom"),
             DeclareLaunchArgument("joint_states_topic", default_value="/joint_states"),
+            DeclareLaunchArgument("with_visualization", default_value="true"),
+            DeclareLaunchArgument("visualization_with_rviz", default_value="true"),
+            DeclareLaunchArgument("visualization_gripper_type", default_value="ms42dc"),
+            DeclareLaunchArgument("visualization_with_lidar", default_value="true"),
+            DeclareLaunchArgument("visualization_with_ee_camera", default_value="true"),
             DeclareLaunchArgument(
                 "arm_follow_joint_trajectory_action",
                 default_value="/joint_trajectory_controller/follow_joint_trajectory",
@@ -62,6 +86,7 @@ def generate_launch_description():
             DeclareLaunchArgument("arm_goal_tolerance", default_value="0.04"),
             DeclareLaunchArgument("aubo_teach_exit_wait_sec", default_value="8.0"),
             DeclareLaunchArgument("recording_dir", default_value="recordings/teach"),
+            visualization,
             Node(
                 package="arachne_operator",
                 executable="teach_panel",

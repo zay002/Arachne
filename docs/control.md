@@ -221,6 +221,8 @@ Start simulation or real bringup first, then open the panel:
 ./scripts/teach_panel.sh
 ```
 
+The teach launch now starts a safe RViz whole-robot visualization by default: it only subscribes to the current `/joint_states`, adapts real Aubo joint names to the Arachne URDF when needed, and does not publish fake `/joint_states` or control commands. Pass `with_visualization:=false` to open only the panel, or `visualization_with_rviz:=false` to keep TF/robot_state_publisher without opening RViz.
+
 The default real Aubo joint names are `shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint`. The panel also recognizes matching `aubo_`-prefixed joint states for RViz/mock flows. Override `arm_command_joint_names:=...` when the controller command names differ. Recordings are JSON files under the local `recordings/teach/` directory by default. For safety, replay remains conservative: base replay uses `0.20 m/s` and `0.24 rad/s`, and each arm waypoint uses `3.75 s` with feedback verification. Before entering Aubo freedrive/teach mode, confirm the arm is stably enabled, the workspace is clear, and a person is ready to support the arm if needed.
 
 Launch ros2_control with mock hardware:

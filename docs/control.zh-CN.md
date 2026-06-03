@@ -221,6 +221,8 @@ ros2 launch arachne_operator sequence_executor.launch.py
 ./scripts/teach_panel.sh
 ```
 
+示教器 launch 默认同时启动安全的 RViz 整机可视化：它只订阅当前 `/joint_states` 并自动把真机 Aubo 关节名适配到 Arachne 整机 URDF，不会发布假的 `/joint_states` 或控制命令。如果只想打开面板，可传入 `with_visualization:=false`；如果只想保留 TF/robot_state_publisher 而不打开 RViz，可传入 `visualization_with_rviz:=false`。
+
 默认真机 Aubo 关节名为 `shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint`。如果在 RViz/mock 模型中使用带 `aubo_` 前缀的 joint state，面板会自动识别对应别名；如果底层 controller 的命令关节名不同，则通过 `arm_command_joint_names:=...` 覆盖。记录文件保存为 JSON，默认位于本地 `recordings/teach/`。安全起见，回放仍保持保守：底盘 `0.20 m/s`、`0.24 rad/s`，机械臂每个 waypoint 默认 `3.75 s` 并检查关节反馈。进入 Aubo freedrive/示教前，确认机械臂已稳定使能、周围空间安全，并准备好人工扶持。
 
 启动 ros2_control mock 硬件：
