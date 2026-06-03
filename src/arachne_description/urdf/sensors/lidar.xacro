@@ -3,19 +3,26 @@
   <xacro:macro name="arachne_lidar" params="parent xyz:='0.28 0 0.19' rpy:='0 0 0'">
     <link name="lidar_link">
       <visual>
-        <origin xyz="0 0 0.035" rpy="0 0 0"/>
+        <origin xyz="0 0 0.03895" rpy="0 0 0"/>
         <geometry>
-          <cylinder radius="0.055" length="0.07"/>
+          <cylinder radius="0.051" length="0.0779"/>
         </geometry>
         <material name="arachne_sensor"/>
       </visual>
-      <collision>
-        <origin xyz="0 0 0.035" rpy="0 0 0"/>
+      <visual>
+        <origin xyz="0 0 0.085" rpy="0 0 0"/>
         <geometry>
-          <cylinder radius="0.055" length="0.07"/>
+          <cylinder radius="0.035" length="0.012"/>
+        </geometry>
+        <material name="arachne_dark"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0.03895" rpy="0 0 0"/>
+        <geometry>
+          <cylinder radius="0.051" length="0.0779"/>
         </geometry>
       </collision>
-      <xacro:cylinder_inertial mass="0.35" radius="0.055" length="0.07" axis="z"/>
+      <xacro:cylinder_inertial mass="0.8" radius="0.051" length="0.0779" axis="z"/>
     </link>
     <joint name="lidar_joint" type="fixed">
       <parent link="${parent}"/>

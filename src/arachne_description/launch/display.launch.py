@@ -34,6 +34,13 @@ def launch_setup(context, *args, **kwargs):
         "gripper_type": LaunchConfiguration("gripper_type").perform(context),
         "with_lidar": LaunchConfiguration("with_lidar").perform(context),
         "with_ee_camera": LaunchConfiguration("with_ee_camera").perform(context),
+        "with_rear_rack": LaunchConfiguration("with_rear_rack").perform(context),
+        "rear_rack_xyz": LaunchConfiguration("rear_rack_xyz").perform(context),
+        "rear_rack_rpy": LaunchConfiguration("rear_rack_rpy").perform(context),
+        "lidar_xyz": LaunchConfiguration("lidar_xyz").perform(context),
+        "lidar_rpy": LaunchConfiguration("lidar_rpy").perform(context),
+        "ee_camera_xyz": LaunchConfiguration("ee_camera_xyz").perform(context),
+        "ee_camera_rpy": LaunchConfiguration("ee_camera_rpy").perform(context),
     }
 
     robot_description = xacro.process_file(str(model_path), mappings=mappings).toxml()
@@ -166,7 +173,14 @@ def generate_launch_description():
             DeclareLaunchArgument("use_gui", default_value="false"),
             DeclareLaunchArgument("with_rviz", default_value="true"),
             DeclareLaunchArgument("with_lidar", default_value="true"),
-            DeclareLaunchArgument("with_ee_camera", default_value="false"),
+            DeclareLaunchArgument("with_ee_camera", default_value="true"),
+            DeclareLaunchArgument("with_rear_rack", default_value="true"),
+            DeclareLaunchArgument("rear_rack_xyz", default_value="-0.16 0.0 0.105"),
+            DeclareLaunchArgument("rear_rack_rpy", default_value="0.0 0.0 1.57079632679"),
+            DeclareLaunchArgument("lidar_xyz", default_value="0.0 0.035 0.6223"),
+            DeclareLaunchArgument("lidar_rpy", default_value="0.0 0.0 0.0"),
+            DeclareLaunchArgument("ee_camera_xyz", default_value="0.0 0.0 0.0"),
+            DeclareLaunchArgument("ee_camera_rpy", default_value="0.0 0.0 0.0"),
             OpaqueFunction(function=launch_setup),
         ]
     )

@@ -8,7 +8,7 @@ Visualization Manager:
       Enabled: true
       Name: Grid
       Plane: XY
-      Reference Frame: odom
+      Reference Frame: base_link
     - Class: rviz_default_plugins/RobotModel
       Alpha: 1
       Description File: /tmp/arachne_display.urdf
@@ -27,10 +27,10 @@ Visualization Manager:
       Enabled: false
       Name: TF
   Enabled: true
-  Fixed Frame: odom
+  Fixed Frame: base_link
   Global Options:
     Background Color: 248; 248; 245
-    Fixed Frame: odom
+    Fixed Frame: base_link
     Frame Rate: 30
   Name: root
   Tools:
@@ -41,8 +41,8 @@ Visualization Manager:
 Views:
   Current:
     Class: rviz_default_plugins/ThirdPersonFollower
-    Distance: 2.2
+    Distance: 1.35
     Name: Current View
-    Pitch: 0.65
-    Target Frame: arachne_view_frame
-    Yaw: 0.0
+    Pitch: 0.55
+    Target Frame: base_link
+    Yaw: 0.75
