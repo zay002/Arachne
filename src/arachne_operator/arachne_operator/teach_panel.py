@@ -104,15 +104,16 @@ class TeachPanelNode(Node):
         self.declare_parameter("base_manual_publish_rate", 12.0)
         self.declare_parameter("base_motion_max_segment_sec", 20.0)
         self.declare_parameter("arm_jog_step_m", 0.003)
-        self.declare_parameter("arm_jog_duration_sec", 0.60)
-        self.declare_parameter("arm_rotate_step_rad", math.radians(0.75))
-        self.declare_parameter("arm_rotate_duration_sec", 0.60)
-        self.declare_parameter("arm_joint_step_rad", math.radians(0.5))
-        self.declare_parameter("arm_hold_period_sec", 0.60)
+        self.declare_parameter("arm_jog_duration_sec", 0.18)
+        self.declare_parameter("arm_rotate_step_rad", math.radians(0.25))
+        self.declare_parameter("arm_rotate_duration_sec", 0.18)
+        self.declare_parameter("arm_joint_step_rad", math.radians(0.2))
+        self.declare_parameter("arm_hold_period_sec", 0.12)
         self.declare_parameter("arm_waypoint_duration_sec", 3.75)
         self.declare_parameter("arm_home_joints_deg", DEFAULT_ARM_HOME_JOINTS_DEG)
         self.declare_parameter("arm_goal_tolerance", 0.04)
         self.declare_parameter("arm_position_tolerance", 0.006)
+        self.declare_parameter("arm_jog_position_tolerance", 0.0008)
         self.declare_parameter("arm_ik_damping", 0.08)
         self.declare_parameter("arm_ik_max_iterations", 180)
         self.declare_parameter("arm_ik_max_step", 0.05)
@@ -513,10 +514,14 @@ class TeachPanelNode(Node):
         direction = directions[axis] * float(sign)
         step = float(self.get_parameter("arm_jog_step_m").value)
         target = self.kinematics.fk(np.array(q_start, dtype=float))[:3, 3] + direction * step
+        tolerance = min(
+            float(self.get_parameter("arm_jog_position_tolerance").value),
+            max(step * 0.25, 1e-4),
+        )
         ok, q_target, error, iterations = self.kinematics.solve_position(
             np.array(q_start, dtype=float),
             target,
-            tolerance=float(self.get_parameter("arm_position_tolerance").value),
+            tolerance=tolerance,
             damping=float(self.get_parameter("arm_ik_damping").value),
             max_iterations=int(self.get_parameter("arm_ik_max_iterations").value),
             max_step=float(self.get_parameter("arm_ik_max_step").value),
@@ -1579,12 +1584,8 @@ class TeachPanelApp:
             if self._arm_hold_callback is None:
                 return
             self._arm_hold_callback()
-            interval_sec = max(
-                float(self.node.get_parameter("arm_hold_period_sec").value),
-                float(self.node.get_parameter("arm_jog_duration_sec").value),
-                float(self.node.get_parameter("arm_rotate_duration_sec").value),
-            )
-            interval = max(120, int(interval_sec * 1000))
+            interval_sec = float(self.node.get_parameter("arm_hold_period_sec").value)
+            interval = max(60, int(interval_sec * 1000))
             self._arm_hold_after = self.root.after(interval, tick)
 
         tick()
