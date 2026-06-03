@@ -12,6 +12,7 @@ AUBO_PAYLOAD_AOM="${ARACHNE_AUBO_PAYLOAD_AOM:-0,0,0}"
 AUBO_PAYLOAD_INERTIA="${ARACHNE_AUBO_PAYLOAD_INERTIA:-0,0,0,0,0,0}"
 RUN_ENV_CHECK=true
 KEEP_RUNNING=false
+STOP_EXISTING=true
 CONFIRM=false
 PANEL_ARGS=()
 
@@ -32,6 +33,7 @@ Options:
   -y, --yes           Confirm real hardware control startup.
   --skip-env-check   Skip scripts/check_real_hardware_env.sh --strict.
   --keep-running     Leave bringup processes running after the panel exits.
+  --no-stop-existing Do not stop stale Arachne real-stack processes first.
   -h, --help         Show this help.
 
 Environment:
@@ -58,6 +60,9 @@ while (($#)); do
       ;;
     --keep-running)
       KEEP_RUNNING=true
+      ;;
+    --no-stop-existing)
+      STOP_EXISTING=false
       ;;
     -h|--help)
       usage
@@ -229,6 +234,12 @@ echo "  recording dir: ${RECORDING_DIR}"
 echo "  logs: ${LOG_DIR}"
 
 cd "${ROOT_DIR}"
+
+if [[ "${STOP_EXISTING}" == "true" ]]; then
+  run_logged "stop existing real stack" \
+    "${LOG_DIR}/00_stop_existing_real_stack.log" \
+    "${ROOT_DIR}/scripts/stop_real_stack.sh"
+fi
 
 if [[ "${RUN_ENV_CHECK}" == "true" ]]; then
   run_logged "real-hardware environment check" \

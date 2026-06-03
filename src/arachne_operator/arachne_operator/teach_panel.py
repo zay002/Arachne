@@ -108,7 +108,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_rotate_step_rad", math.radians(1.5))
         self.declare_parameter("arm_rotate_duration_sec", 0.30)
         self.declare_parameter("arm_joint_step_rad", math.radians(1.0))
-        self.declare_parameter("arm_hold_period_sec", 0.16)
+        self.declare_parameter("arm_hold_period_sec", 0.30)
         self.declare_parameter("arm_waypoint_duration_sec", 3.75)
         self.declare_parameter("arm_home_joints_deg", DEFAULT_ARM_HOME_JOINTS_DEG)
         self.declare_parameter("arm_goal_tolerance", 0.04)
@@ -1577,17 +1577,23 @@ class TeachPanelApp:
             if self._arm_hold_callback is None:
                 return
             self._arm_hold_callback()
-            interval = max(80, int(float(self.node.get_parameter("arm_hold_period_sec").value) * 1000))
+            interval_sec = max(
+                float(self.node.get_parameter("arm_hold_period_sec").value),
+                float(self.node.get_parameter("arm_jog_duration_sec").value),
+                float(self.node.get_parameter("arm_rotate_duration_sec").value),
+            )
+            interval = max(120, int(interval_sec * 1000))
             self._arm_hold_after = self.root.after(interval, tick)
 
         tick()
 
     def _arm_hold_release(self, *, cancel_arm: bool = True) -> None:
+        was_active = self._arm_hold_after is not None or self._arm_hold_callback is not None
         if self._arm_hold_after is not None:
             self.root.after_cancel(self._arm_hold_after)
             self._arm_hold_after = None
         self._arm_hold_callback = None
-        if cancel_arm:
+        if cancel_arm and was_active:
             self.node.hold_arm_current()
 
     def _fill_current_joints(self) -> None:

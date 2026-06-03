@@ -48,11 +48,17 @@ def generate_launch_description():
             DeclareLaunchArgument("base_replay_angular_speed", default_value="0.24"),
             DeclareLaunchArgument("base_manual_publish_rate", default_value="12.0"),
             DeclareLaunchArgument("base_motion_max_segment_sec", default_value="20.0"),
-            DeclareLaunchArgument("arm_jog_step_m", default_value="0.02"),
-            DeclareLaunchArgument("arm_jog_duration_sec", default_value="0.83"),
-            DeclareLaunchArgument("arm_rotate_step_rad", default_value="0.0872665"),
-            DeclareLaunchArgument("arm_rotate_duration_sec", default_value="0.83"),
+            DeclareLaunchArgument("arm_jog_step_m", default_value="0.006"),
+            DeclareLaunchArgument("arm_jog_duration_sec", default_value="0.30"),
+            DeclareLaunchArgument("arm_rotate_step_rad", default_value="0.0261799"),
+            DeclareLaunchArgument("arm_rotate_duration_sec", default_value="0.30"),
+            DeclareLaunchArgument("arm_joint_step_rad", default_value="0.0174533"),
+            DeclareLaunchArgument("arm_hold_period_sec", default_value="0.30"),
             DeclareLaunchArgument("arm_waypoint_duration_sec", default_value="3.75"),
+            DeclareLaunchArgument(
+                "arm_home_joints_deg",
+                default_value="-88.28,3.40,116.60,103.48,88.33,-0.13",
+            ),
             DeclareLaunchArgument("arm_goal_tolerance", default_value="0.04"),
             DeclareLaunchArgument("aubo_teach_exit_wait_sec", default_value="8.0"),
             DeclareLaunchArgument("recording_dir", default_value="recordings/teach"),
@@ -112,9 +118,16 @@ def generate_launch_description():
                         "arm_rotate_duration_sec": ParameterValue(
                             LaunchConfiguration("arm_rotate_duration_sec"), value_type=float
                         ),
+                        "arm_joint_step_rad": ParameterValue(
+                            LaunchConfiguration("arm_joint_step_rad"), value_type=float
+                        ),
+                        "arm_hold_period_sec": ParameterValue(
+                            LaunchConfiguration("arm_hold_period_sec"), value_type=float
+                        ),
                         "arm_waypoint_duration_sec": ParameterValue(
                             LaunchConfiguration("arm_waypoint_duration_sec"), value_type=float
                         ),
+                        "arm_home_joints_deg": LaunchConfiguration("arm_home_joints_deg"),
                         "arm_goal_tolerance": ParameterValue(
                             LaunchConfiguration("arm_goal_tolerance"), value_type=float
                         ),
