@@ -103,17 +103,19 @@ class TeachPanelNode(Node):
         self.declare_parameter("base_yaw_tolerance_deg", 2.0)
         self.declare_parameter("base_manual_publish_rate", 12.0)
         self.declare_parameter("base_motion_max_segment_sec", 20.0)
-        self.declare_parameter("arm_jog_step_m", 0.003)
-        self.declare_parameter("arm_jog_duration_sec", 0.18)
-        self.declare_parameter("arm_rotate_step_rad", math.radians(0.25))
-        self.declare_parameter("arm_rotate_duration_sec", 0.18)
-        self.declare_parameter("arm_joint_step_rad", math.radians(0.2))
-        self.declare_parameter("arm_hold_period_sec", 0.12)
+        self.declare_parameter("arm_jog_step_m", 0.005)
+        self.declare_parameter("arm_jog_duration_sec", 0.14)
+        self.declare_parameter("arm_rotate_step_rad", math.radians(0.4))
+        self.declare_parameter("arm_rotate_duration_sec", 0.14)
+        self.declare_parameter("arm_joint_step_rad", math.radians(0.3))
+        self.declare_parameter("arm_hold_period_sec", 0.08)
         self.declare_parameter("arm_waypoint_duration_sec", 3.75)
         self.declare_parameter("arm_home_joints_deg", DEFAULT_ARM_HOME_JOINTS_DEG)
         self.declare_parameter("arm_goal_tolerance", 0.04)
         self.declare_parameter("arm_position_tolerance", 0.006)
         self.declare_parameter("arm_jog_position_tolerance", 0.0008)
+        self.declare_parameter("arm_orientation_tolerance", 0.01)
+        self.declare_parameter("arm_jog_orientation_tolerance", 0.004)
         self.declare_parameter("arm_ik_damping", 0.08)
         self.declare_parameter("arm_ik_max_iterations", 180)
         self.declare_parameter("arm_ik_max_step", 0.05)
@@ -513,31 +515,41 @@ class TeachPanelNode(Node):
         }
         direction = directions[axis] * float(sign)
         step = float(self.get_parameter("arm_jog_step_m").value)
-        target = self.kinematics.fk(np.array(q_start, dtype=float))[:3, 3] + direction * step
+        q_start_array = np.array(q_start, dtype=float)
+        target_transform = np.array(self.kinematics.fk(q_start_array), dtype=float)
+        target_transform[:3, 3] += direction * step
         tolerance = min(
             float(self.get_parameter("arm_jog_position_tolerance").value),
             max(step * 0.25, 1e-4),
         )
-        ok, q_target, error, iterations = self.kinematics.solve_position(
-            np.array(q_start, dtype=float),
-            target,
-            tolerance=tolerance,
+        ok, q_target, position_error, orientation_error, iterations = self.kinematics.solve_pose(
+            q_start_array,
+            target_transform,
+            position_tolerance=tolerance,
+            orientation_tolerance=float(self.get_parameter("arm_jog_orientation_tolerance").value),
             damping=float(self.get_parameter("arm_ik_damping").value),
             max_iterations=int(self.get_parameter("arm_ik_max_iterations").value),
             max_step=float(self.get_parameter("arm_ik_max_step").value),
         )
-        max_delta = float(np.max(np.abs(q_target - np.array(q_start, dtype=float))))
+        max_delta = float(np.max(np.abs(q_target - q_start_array)))
         if not ok:
-            self._status(f"arm jog IK failed: error={error:.4f} iterations={iterations}", warn=True)
+            self._status(
+                "arm jog pose IK failed: "
+                f"pos={position_error:.4f}m rot={math.degrees(orientation_error):.2f}deg "
+                f"iterations={iterations}",
+                warn=True,
+            )
             return
         if max_delta > float(self.get_parameter("arm_jog_max_joint_delta").value):
             self._status(f"arm jog blocked: joint delta {max_delta:.3f} rad", warn=True)
             return
+        duration = float(self.get_parameter("arm_jog_duration_sec").value)
         self._send_arm_positions(
             [float(value) for value in q_target],
-            float(self.get_parameter("arm_jog_duration_sec").value),
+            duration,
             f"jog {axis}",
             wait=False,
+            velocities=self._target_joint_velocities(q_start, q_target, duration),
         )
 
     def jog_arm_rotation(self, axis: str, sign: float) -> None:
@@ -561,11 +573,13 @@ class TeachPanelNode(Node):
         if max_delta > float(self.get_parameter("arm_jog_max_joint_delta").value):
             self._status(f"arm rotation jog blocked: joint delta {max_delta:.3f} rad", warn=True)
             return
+        duration = float(self.get_parameter("arm_rotate_duration_sec").value)
         self._send_arm_positions(
             q_target,
-            float(self.get_parameter("arm_rotate_duration_sec").value),
+            duration,
             f"rotate {axis}",
             wait=False,
+            velocities=self._target_joint_velocities(q_start, q_target, duration),
         )
 
     def jog_arm_joint(self, index: int, sign: float) -> None:
@@ -587,11 +601,13 @@ class TeachPanelNode(Node):
         if max_delta > float(self.get_parameter("arm_jog_max_joint_delta").value):
             self._status(f"joint jog blocked: joint delta {max_delta:.3f} rad", warn=True)
             return
+        duration = float(self.get_parameter("arm_rotate_duration_sec").value)
         self._send_arm_positions(
             q_target,
-            float(self.get_parameter("arm_rotate_duration_sec").value),
+            duration,
             f"jog J{index + 1}",
             wait=False,
+            velocities=self._target_joint_velocities(q_start, q_target, duration),
         )
 
     def move_arm_to_joints_degrees(self, degrees: list[float]) -> None:
@@ -637,18 +653,26 @@ class TeachPanelNode(Node):
         if q_start is None:
             self._status("TCP target skipped: no joint state", warn=True)
             return
-        target = np.array([float(value) for value in position], dtype=float)
-        ok, q_target, error, iterations = self.kinematics.solve_position(
-            np.array(q_start, dtype=float),
-            target,
-            tolerance=float(self.get_parameter("arm_position_tolerance").value),
+        q_start_array = np.array(q_start, dtype=float)
+        target_transform = np.array(self.kinematics.fk(q_start_array), dtype=float)
+        target_transform[:3, 3] = np.array([float(value) for value in position], dtype=float)
+        ok, q_target, position_error, orientation_error, iterations = self.kinematics.solve_pose(
+            q_start_array,
+            target_transform,
+            position_tolerance=float(self.get_parameter("arm_position_tolerance").value),
+            orientation_tolerance=float(self.get_parameter("arm_orientation_tolerance").value),
             damping=float(self.get_parameter("arm_ik_damping").value),
             max_iterations=int(self.get_parameter("arm_ik_max_iterations").value),
             max_step=float(self.get_parameter("arm_ik_max_step").value),
         )
-        max_delta = float(np.max(np.abs(q_target - np.array(q_start, dtype=float))))
+        max_delta = float(np.max(np.abs(q_target - q_start_array)))
         if not ok:
-            self._status(f"TCP target IK failed: error={error:.4f} iterations={iterations}", warn=True)
+            self._status(
+                "TCP target pose IK failed: "
+                f"pos={position_error:.4f}m rot={math.degrees(orientation_error):.2f}deg "
+                f"iterations={iterations}",
+                warn=True,
+            )
             return
         if max_delta > float(self.get_parameter("arm_target_max_joint_delta").value):
             self._status(f"TCP target blocked: joint delta {max_delta:.3f} rad", warn=True)
@@ -890,15 +914,34 @@ class TeachPanelNode(Node):
             time.sleep(0.05)
         self.set_base_velocity(0.0, 0.0)
 
+    def _target_joint_velocities(
+        self, start: list[float], target: list[float] | np.ndarray, duration: float
+    ) -> list[float]:
+        safe_duration = max(float(duration), 1e-3)
+        return [
+            (float(target_value) - float(start_value)) / safe_duration
+            for start_value, target_value in zip(start, target)
+        ]
+
     def _send_arm_positions(
-        self, positions: list[float], duration: float, label: str, *, wait: bool
+        self,
+        positions: list[float],
+        duration: float,
+        label: str,
+        *,
+        wait: bool,
+        velocities: list[float] | None = None,
     ) -> bool:
         trajectory = JointTrajectory()
         trajectory.header.stamp = self.get_clock().now().to_msg()
         trajectory.joint_names = list(self.arm_command_joint_names)
         point = JointTrajectoryPoint()
         point.positions = [float(value) for value in positions]
-        point.velocities = [0.0 for _ in point.positions]
+        point.velocities = (
+            [float(value) for value in velocities]
+            if velocities is not None and len(velocities) == len(point.positions)
+            else [0.0 for _ in point.positions]
+        )
         point.accelerations = [0.0 for _ in point.positions]
         point.time_from_start.sec = int(duration)
         point.time_from_start.nanosec = int((duration % 1.0) * 1e9)

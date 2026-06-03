@@ -72,14 +72,16 @@ def generate_launch_description():
             DeclareLaunchArgument("base_replay_angular_speed", default_value="0.24"),
             DeclareLaunchArgument("base_manual_publish_rate", default_value="12.0"),
             DeclareLaunchArgument("base_motion_max_segment_sec", default_value="20.0"),
-            DeclareLaunchArgument("arm_jog_step_m", default_value="0.003"),
-            DeclareLaunchArgument("arm_jog_duration_sec", default_value="0.18"),
-            DeclareLaunchArgument("arm_rotate_step_rad", default_value="0.00436332"),
-            DeclareLaunchArgument("arm_rotate_duration_sec", default_value="0.18"),
-            DeclareLaunchArgument("arm_joint_step_rad", default_value="0.00349066"),
-            DeclareLaunchArgument("arm_hold_period_sec", default_value="0.12"),
+            DeclareLaunchArgument("arm_jog_step_m", default_value="0.005"),
+            DeclareLaunchArgument("arm_jog_duration_sec", default_value="0.14"),
+            DeclareLaunchArgument("arm_rotate_step_rad", default_value="0.00698132"),
+            DeclareLaunchArgument("arm_rotate_duration_sec", default_value="0.14"),
+            DeclareLaunchArgument("arm_joint_step_rad", default_value="0.00523599"),
+            DeclareLaunchArgument("arm_hold_period_sec", default_value="0.08"),
             DeclareLaunchArgument("arm_waypoint_duration_sec", default_value="3.75"),
             DeclareLaunchArgument("arm_jog_position_tolerance", default_value="0.0008"),
+            DeclareLaunchArgument("arm_orientation_tolerance", default_value="0.01"),
+            DeclareLaunchArgument("arm_jog_orientation_tolerance", default_value="0.004"),
             DeclareLaunchArgument(
                 "arm_home_joints_deg",
                 default_value="-88.28,3.40,116.60,103.48,88.33,-0.13",
@@ -155,6 +157,12 @@ def generate_launch_description():
                         ),
                         "arm_jog_position_tolerance": ParameterValue(
                             LaunchConfiguration("arm_jog_position_tolerance"), value_type=float
+                        ),
+                        "arm_orientation_tolerance": ParameterValue(
+                            LaunchConfiguration("arm_orientation_tolerance"), value_type=float
+                        ),
+                        "arm_jog_orientation_tolerance": ParameterValue(
+                            LaunchConfiguration("arm_jog_orientation_tolerance"), value_type=float
                         ),
                         "arm_home_joints_deg": LaunchConfiguration("arm_home_joints_deg"),
                         "arm_goal_tolerance": ParameterValue(

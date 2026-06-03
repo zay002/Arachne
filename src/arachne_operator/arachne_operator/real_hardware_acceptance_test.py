@@ -43,7 +43,7 @@ class RevoluteJoint:
 
 
 class AuboI5Kinematics:
-    """Position-only FK/IK for the Aubo i5 chain from aubo_base_link to tool0."""
+    """FK/IK for the Aubo i5 chain from aubo_base_link to tool0."""
 
     JOINTS = (
         RevoluteJoint(
@@ -125,6 +125,49 @@ class AuboI5Kinematics:
 
         return False, best_q, best_error, max_iterations
 
+    def solve_pose(
+        self,
+        q_start: np.ndarray,
+        target_transform: np.ndarray,
+        *,
+        position_tolerance: float,
+        orientation_tolerance: float,
+        damping: float,
+        max_iterations: int,
+        max_step: float,
+        orientation_weight: float = 0.5,
+    ) -> tuple[bool, np.ndarray, float, float, int]:
+        q = np.array(q_start, dtype=float)
+        best_q = np.array(q_start, dtype=float)
+        best_position_error, best_orientation_error = self._pose_error_norms(q, target_transform)
+        best_error = best_position_error + orientation_weight * best_orientation_error
+
+        for iteration in range(max_iterations):
+            current_transform = self.fk(q)
+            position_error = target_transform[:3, 3] - current_transform[:3, 3]
+            orientation_error = self._rotation_vector(
+                target_transform[:3, :3] @ current_transform[:3, :3].T
+            )
+            position_norm = float(np.linalg.norm(position_error))
+            orientation_norm = float(np.linalg.norm(orientation_error))
+            combined_norm = position_norm + orientation_weight * orientation_norm
+            if combined_norm < best_error:
+                best_q = np.array(q, dtype=float)
+                best_position_error = position_norm
+                best_orientation_error = orientation_norm
+                best_error = combined_norm
+            if position_norm <= position_tolerance and orientation_norm <= orientation_tolerance:
+                return True, q, position_norm, orientation_norm, iteration
+
+            error = np.concatenate((position_error, orientation_weight * orientation_error))
+            jacobian = self._numeric_pose_jacobian(q, orientation_weight)
+            lhs = jacobian @ jacobian.T + (damping**2) * np.eye(6)
+            step = jacobian.T @ np.linalg.solve(lhs, error)
+            step = np.clip(step, -max_step, max_step)
+            q = self._wrap(q + step)
+
+        return False, best_q, best_position_error, best_orientation_error, max_iterations
+
     def _numeric_position_jacobian(self, q: np.ndarray) -> np.ndarray:
         eps = 1e-5
         base = self.fk(q)[:3, 3]
@@ -134,6 +177,53 @@ class AuboI5Kinematics:
             q_eps[index] += eps
             jacobian[:, index] = (self.fk(q_eps)[:3, 3] - base) / eps
         return jacobian
+
+    def _numeric_pose_jacobian(self, q: np.ndarray, orientation_weight: float) -> np.ndarray:
+        eps = 1e-5
+        base_transform = self.fk(q)
+        base_position = base_transform[:3, 3]
+        base_rotation = base_transform[:3, :3]
+        jacobian = np.zeros((6, len(q)))
+        for index in range(len(q)):
+            q_eps = np.array(q, dtype=float)
+            q_eps[index] += eps
+            next_transform = self.fk(q_eps)
+            jacobian[:3, index] = (next_transform[:3, 3] - base_position) / eps
+            jacobian[3:, index] = (
+                orientation_weight
+                * self._rotation_vector(next_transform[:3, :3] @ base_rotation.T)
+                / eps
+            )
+        return jacobian
+
+    def _pose_error_norms(
+        self, q: np.ndarray, target_transform: np.ndarray
+    ) -> tuple[float, float]:
+        current_transform = self.fk(q)
+        position_error = float(
+            np.linalg.norm(target_transform[:3, 3] - current_transform[:3, 3])
+        )
+        orientation_error = float(
+            np.linalg.norm(
+                self._rotation_vector(target_transform[:3, :3] @ current_transform[:3, :3].T)
+            )
+        )
+        return position_error, orientation_error
+
+    def _rotation_vector(self, rotation: np.ndarray) -> np.ndarray:
+        cos_angle = max(min((float(np.trace(rotation)) - 1.0) * 0.5, 1.0), -1.0)
+        angle = math.acos(cos_angle)
+        vector = np.array(
+            [
+                rotation[2, 1] - rotation[1, 2],
+                rotation[0, 2] - rotation[2, 0],
+                rotation[1, 0] - rotation[0, 1],
+            ],
+            dtype=float,
+        )
+        if angle < 1e-8:
+            return 0.5 * vector
+        return angle / (2.0 * math.sin(angle)) * vector
 
     def _origin(
         self, xyz: tuple[float, float, float], rpy: tuple[float, float, float]
