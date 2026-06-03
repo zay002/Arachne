@@ -45,9 +45,27 @@ if (DEFINED ENV{ROS_DISTRO})
           ament_lint_auto_find_test_dependencies()
         endif()
         install(DIRECTORY
-             launch meshes urdf rviz
+             launch urdf rviz
              DESTINATION share/${PROJECT_NAME}/
              )
+        file(GLOB AUBO_I5_VISUAL_MESHES
+             "${PROJECT_SOURCE_DIR}/meshes/aubo_i5*/visual/*.DAE"
+             "${PROJECT_SOURCE_DIR}/meshes/aubo_i5*/visual/*.dae")
+        file(GLOB AUBO_I5_COLLISION_MESHES
+             "${PROJECT_SOURCE_DIR}/meshes/aubo_i5*/collision/*.STL"
+             "${PROJECT_SOURCE_DIR}/meshes/aubo_i5*/collision/*.stl")
+        file(GLOB AUBO_I5_FLAT_MESHES
+             "${PROJECT_SOURCE_DIR}/meshes/aubo_i5*/*.DAE"
+             "${PROJECT_SOURCE_DIR}/meshes/aubo_i5*/*.dae"
+             "${PROJECT_SOURCE_DIR}/meshes/aubo_i5*/*.STL"
+             "${PROJECT_SOURCE_DIR}/meshes/aubo_i5*/*.stl")
+        foreach(mesh_file IN LISTS AUBO_I5_VISUAL_MESHES AUBO_I5_COLLISION_MESHES AUBO_I5_FLAT_MESHES)
+          if(NOT IS_SYMLINK "${mesh_file}")
+            file(RELATIVE_PATH mesh_rel "${PROJECT_SOURCE_DIR}/meshes" "${mesh_file}")
+            get_filename_component(mesh_dir "${mesh_rel}" DIRECTORY)
+            install(FILES "${mesh_file}" DESTINATION "share/${PROJECT_NAME}/meshes/${mesh_dir}")
+          endif()
+        endforeach()
         install(PROGRAMS
              scripts/calibrate_urdf_dh.py
              DESTINATION lib/${PROJECT_NAME}
