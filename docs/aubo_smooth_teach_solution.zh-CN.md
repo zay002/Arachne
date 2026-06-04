@@ -82,8 +82,8 @@ ros2 topic info /arachne/aubo/joint_velocity_command
 
 - 定点移动和录制回放应从反馈速度法升级到 AUBO 控制柜侧的平滑轨迹接口，例如 `moveJoint`/`pathBuffer`/blend，而不是长期依赖 Jetson 反馈循环。
 - 相机节点当前 V4L2 depth 路径仍偏重，后续应优先接 Orbbec 官方 SDK 或独立低优先级进程，避免影响机械臂控制实时性。
-- 如果仍有轻微卡顿，优先调小 UI smoothing tau、调大 `speedJoint` 加速度，或把 `aubo_sdk_velocity_send_period_sec` 与控制柜实测周期做 A/B 对齐。
-- payload 需要实测质量、重心和惯量；当前 3.5 kg / `0,0,0.18` 只是保守估计。
+- 如果仍有轻微卡顿，优先调大 `speedJoint` 加速度、调整 SDK 桥目标变化阈值，或把 `aubo_sdk_velocity_send_period_sec` 与控制柜实测响应做 A/B 对齐。
+- payload 已按当前实测值更新为 0.818 kg / `0.039927,0.045067,0.143233`；惯量仍需后续测量或估算。
 
 ## 验收标准
 

@@ -2336,7 +2336,7 @@ class TeachPanelApp:
         ttk.Label(payload, text="Startup payload is configured by scripts/real_full_teach.sh.").grid(
             row=0, column=0, sticky="w", padx=6, pady=4
         )
-        ttk.Label(payload, text="Current Jetson heavy-tool estimate: 3.5kg, CoG 0,0,0.18.").grid(
+        ttk.Label(payload, text="Measured payload: 0.818kg, CoG 39.927/45.067/143.233 mm.").grid(
             row=1, column=0, sticky="w", padx=6, pady=4
         )
 

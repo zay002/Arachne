@@ -268,12 +268,15 @@ class AuboSdkVelocityBridge(Node):
         self.declare_parameter("rpc_timeout_sec", 0.6)
         self.declare_parameter("teach_flag_path", "/tmp/arachne_aubo_teach_mode")
         self.declare_parameter("command_watchdog_sec", 0.16)
-        self.declare_parameter("send_period_sec", 0.04)
-        self.declare_parameter("gate_settle_sec", 0.08)
+        self.declare_parameter("send_period_sec", 0.20)
+        self.declare_parameter("gate_settle_sec", 0.20)
+        self.declare_parameter("command_start_delay_sec", 0.06)
         self.declare_parameter("max_joint_speed_rad_sec", 0.25)
+        self.declare_parameter("velocity_change_epsilon_rad_sec", 0.025)
         self.declare_parameter("speed_joint_accel_rad_sec2", 2.0)
-        self.declare_parameter("speed_joint_time_sec", 0.04)
+        self.declare_parameter("speed_joint_time_sec", 100.0)
         self.declare_parameter("stop_joint_accel_rad_sec2", 8.0)
+        self.declare_parameter("busy_retry_delay_sec", 0.08)
         self.declare_parameter("zero_epsilon_rad_sec", 1.0e-4)
 
         self.status_pub = self.create_publisher(String, "/arachne/hardware/aubo_status", 10)
@@ -287,6 +290,8 @@ class AuboSdkVelocityBridge(Node):
 
         self.rpc: AuboDirectJsonRpc | None = None
         self.target_velocity: list[float] | None = None
+        self.commanded_velocity: list[float] | None = None
+        self.first_nonzero_command_stamp = 0.0
         self.last_command_stamp = 0.0
         self.last_send_stamp = 0.0
         self.active = False
@@ -308,10 +313,14 @@ class AuboSdkVelocityBridge(Node):
         if velocity is None:
             return
         now = time.monotonic()
+        previous = self.target_velocity
         self.target_velocity = velocity
         self.last_command_stamp = now
         if self._is_zero_velocity(velocity):
+            self.first_nonzero_command_stamp = 0.0
             self._stop_velocity("zero command")
+        elif previous is None or self._is_zero_velocity(previous):
+            self.first_nonzero_command_stamp = now
 
     def _tick(self) -> None:
         velocity = self.target_velocity
@@ -327,13 +336,34 @@ class AuboSdkVelocityBridge(Node):
         if self._is_zero_velocity(velocity):
             return
 
+        start_delay = max(float(self.get_parameter("command_start_delay_sec").value), 0.0)
+        if (
+            not self.active
+            and start_delay > 0.0
+            and self.first_nonzero_command_stamp > 0.0
+            and now - self.first_nonzero_command_stamp < start_delay
+        ):
+            return
+
+        if self.commanded_velocity is not None and not self._velocity_changed_enough(
+            velocity, self.commanded_velocity
+        ):
+            return
+
         period = max(float(self.get_parameter("send_period_sec").value), 0.01)
         if now - self.last_send_stamp < period:
             return
         if not self._ensure_active():
             return
-        self._send_speed_joint(velocity)
-        self.last_send_stamp = now
+        if self.commanded_velocity is not None:
+            self._call_stop_joint("target update")
+            self.commanded_velocity = None
+            retry_delay = max(float(self.get_parameter("busy_retry_delay_sec").value), 0.0)
+            if retry_delay > 0.0:
+                time.sleep(retry_delay)
+        if self._send_speed_joint(velocity):
+            self.commanded_velocity = list(velocity)
+            self.last_send_stamp = time.monotonic()
 
     def _validated_velocity(self, values: list[float]) -> list[float] | None:
         if len(values) != 6:
@@ -352,6 +382,15 @@ class AuboSdkVelocityBridge(Node):
         epsilon = max(float(self.get_parameter("zero_epsilon_rad_sec").value), 0.0)
         return all(abs(value) <= epsilon for value in values)
 
+    def _velocity_changed_enough(self, target: list[float], commanded: list[float]) -> bool:
+        epsilon = max(float(self.get_parameter("velocity_change_epsilon_rad_sec").value), 0.0)
+        for target_value, commanded_value in zip(target, commanded):
+            if target_value * commanded_value < 0.0:
+                return True
+            if abs(target_value - commanded_value) >= epsilon:
+                return True
+        return False
+
     def _ensure_active(self) -> bool:
         if self.active:
             return True
@@ -362,6 +401,10 @@ class AuboSdkVelocityBridge(Node):
         if settle > 0.0:
             time.sleep(settle)
         self._exit_servo_mode()
+        self._call_stop_joint("pre-speed cleanup", throttle_status=True)
+        retry_delay = max(float(self.get_parameter("busy_retry_delay_sec").value), 0.0)
+        if retry_delay > 0.0:
+            time.sleep(retry_delay)
         self.active = True
         self._publish_status("aubo sdk velocity active")
         return True
@@ -381,7 +424,7 @@ class AuboSdkVelocityBridge(Node):
             )
         return ready
 
-    def _send_speed_joint(self, velocity: list[float]) -> None:
+    def _send_speed_joint(self, velocity: list[float]) -> bool:
         accel = max(float(self.get_parameter("speed_joint_accel_rad_sec2").value), 0.05)
         duration = max(float(self.get_parameter("speed_joint_time_sec").value), 0.005)
         try:
@@ -390,9 +433,53 @@ class AuboSdkVelocityBridge(Node):
             self._publish_status(f"aubo sdk speedJoint failed: {exc}", warn=True)
             self._close_rpc()
             self._stop_velocity("speedJoint failure", close_rpc=False)
-            return
-        if result not in (0, None):
-            self._publish_status_throttled(f"aubo sdk speedJoint result={result}", warn=True)
+            return False
+        if result in (0, None):
+            return True
+        if result == 3:
+            self._publish_status_throttled(
+                "aubo sdk speedJoint busy; stopping previous motion and retrying",
+                warn=True,
+            )
+            self._call_stop_joint("speedJoint busy preempt", throttle_status=True)
+            retry_delay = max(float(self.get_parameter("busy_retry_delay_sec").value), 0.0)
+            if retry_delay > 0.0:
+                time.sleep(retry_delay)
+            try:
+                retry_result = self._robot_call(
+                    "MotionControl.speedJoint", [velocity, accel, duration]
+                )
+            except Exception as exc:
+                self._publish_status(f"aubo sdk speedJoint retry failed: {exc}", warn=True)
+                self._close_rpc()
+                self._stop_velocity("speedJoint retry failure", close_rpc=False)
+                return False
+            if retry_result in (0, None):
+                return True
+            self._publish_status_throttled(
+                f"aubo sdk speedJoint retry result={retry_result}",
+                warn=True,
+            )
+            return False
+        self._publish_status_throttled(f"aubo sdk speedJoint result={result}", warn=True)
+        return False
+
+    def _call_stop_joint(self, reason: str, *, throttle_status: bool = False) -> None:
+        accel = max(float(self.get_parameter("stop_joint_accel_rad_sec2").value), 0.05)
+        try:
+            result = self._robot_call("MotionControl.stopJoint", [accel])
+            if result not in (0, None):
+                text = f"aubo sdk stopJoint result={result} during {reason}"
+                if throttle_status:
+                    self._publish_status_throttled(text, warn=True)
+                else:
+                    self._publish_status(text, warn=True)
+        except Exception as exc:
+            text = f"aubo sdk stopJoint failed during {reason}: {exc}"
+            if throttle_status:
+                self._publish_status_throttled(text, warn=True)
+            else:
+                self._publish_status(text, warn=True)
 
     def _stop_velocity(self, reason: str, *, close_rpc: bool = True) -> None:
         if not self.active:
@@ -400,16 +487,15 @@ class AuboSdkVelocityBridge(Node):
                 self._set_gate(False)
             if close_rpc:
                 self._close_rpc()
+            self.commanded_velocity = None
+            self.first_nonzero_command_stamp = 0.0
             return
         try:
-            accel = max(float(self.get_parameter("stop_joint_accel_rad_sec2").value), 0.05)
-            result = self._robot_call("MotionControl.stopJoint", [accel])
-            if result not in (0, None):
-                self._publish_status(f"aubo sdk stopJoint result={result}", warn=True)
-        except Exception as exc:
-            self._publish_status(f"aubo sdk stopJoint failed during {reason}: {exc}", warn=True)
+            self._call_stop_joint(reason)
         finally:
             self.active = False
+            self.commanded_velocity = None
+            self.first_nonzero_command_stamp = 0.0
             self.last_send_stamp = 0.0
             if self.gate_owned:
                 self._set_gate(False)
