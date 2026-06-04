@@ -10,9 +10,9 @@
 ![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04%20%7C%2022.04-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-Arachne 是一个面向移动操作机器人的 ROS 2 workspace。默认机器人由 Scout 2.0 移动底盘、Aubo i5 机械臂和易爪机器人 MS42DC 二指柔性伺服电机夹爪组成；AG95 作为可切换夹爪模型保留。
+Arachne 是一个面向深度强化学习联合控制的移动操作机器人 ROS 2 workspace。默认硬件由 Scout 2.0 移动底盘、Aubo i5 机械臂、MS42DC 二指柔性伺服电机夹爪、Gemini335 RGB-D 相机、镭神智能 C16 雷达、车头吊篮和后置传感器架组成；AG95 作为可切换夹爪模型保留。
 
-项目目标是提供一套可复现的研发基线：统一机器人模型、RViz/Gazebo/Godot 演示、MoveIt2/Nav2/ros2_control 起步配置，以及面向真机的 ROS 接口。
+项目最终目标是形成一台能在真实场景中执行精密装配、测量和移动操作任务的联合控制小车：底盘、机械臂、夹具和视觉/雷达传感器共享状态表示，在安全约束内由传统控制、示教数据、视觉感知和深度强化学习策略逐步融合。当前 `jetson` 路线优先打牢真机流式控制、感知数据采集、可视化示教、数字孪生和边缘推理链路；早期任务线包括垃圾识别拾取入篮，以及充电枪识别、对准、拔出和插入。
 
 <table>
   <tr>
@@ -23,11 +23,12 @@ Arachne 是一个面向移动操作机器人的 ROS 2 workspace。默认机器�
 
 ## 特性
 
-- 统一 URDF/Xacro：Scout 2.0、Aubo i5、MS42DC、AG95、传感器和安装坐标系位于同一 TF 树。
-- 可切换夹爪：MS42DC 使用项目作者手动拆分的可动 CAD 部件；AG95 保留为开源对照模型。
-- 仿真与展示：RViz 模型检查、Gazebo 手柄 demo、自主拾取验证，以及 Godot 高帧率展示前端。
-- 控制骨架：MoveIt2、Nav2、ros2_control、sequence executor 和 VLA/WAM action chunk translator。
-- 真机接口：Scout 2.0、MS42DC、Aubo i5 均通过 ROS 话题、launch 和安全检查脚本接入。
+- 统一数字孪生：Scout 2.0、Aubo i5、MS42DC、AG95、Gemini335、镭神智能 C16、后置架和车头吊篮位于同一 TF/URDF 树。
+- 真机流式控制：底盘长按控制、Aubo SDK 速度控制、MS42DC 串口控制、Aubo 远程上电/启动和载荷配置均固化为脚本化流程。
+- 感知与边缘推理：Gemini335 RGB-D 采集、镭神智能 C16 环境感知、YOLO26/TensorRT 工作区、实时标注窗口和 INT8 校准目录已独立组织。
+- 示教与数据闭环：窗口化示教面板支持 home/install 位姿、本地配置、长按控制、示教记录和回放，为后续 imitation/RL 数据采集服务。
+- 仿真与展示：RViz 模型检查、Gazebo 验证环境、Godot 高帧率展示前端，以及后续强化学习仿真接口。
+- 控制骨架：MoveIt2、Nav2、ros2_control、sequence executor、VLA/WAM action chunk translator 和未来 DRL policy 节点共存。
 
 ## 快速启动
 
@@ -37,36 +38,49 @@ Arachne 是一个面向移动操作机器人的 ROS 2 workspace。默认机器�
 git clone https://github.com/zay002/Arachne.git
 cd Arachne
 
-./scripts/setup_ubuntu.sh
-./scripts/fetch_third_party.sh
+./scripts/build/setup_ubuntu.sh
+./scripts/hardware/fetch_third_party.sh
 
-source scripts/arachne_env.sh
-./scripts/build_workspace.sh
-./scripts/view_model.sh
+source scripts/env/arachne_env.sh
+./scripts/build/build_workspace.sh
+./scripts/model/view_model.sh
 ```
 
-部分第三方模型、驱动和 SDK 会由脚本按固定版本下载，并在本地应用 Arachne 当前硬件组合所需的适配补丁；这些上游仓库不会整体提交到本仓库。如果复现时遇到上游版本、网络下载、平台差异或补丁应用问题，欢迎在 GitHub Issue 中说明环境和日志。
+仓库随附可直接运行的第三方最小集合：Aubo i5 必要模型、Scout ROS2、UGV SDK 源码、Aubo ROS2 driver、AG95 描述和 MS42DC ROS2 示例。大型资料如完整 Aubo 全系列模型、厂家视频/安装包、UGV 大 PDF、Godot 外部素材包仍由脚本或链接下载。`fetch_third_party.sh` 默认复用随仓库携带的内容并建立符号链接；如需重新拉取固定版本完整上游，可运行 `ARACHNE_REFRESH_THIRD_PARTY=true ./scripts/hardware/fetch_third_party.sh`。
 
 `arachne_env.sh` 会把当前 shell 固定到 ROS 使用的系统 Python，例如 Ubuntu 24.04 + Jazzy 下的 `/usr/bin/python3.12`，避免 conda/pyenv 的 Python 3.13 抢走 ROS Python 模块。
 
 `view_model.sh` 会启动默认 MS42DC 模型、底盘遥控 GUI、Aubo 关节滑条和夹爪 Open/Close 控制窗。
 
+推荐始终通过 `./scripts/model/view_model.sh` 查看模型；脚本会自动加载 ROS 和 workspace 环境。若手动运行 `ros2 launch` 或直接打开 RViz，必须先执行：
+
+```bash
+source scripts/env/arachne_env.sh
+source install/setup.bash
+```
+
+否则 RViz 的 `package://...` mesh 路径可能解析失败，表现为白模、部件堆叠或材质丢失。
+
 ## 常用入口
 
 | 目标 | 命令 |
 | --- | --- |
-| 查看默认 MS42DC 模型 | `./scripts/view_model.sh` |
-| 查看 AG95 模型 | `./scripts/use_gripper.sh ag95 view` |
-| 检查 URDF 和基础接口 | `./scripts/check_workspace.sh` |
-| Gazebo 手柄 demo | `./scripts/switch_demo.sh` |
-| Gazebo 自主拾取验证 | `./scripts/gazebo_autopick_demo.sh` |
-| Godot 展示前端 | `./scripts/godot_showcase.sh` |
-| 真机环境检查 | `./scripts/check_real_hardware_env.sh` |
-| Aubo 只读连通探测 | `./scripts/real_aubo_probe.sh` |
-| Aubo 启动状态确认 | `./scripts/real_aubo_prepare.sh` |
-| Aubo 真机 driver 启动 | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh` |
-| Aubo 阻塞远程启动 | `ARACHNE_CONFIRM_AUBO_REMOTE_START=YES ./scripts/real_aubo_remote_start.sh` |
-| Aubo 小幅 Z 向测试 | `ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh` |
+| 查看默认 MS42DC 模型 | `./scripts/model/view_model.sh` |
+| 查看 AG95 模型 | `./scripts/model/use_gripper.sh ag95 view` |
+| 检查 URDF 和基础接口 | `./scripts/build/check_workspace.sh` |
+| Gazebo 手柄 demo | `./scripts/sim/switch_demo.sh` |
+| Gazebo 自主拾取验证 | `./scripts/sim/gazebo_autopick_demo.sh` |
+| Godot 展示前端 | `./scripts/godot/godot_showcase.sh` |
+| Gemini335 YOLO 实时标注 | `./scripts/vision/gemini_yolo_live.sh` |
+| 真机环境检查 | `./scripts/hardware/check_real_hardware_env.sh` |
+| 真机一键 bringup | `./scripts/hardware/real_bringup.sh` |
+| 真机示教演示 | `./scripts/hardware/real_teach_demo.sh` |
+| Aubo 只读连通探测 | `./scripts/hardware/real_aubo_probe.sh` |
+| Aubo 启动状态确认 | `./scripts/hardware/real_aubo_prepare.sh` |
+| Aubo 真机 driver 启动 | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/hardware/real_aubo_bringup.sh` |
+| Aubo 阻塞远程启动 | `ARACHNE_CONFIRM_AUBO_REMOTE_START=YES ./scripts/hardware/real_aubo_remote_start.sh` |
+| Aubo 小幅 Z 向测试 | `ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_aubo_z_test.sh` |
+| 真机示教与回放面板 | `./scripts/operator/teach_panel.sh` |
 
 <p align="center">
   <img src="docs/demo/gazebo.png" alt="Arachne Gazebo demo" width="48%">
@@ -82,13 +96,15 @@ Arachne 的真机层尽量复用官方或厂家 ROS 路线，并在本仓库内�
 | Scout 2.0 | `scout_waveshare_serial_driver` | `/cmd_vel` 到 Scout v2 CAN 帧；Waveshare USB-CAN-A，CH340 串口，默认 `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0` |
 | MS42DC | `ms42dc_direct_serial_driver` | `/arachne/gripper/command` 到 Type-C 串口帧；夹具控制板为 CH91xx/CH343 系列，当前实机按 CH9012 路线处理，推荐别名 `/dev/motor_serial` |
 | Aubo i5 | `AuboRobot/aubo_ros2_driver` | TCP/IP + ros2_control，按机器人 IP 启动 |
+| Gemini335 | `arachne_sensors` | 末端 RGB-D 相机，用于目标检测、深度 ROI、抓取位姿估计和示教观测 |
+| 镭神智能 C16 | `arachne_description` / 后续雷达驱动 | 后置架雷达模型已纳入 TF 树，后续用于障碍感知、定位辅助和移动操作安全约束 |
 
 准备真机相关 ROS 包：
 
 ```bash
-./scripts/prepare_real_hardware_ros.sh
-./scripts/real_aubo_probe.sh
-./scripts/real_aubo_prepare.sh
+./scripts/hardware/prepare_real_hardware_ros.sh
+./scripts/hardware/real_aubo_probe.sh
+./scripts/hardware/real_aubo_prepare.sh
 ```
 
 Aubo 推荐优先在示教器/控制柜上完成“连接 -> 上电 -> 启动”。如果需要从 ROS 侧远程启动，只使用阻塞式脚本：它会先确认 controller active、读取当前关节角并发送 hold-position，再按“上电 -> Aubo `RobotManage.startup` 完整启动 -> Running 后稳定与保持校验”的顺序执行。脚本不会直接调用 `releaseRobotBrake`；任何保护状态、超时或 controller 异常都会退出。
@@ -97,25 +113,19 @@ Aubo 推荐优先在示教器/控制柜上完成“连接 -> 上电 -> 启动”
 
 ```bash
 # 终端 1：启动 driver，并允许上电前激活 controller
-ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/real_aubo_bringup.sh
+ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/hardware/real_aubo_bringup.sh
 
 # 终端 2：执行阻塞式远程启动状态机
-ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/real_aubo_remote_start.sh
+ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/hardware/real_aubo_remote_start.sh
 ```
 
-按已连接设备启动：
+日常真机启动优先使用自动入口。脚本会自动选择 Scout 和 MS42DC 的 `/dev/serial/by-id` 串口，检查 Aubo 是否处于 Running / Normal，然后启动完整 bringup：
 
 ```bash
-ros2 launch arachne_hardware real_bringup.launch.py \
-  use_scout:=true \
-  scout_driver:=waveshare \
-  scout_port:=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
-  use_ms42dc:=true \
-  ms42dc_port:=/dev/motor_serial \
-  use_aubo:=false
+./scripts/hardware/real_bringup.sh
 ```
 
-WSL2 用户推荐使用 [hurry-porter](https://github.com/zay002/hurry-porter) 辅助 USB 透传、串口扫描和 Waveshare USB-CAN-A 诊断。
+WSL2 用户推荐使用 [hurry-porter](https://github.com/zay002/hurry-porter) 辅助 USB 透传、串口扫描和 Waveshare USB-CAN-A 诊断。`real_bringup.sh` 找不到串口时会先尝试自动 attach CH9102/CH340 设备；如果 Windows 侧还没有共享设备，再按脚本提示手动 attach。
 
 ```bash
 hurry scan
@@ -129,24 +139,40 @@ hurry waveshare-can-a recv \
 真机运动测试默认 dry-run。确认电源、急停和空间安全后再显式允许运动：
 
 ```bash
-./scripts/real_hardware_acceptance_test.sh
-./scripts/real_aubo_z_test.sh
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
+./scripts/hardware/real_hardware_acceptance_test.sh
+./scripts/hardware/real_aubo_z_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test.sh
 ```
+
+示教演示可直接一键启动：
+
+```bash
+./scripts/hardware/real_teach_demo.sh
+```
+
+它会启动真机 bringup，等待 `/odom`、`/joint_states`、Aubo trajectory action 和夹具状态可用后打开示教面板；关闭面板时会自动停止 bringup。面板可以手动控制底盘、Aubo 末端和 MS42DC，支持 Aubo Teach On/Off、RX/RY/RZ 腕部微调、底盘长按松开后自动记录相对移动段、等待步骤、单点更新和 waypoint 复用，并将记录保存到本地 `recordings/teach/` 后一键回放。
 
 ## 项目结构
 
 | 路径 | 内容 |
 | --- | --- |
 | `src/arachne_description` | 统一机器人模型、RViz 配置、夹爪变体和传感器坐标系 |
+| `src/arachne_sensors` | Gemini335 RGB-D 相机节点、C16 雷达接入预留和传感器 launch |
 | `src/arachne_demo` | Switch Pro 手柄、Gazebo 展厅、自主拾取验证 |
 | `src/arachne_hardware` | 真机 bringup、Scout/MS42DC wrapper、安全状态和命令门控 |
 | `src/arachne_control` | ros2_control 控制器命名、mock 控制器和硬件 profile |
 | `src/arachne_moveit_config` | Aubo i5 + MS42DC/AG95 的 MoveIt2 起步配置 |
 | `src/arachne_nav` | Scout Nav2 起步配置 |
 | `src/arachne_operator` | 操作员面板、sequence executor、VLA/WAM action chunk translator |
+| `scripts/env` / `scripts/build` | ROS 环境和 colcon 构建入口 |
+| `scripts/hardware` / `scripts/operator` | 真机 bringup、验收、Aubo 辅助脚本和示教入口 |
+| `scripts/vision` | Gemini335、YOLO26、TensorRT、INT8 校准和实时检测入口 |
+| `scripts/model` / `scripts/sim` / `scripts/godot` | 模型检查、仿真演示和 Godot 展示脚本 |
+| `yolo_workspace` | YOLO 专用 venv、权重、engine、数据集和校准图片目录 |
 | `godot/arachne_showcase` | Godot 4.x 第三人称展示前端 |
 | `docs` | 建模、控制、硬件、标定和参考资料 |
+
+`scripts/` 根目录不再放置旧式兼容脚本；请直接使用分类路径，例如 `./scripts/hardware/real_full_teach.sh` 和 `source scripts/env/arachne_env.sh`。
 
 ## 文档
 
@@ -160,11 +186,12 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
 
 ## Roadmap
 
-- 完成 Aubo i5 真机 TCP/IP 与 ros2_control 验证。
-- 将 Scout、Aubo、MS42DC 的联合 bringup 固化为安全流程。
-- 用 MoveIt2 和 ros2_control 替换 Gazebo 自主拾取验证中的轻量规划器。
-- 基于真实里程计、定位和传感器继续完善 Nav2。
-- 将 Godot 前端通过 ROS 2 bridge 连接到真实或仿真后端。
+- **真机可靠性层**：继续稳定 Scout、Aubo、MS42DC、Gemini335 和镭神智能 C16 的一键 bringup、远程上电、载荷配置、流式速度控制和安全停止。
+- **感知与数据层**：采集 Gemini335 RGB-D 与 C16 雷达数据，微调 YOLO26 垃圾/工件/充电枪检测模型，建立 INT8 TensorRT 推理、深度 ROI 定位和本地数据集闭环。
+- **静态操作任务**：在底盘静止时并行推进两条任务线：垃圾识别、抓取、放入车头吊篮；充电枪识别、精密对准、拔出和插入。随后扩展到工件识别、测量点定位和简单装配位姿生成。
+- **移动操作任务**：将底盘定位、机械臂可达性、车体姿态、视觉观测和 C16 环境信息统一到任务状态，做移动后停车、观察、抓取、充电枪拔插和测量的闭环流程。
+- **深度强化学习联合控制**：在仿真和真实示教数据上训练底盘-机械臂-夹具联合策略，优先覆盖精密对位、充电枪拔插、装配和测量任务，再逐步迁移到真机。
+- **评测与安全**：建立任务成功率、轨迹平滑度、定位误差、接触力/抖动、安全区违规和恢复策略等指标，形成可重复验收流程。
 
 ## License
 

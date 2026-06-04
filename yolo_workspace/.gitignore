@@ -1,0 +1,15 @@
+*
+!.gitignore
+!README.md
+!configs/
+!configs/**
+!datasets/
+!datasets/.gitkeep
+!calibration/
+!calibration/.gitkeep
+!weights/
+!weights/.gitkeep
+!engines/
+!engines/.gitkeep
+!runs/
+!runs/.gitkeep

@@ -42,8 +42,8 @@
 
 ```bash
 cd /home/jetson/zhaoyang/Arachne
-source scripts/arachne_env.sh
-./scripts/real_full_teach.sh --yes
+source scripts/env/arachne_env.sh
+./scripts/hardware/real_full_teach.sh --yes
 ```
 
 当前默认会：
@@ -60,7 +60,7 @@ source scripts/arachne_env.sh
 只读状态检查：
 
 ```bash
-python3 scripts/real_aubo_probe.py --ip 192.168.127.128 --timeout 1.0
+python3 scripts/hardware/real_aubo_probe.py --ip 192.168.127.128 --timeout 1.0
 ```
 
 确认 SDK 桥是否启动：

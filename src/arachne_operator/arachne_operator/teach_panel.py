@@ -2328,7 +2328,7 @@ class TeachPanelApp:
 
         payload = ttk.LabelFrame(tab, text="Aubo Payload")
         payload.grid(row=3, column=0, sticky="ew", pady=(10, 0))
-        ttk.Label(payload, text="Startup payload is configured by scripts/real_full_teach.sh.").grid(
+        ttk.Label(payload, text="Startup payload is configured by scripts/hardware/real_full_teach.sh.").grid(
             row=0, column=0, sticky="w", padx=6, pady=4
         )
         ttk.Label(payload, text="Measured payload: 0.818kg, CoG 39.927/45.067/143.233 mm.").grid(

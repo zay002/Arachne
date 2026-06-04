@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck disable=SC1091
+source "${ROOT_DIR}/scripts/env/ros_env.sh"
+
+AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
+AUBO_TYPE="${AUBO_TYPE:-aubo_i5}"
+AUBO_CONTROL_CPUSET="${AUBO_CONTROL_CPUSET-3}"
+AUBO_CONTROL_PREFIX="${AUBO_CONTROL_PREFIX:-}"
+AUBO_TEACH_FLAG_PATH="${AUBO_TEACH_FLAG_PATH:-/tmp/arachne_aubo_teach_mode}"
+AUBO_KEEP_TEACH_FLAG="${AUBO_KEEP_TEACH_FLAG:-false}"
+
+if [[ "${ARACHNE_CONFIRM_AUBO_DRIVER:-}" != "YES" ]]; then
+  cat <<EOF
+Refusing to start the real Aubo ROS2 driver without confirmation.
+
+The Aubo driver is a real-hardware control mode. In normal mode it requires the
+arm to already be Running. For remote startup, use ARACHNE_AUBO_ALLOW_PRESTART=YES
+so the driver can start controllers and hold measured joint positions before
+the RobotManage.startup lifecycle step.
+
+Before running:
+  1. Confirm the robot workspace is clear.
+  2. Keep the emergency stop or power cut within reach.
+  3. Either complete connect -> power on -> start on the teach pendant/control cabinet,
+     or use the guarded remote startup flow in ./scripts/hardware/real_aubo_remote_start.sh.
+  4. Confirm RobotMode/SafetyMode using ./scripts/hardware/real_aubo_prepare.sh.
+
+Start driver:
+  ARACHNE_CONFIRM_AUBO_DRIVER=YES AUBO_ROBOT_IP=${AUBO_ROBOT_IP} ./scripts/hardware/real_aubo_bringup.sh
+
+Remote-start driver terminal:
+  ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES AUBO_ROBOT_IP=${AUBO_ROBOT_IP} ./scripts/hardware/real_aubo_bringup.sh
+
+Optional official model override:
+  AUBO_TYPE=${AUBO_TYPE}
+EOF
+  exit 2
+fi
+
+arachne_require_ros_distro
+
+set +u
+# shellcheck disable=SC1091
+source "${ROOT_DIR}/scripts/env/arachne_env.sh"
+set -u
+
+arachne_source_workspace_setup \
+  "${ROOT_DIR}" \
+  "Workspace is not built yet. Build aubo_ros2_driver and arachne_hardware first."
+
+if [[ "${ARACHNE_AUBO_ALLOW_PRESTART:-}" == "YES" ]]; then
+  "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/hardware/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}" --allow-not-running
+else
+  "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/hardware/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}"
+fi
+
+if [[ "${AUBO_KEEP_TEACH_FLAG}" != "true" ]]; then
+  rm -f "${AUBO_TEACH_FLAG_PATH}"
+fi
+
+if [[ -z "${AUBO_CONTROL_PREFIX}" && -n "${AUBO_CONTROL_CPUSET}" ]]; then
+  if command -v taskset >/dev/null 2>&1; then
+    AUBO_CONTROL_PREFIX="taskset -c ${AUBO_CONTROL_CPUSET}"
+  else
+    echo "Warning: taskset not found; Aubo control CPU pinning disabled." >&2
+  fi
+fi
+
+echo "Aubo control prefix: ${AUBO_CONTROL_PREFIX:-none}"
+
+LAUNCH_ARGS=(
+  use_scout:=false
+  use_ms42dc:=false
+  use_aubo:=true
+  aubo_robot_ip:="${AUBO_ROBOT_IP}"
+  aubo_type:="${AUBO_TYPE}"
+)
+if [[ -n "${AUBO_CONTROL_PREFIX}" ]]; then
+  LAUNCH_ARGS+=(aubo_control_prefix:="${AUBO_CONTROL_PREFIX}")
+fi
+
+exec ros2 launch arachne_hardware real_bringup.launch.py \
+  "${LAUNCH_ARGS[@]}" \
+  "$@"

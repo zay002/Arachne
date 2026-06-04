@@ -25,4 +25,4 @@ ms42dc_right_finger_joint: -1.0 to 0.0 rad, axis 0 0 -1, mimic left with multipl
 default simulated close target: 0.6 rad
 ```
 
-After RViz inspection, the hinge axis was confirmed as the CAD Z axis, the visual closing direction was corrected with `0 0 -1`, and `0.6 rad` was selected as the current default close target. If the physical gripper or CAD split changes later, tune the close target with `gripper_closed_position:=...` or `GRIPPER_CLOSED_POSITION=... ./scripts/view_model.sh`.
+After RViz inspection, the hinge axis was confirmed as the CAD Z axis, the visual closing direction was corrected with `0 0 -1`, and `0.6 rad` was selected as the current default close target. If the physical gripper or CAD split changes later, tune the close target with `gripper_closed_position:=...` or `GRIPPER_CLOSED_POSITION=... ./scripts/model/view_model.sh`.

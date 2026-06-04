@@ -16,8 +16,8 @@ def _package_launch(package_name: str, *relative: str) -> PythonLaunchDescriptio
         package_share = Path(get_package_share_directory(package_name))
     except PackageNotFoundError as exc:
         raise RuntimeError(
-            f"Missing ROS2 package `{package_name}`. Run scripts/fetch_third_party.sh "
-            "and scripts/prepare_ms42dc_ros2.sh, then rebuild the workspace."
+            f"Missing ROS2 package `{package_name}`. Run scripts/hardware/fetch_third_party.sh "
+            "and scripts/hardware/prepare_ms42dc_ros2.sh, then rebuild the workspace."
         ) from exc
     return PythonLaunchDescriptionSource(str(package_share.joinpath(*relative)))
 

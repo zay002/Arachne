@@ -9,7 +9,7 @@
 启动常规组合仿真：
 
 ```bash
-./scripts/view_model.sh
+./scripts/model/view_model.sh
 ```
 
 `Arachne Base` GUI 提供 Forward、Back、Left、Right 和 Stop，并向 `/cmd_vel` 发布 `geometry_msgs/msg/Twist`。终端也使用同一个话题控制：
@@ -71,9 +71,9 @@ ros2 launch arachne_description display.launch.py \
 日常工作建议使用统一夹具切换入口：
 
 ```bash
-./scripts/use_gripper.sh ms42dc view
-./scripts/use_gripper.sh ag95 view
-./scripts/use_gripper.sh ms42dc prehardware launch_rviz:=false
+./scripts/model/use_gripper.sh ms42dc view
+./scripts/model/use_gripper.sh ag95 view
+./scripts/model/use_gripper.sh ms42dc prehardware launch_rviz:=false
 ```
 
 MS42DC 使用 `third_party/MS42DC_SPLIT` 中由项目作者手动拆分的真实夹指 mesh。铰链轴为 CAD Z 轴，URDF 轴为 `0 0 -1`，右指以 multiplier `-1.0` mimic 左指，默认闭合角为 `0.6 rad`。Gazebo 会禁用 URDF mimic 标签，因为当前物理引擎不创建 mimic 约束；demo 会显式向左右夹指位置控制器发送镜像命令。
@@ -87,7 +87,7 @@ ros2 launch arachne_description display.launch.py gripper_type:=ms42dc use_gui:=
 通过 helper 脚本禁用夹爪 simulator，让 joint-state GUI 直接控制 mimic 关节：
 
 ```bash
-WITH_GRIPPER_SIM=false WITH_GRIPPER_GUI=false ./scripts/view_model.sh
+WITH_GRIPPER_SIM=false WITH_GRIPPER_GUI=false ./scripts/model/view_model.sh
 ```
 
 机械臂滑条和夹爪服务一起启动：
@@ -112,13 +112,13 @@ ros2 launch arachne_description display.launch.py \
 准备包链接：
 
 ```bash
-./scripts/prepare_real_hardware_ros.sh
+./scripts/hardware/prepare_real_hardware_ros.sh
 ```
 
 运动测试前检查原生 Linux 或 WSL2 的硬件可见性：
 
 ```bash
-./scripts/check_real_hardware_env.sh
+./scripts/hardware/check_real_hardware_env.sh
 ```
 
 检查内容包括 ROS 环境、vendor 包链接、MS42DC 串口候选、Scout USB-CAN-A 或 SocketCAN 状态和 Aubo TCP 可达性。在 WSL2 下，USB 串口和 USB-CAN 适配器必须先通过 `usbipd-win` 从 Windows 透传进来，Linux 内才会出现 `/dev/ttyUSB*`、`/dev/ttyACM*` 或 `/dev/ttyCH*`。[hurry-porter](https://github.com/zay002/hurry-porter) 推荐用于 USB 透传排查，以及 `hurry waveshare-can-a` 快速诊断。
@@ -126,7 +126,7 @@ ros2 launch arachne_description display.launch.py \
 构建核心 bringup 包：
 
 ```bash
-source scripts/arachne_env.sh
+source scripts/env/arachne_env.sh
 colcon build --base-paths src --packages-select \
   ugv_sdk scout_msgs scout_base serial step_motor arachne_hardware \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
@@ -135,13 +135,13 @@ colcon build --base-paths src --packages-select \
 如果当前 shell 里 `python3` 来自 conda/pyenv，先运行：
 
 ```bash
-source scripts/arachne_env.sh
+source scripts/env/arachne_env.sh
 ```
 
 该脚本会把当前项目会话固定到 ROS 兼容的系统 Python，并清理 conda/pyenv 注入的 Python 路径。完整 workspace 可直接用：
 
 ```bash
-./scripts/build_workspace.sh
+./scripts/build/build_workspace.sh
 ```
 
 启动部分或完整真机会话：
@@ -184,7 +184,7 @@ ros2 launch arachne_hardware real_bringup.launch.py \
 运行仓库级检查：
 
 ```bash
-./scripts/check_workspace.sh
+./scripts/build/check_workspace.sh
 ```
 
 启动未接真机时的联合控制环境：
@@ -218,7 +218,7 @@ ros2 launch arachne_operator sequence_executor.launch.py
 启动前先启动仿真或真机 bringup，再打开面板：
 
 ```bash
-./scripts/teach_panel.sh
+./scripts/operator/teach_panel.sh
 ```
 
 示教器 launch 默认同时启动安全的 RViz 整机可视化：它只订阅当前 `/joint_states` 并自动把真机 Aubo 关节名适配到 Arachne 整机 URDF，不会发布假的 `/joint_states` 或控制命令。如果只想打开面板，可传入 `with_visualization:=false`；如果只想保留 TF/robot_state_publisher 而不打开 RViz，可传入 `visualization_with_rviz:=false`。
@@ -308,23 +308,23 @@ ros2 topic pub --once /arachne/vla/action_chunk std_msgs/msg/String \
 运行可玩的 Gazebo 展厅 demo：
 
 ```bash
-./scripts/switch_demo.sh
+./scripts/sim/switch_demo.sh
 ```
 
 WSL2 中，`switch_demo.sh` 会导出 Gazebo GUI 所需的 Mesa D3D12 设置，让渲染使用 Windows GPU 而不是 CPU `llvmpipe`。默认也会使用 OpenGL 后端和较轻的 `180 Hz` 物理更新率。可用环境变量调参：
 
 ```bash
-GZ_UPDATE_RATE=120 ./scripts/switch_demo.sh
-GZ_RENDER_BACKEND=opengl ./scripts/switch_demo.sh
-MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA ./scripts/switch_demo.sh
+GZ_UPDATE_RATE=120 ./scripts/sim/switch_demo.sh
+GZ_RENDER_BACKEND=opengl ./scripts/sim/switch_demo.sh
+MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA ./scripts/sim/switch_demo.sh
 ```
 
 输入后端选择：
 
 ```bash
-INPUT_BACKEND=auto ./scripts/switch_demo.sh
-INPUT_BACKEND=joy JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh
-INPUT_BACKEND=web ./scripts/switch_demo.sh
+INPUT_BACKEND=auto ./scripts/sim/switch_demo.sh
+INPUT_BACKEND=joy JOY_DEV=/dev/input/js1 ./scripts/sim/switch_demo.sh
+INPUT_BACKEND=web ./scripts/sim/switch_demo.sh
 ```
 
 Web 后端下，在浏览器打开 `http://127.0.0.1:8787` 并按一下 Switch Pro 按键。左摇杆按小车自身坐标控制 Scout：摇杆半径控制瞬时速度，纵向控制前进/后退，横向控制转向。右摇杆环绕 Gazebo 跟随相机。`B` / `A` 开闭夹爪；`ZL` + D-pad 上下移动当前选中的 Aubo 关节。`+` 或浏览器 `RESET` 按钮会重置底盘、机械臂、夹爪和 Gazebo demo 位姿。
@@ -332,27 +332,27 @@ Web 后端下，在浏览器打开 `http://127.0.0.1:8787` 并按一下 Switch P
 Switch Pro Web 桥默认使用 `forward_axis_multiplier=-1.0` 和 `lateral_axis_multiplier=1.0`。如果其他手柄轴方向相反，可运行：
 
 ```bash
-FORWARD_AXIS_SIGN=1.0 ./scripts/switch_demo.sh
-LATERAL_AXIS_SIGN=-1.0 ./scripts/switch_demo.sh
+FORWARD_AXIS_SIGN=1.0 ./scripts/sim/switch_demo.sh
+LATERAL_AXIS_SIGN=-1.0 ./scripts/sim/switch_demo.sh
 ```
 
 默认相机距离为 `2.0 m`，可调整：
 
 ```bash
-GAZEBO_CAMERA_DISTANCE=1.7 ./scripts/switch_demo.sh
+GAZEBO_CAMERA_DISTANCE=1.7 ./scripts/sim/switch_demo.sh
 ```
 
 轻量 RViz-only 视图：
 
 ```bash
-DEMO_MODE=rviz ./scripts/switch_demo.sh
+DEMO_MODE=rviz ./scripts/sim/switch_demo.sh
 ```
 
 当前 Gazebo 版本重点是单窗口宣传驾驶物理和真实 mesh 可视化。它使用较轻的物理步长、关闭阴影、平地展厅、Gazebo DiffDrive、Gazebo `/gz/odom`、高频 `/gui/track` 相机消息、demo Aubo 轨迹桥，以及显式 MS42DC 夹指位置控制器。完整机械臂和夹爪物理控制后续应迁移到 ros2_control 控制器。
 
 ## Gazebo 自主拾取验证
 
-`scripts/gazebo_autopick_demo.sh` 启动一个不含手动 Switch teleop 的 Gazebo-only 自治检查。`gazebo_autopick_demo.launch.py` 会生成同一个 Arachne 机器人，桥接 `/cmd_vel`、`/gz/odom` 和六个 Aubo 直连关节位置命令话题，启动 Gazebo demo 机械臂/夹爪桥，并运行 `gazebo_autopick_planner`。
+`scripts/sim/gazebo_autopick_demo.sh` 启动一个不含手动 Switch teleop 的 Gazebo-only 自治检查。`gazebo_autopick_demo.launch.py` 会生成同一个 Arachne 机器人，桥接 `/cmd_vel`、`/gz/odom` 和六个 Aubo 直连关节位置命令话题，启动 Gazebo demo 机械臂/夹爪桥，并运行 `gazebo_autopick_planner`。
 
 规划器使用已知 SDF 展厅布局作为确定性地图。它按 Scout footprint 膨胀桌子、标记物、箱子和台座障碍，持续刷新到地面目标靠近位姿的 2D A* 路线，平滑路径，并用“先转向再前进”的 pure-pursuit 控制底盘。到达后，它把车体朝向位于约 `(3.4, -2.35)` 的 `pick_bottle`，在 base frame 中计算 pre-grasp/grasp/lift 笛卡尔目标，用阻尼最小二乘 Jacobian 在线求解 Aubo 位置 IK，并同时发送到 `/arachne/gui_joint_states` 和 Gazebo 直连关节位置话题。MS42DC 开闭仍通过 `/arachne/gripper/command`。
 
@@ -362,7 +362,7 @@ DEMO_MODE=rviz ./scripts/switch_demo.sh
 
 `godot/arachne_showcase` 是单独的 Godot 4.x 前端，用于高帧率第三人称展示和遥控手感。它通过 `assets/vendor/` 下的生成链接加载现有 Scout、Aubo i5、MS42DC、AG95 和道具 mesh，并使用更大的平地办公室式初始地图、可碰撞 character-body 运动、比例 skid-steer 控制、可推动刚体道具、可拾取水瓶/小球、相机阻尼、视觉悬挂、机械臂/夹爪视觉插值，以及手动 Aubo 关节微调。
 
-WSL2 中，`scripts/godot_showcase.sh` 会强制 `GALLIUM_DRIVER=d3d12` 和 OpenGL compatibility renderer，因为 Vulkan 可能退回 CPU `llvmpipe`。脚本也会启动 `scripts/godot_gamepad_bridge.py`，为连接在 Windows 侧的手柄提供浏览器 Gamepad API 桥。原生 Linux 默认使用 Forward+ 和 Godot 原生 joystick 输入，除非显式设置 `GODOT_GAMEPAD_BRIDGE=true`。
+WSL2 中，`scripts/godot/godot_showcase.sh` 会强制 `GALLIUM_DRIVER=d3d12` 和 OpenGL compatibility renderer，因为 Vulkan 可能退回 CPU `llvmpipe`。脚本也会启动 `scripts/godot/godot_gamepad_bridge.py`，为连接在 Windows 侧的手柄提供浏览器 Gamepad API 桥。原生 Linux 默认使用 Forward+ 和 Godot 原生 joystick 输入，除非显式设置 `GODOT_GAMEPAD_BRIDGE=true`。
 
 Godot 的机器人视觉 mesh 链尽量复用 Gazebo/URDF 使用的同一批 Scout/Aubo/MS42DC 资源和相同安装/铰点常量。为了流畅性，Godot 仍使用简化碰撞代理和自己的办公室地图，因此它是展示层，不是权威接触模型。
 
@@ -381,4 +381,4 @@ Bridge 层目前是占位：
 
 默认 bridge 使用内存模式；当检测到 ROS2 环境时切换到 UDP 占位模式。这样展示前端可以无依赖运行，同时为后续 ROS2、WebSocket、Godot 原生 ROS2、MuJoCo 或其它物理后端保留稳定插入点。
 
-使用 `scripts/fetch_godot_assets.sh` 下载可选 CC0 办公室家具道具，然后用 `scripts/test_godot_showcase.sh` 运行 Godot headless 自测。测试会链接资产、加载场景、执行脚本路线、检查运动/相机/mesh/bridge 状态、验证可拾取目标搜索和 auto-pick drive/IK 生成，并在回归时返回非零。
+使用 `scripts/godot/fetch_godot_assets.sh` 下载可选 CC0 办公室家具道具，然后用 `scripts/godot/test_godot_showcase.sh` 运行 Godot headless 自测。测试会链接资产、加载场景、执行脚本路线、检查运动/相机/mesh/bridge 状态、验证可拾取目标搜索和 auto-pick drive/IK 生成，并在回归时返回非零。

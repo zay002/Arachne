@@ -46,15 +46,15 @@ ros2 launch arachne_hardware real_bringup.launch.py
 运动测试前先运行环境检查：
 
 ```bash
-./scripts/check_real_hardware_env.sh
-./scripts/real_aubo_probe.sh
+./scripts/hardware/check_real_hardware_env.sh
+./scripts/hardware/real_aubo_probe.sh
 ```
 
 单独测试 Aubo 时使用固定脚本。`real_aubo_bringup.sh` 会启动官方 ROS2 driver；由于这是实机控制模式，必须显式确认：
 
 ```bash
-./scripts/real_aubo_prepare.sh
-ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh
+./scripts/hardware/real_aubo_prepare.sh
+ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/hardware/real_aubo_bringup.sh
 ```
 
 推荐优先在示教器/控制柜上完成“连接 -> 上电 -> 启动”，再用 `real_aubo_prepare.sh` 做只读状态确认：`SafetyMode` 必须为 `Normal` 或 `ReducedMode`，`RobotMode` 必须为 `Running`。
@@ -67,17 +67,17 @@ ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh
 
 ```bash
 # 终端 1
-ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/real_aubo_bringup.sh
+ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/hardware/real_aubo_bringup.sh
 
 # 终端 2
-ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/real_aubo_remote_start.sh
+ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/hardware/real_aubo_remote_start.sh
 ```
 
 另一个终端运行小幅 Z 向测试。默认只 dry-run；真实运动需要确认：
 
 ```bash
-./scripts/real_aubo_z_test.sh
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh
+./scripts/hardware/real_aubo_z_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_aubo_z_test.sh
 ```
 
 ## 真机验收测试
@@ -100,21 +100,21 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh
 先做主机检查：
 
 ```bash
-./scripts/check_real_hardware_env.sh --strict
+./scripts/hardware/check_real_hardware_env.sh --strict
 ```
 
 一个终端启动已连接硬件。日常优先使用自动入口，它会选择当前实验室默认串口并检查 Aubo 状态：
 
 ```bash
-./scripts/real_bringup.sh
+./scripts/hardware/real_bringup.sh
 ```
 
-如果 WSL2 重启后串口消失，脚本会先尝试用 `hurry` 自动 attach CH9102/CH340 设备；如果 Windows 侧设备尚未共享，再按提示执行 `hurry scan` / `hurry attach <BUSID>`。原生 Linux SocketCAN 适配器可用 `SCOUT_DRIVER=official SCOUT_PORT=can0 ./scripts/real_bringup.sh`。
+如果 WSL2 重启后串口消失，脚本会先尝试用 `hurry` 自动 attach CH9102/CH340 设备；如果 Windows 侧设备尚未共享，再按提示执行 `hurry scan` / `hurry attach <BUSID>`。原生 Linux SocketCAN 适配器可用 `SCOUT_DRIVER=official SCOUT_PORT=can0 ./scripts/hardware/real_bringup.sh`。
 
 示教演示可以直接使用：
 
 ```bash
-./scripts/real_teach_demo.sh
+./scripts/hardware/real_teach_demo.sh
 ```
 
 该脚本会启动 bringup、等待核心话题和 Aubo action 可用，然后打开示教回放面板；关闭面板时会自动停止后台 bringup。示教 JSON 默认保存在本地 `recordings/teach/`。底盘长按遥控会在松开按钮时记录成相对的前进/后退距离或左/右转角 waypoint，回放默认使用慢速安全参数。
@@ -134,29 +134,29 @@ ros2 launch arachne_hardware real_bringup.launch.py \
 另一个终端先 dry-run：
 
 ```bash
-./scripts/real_hardware_acceptance_test.sh
+./scripts/hardware/real_hardware_acceptance_test.sh
 ```
 
 确认机器人周围无障碍、急停或断电手段在手边后，才运行真实运动：
 
 ```bash
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test.sh
 ```
 
 也可以单独测试某个子系统：
 
 ```bash
-./scripts/real_base_test.sh
-./scripts/real_arm_test.sh
-./scripts/real_gripper_test.sh
+./scripts/hardware/real_base_test.sh
+./scripts/hardware/real_arm_test.sh
+./scripts/hardware/real_gripper_test.sh
 ```
 
 这些入口默认也只是 dry-run。只让某个子系统真实运动时：
 
 ```bash
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_base_test.sh
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_arm_test.sh
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_gripper_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_base_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_arm_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_gripper_test.sh
 ```
 
 ## Mock 硬件

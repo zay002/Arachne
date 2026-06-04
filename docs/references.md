@@ -25,6 +25,6 @@ Third-party model and runtime assets are stored under `third_party/` and exposed
 - `third_party/dh_ag95_gripper_ros2`: cloned from `ian-chuang/dh_ag95_gripper_ros2` at `fc4f80fdfb3acae5626df4359aec1401cb71a9a3`; `dh_ag95_description/package.xml` declares Apache-2.0.
 - `third_party/MS42DC.step`: local source CAD for the active Yizhua Robot MS42DC two-finger flexible servo gripper model.
 - `third_party/MS42DC_SPLIT/*.stl`: user-created movable split MS42DC runtime parts copied into `src/arachne_description/meshes/gripper/ms42dc/split/`.
-- `third_party/ms42dc_step_motor_ros2`: Yizhua Robot MS42DC vendor ROS2 example source; provides `serial`, `step_motor`, and demo keyboard packages. It can also be refreshed from the vendor ROS2 zip with `scripts/prepare_ms42dc_ros2.sh`.
+- `third_party/ms42dc_step_motor_ros2`: Yizhua Robot MS42DC vendor ROS2 example source; provides `serial`, `step_motor`, and demo keyboard packages. It can also be refreshed from the vendor ROS2 zip with `scripts/hardware/prepare_ms42dc_ros2.sh`.
 
 The Arachne wrapper files in `src/arachne_description/urdf/` adapt these models into one mobile-manipulator tree. The Arachne hardware package uses the official/vendor ROS packages as runtime dependencies instead of copying their low-level protocols.

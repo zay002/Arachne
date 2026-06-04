@@ -25,4 +25,4 @@ ms42dc_right_finger_joint: -1.0 到 0.0 rad，轴 0 0 -1，mimic 左指，multip
 默认仿真闭合目标: 0.6 rad
 ```
 
-经过 RViz 检查，铰链轴确认为 CAD Z 轴，视觉闭合方向使用 `0 0 -1` 修正，`0.6 rad` 作为当前默认闭合角。之后如果真实夹爪或 CAD 拆分发生变化，可以用 `gripper_closed_position:=...` 或 `GRIPPER_CLOSED_POSITION=... ./scripts/view_model.sh` 重新调整闭合角。
+经过 RViz 检查，铰链轴确认为 CAD Z 轴，视觉闭合方向使用 `0 0 -1` 修正，`0.6 rad` 作为当前默认闭合角。之后如果真实夹爪或 CAD 拆分发生变化，可以用 `gripper_closed_position:=...` 或 `GRIPPER_CLOSED_POSITION=... ./scripts/model/view_model.sh` 重新调整闭合角。

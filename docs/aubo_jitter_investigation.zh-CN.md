@@ -119,9 +119,9 @@ setHardwareCustomParameters("[joint_func] \n vff_enable = false\n");
 
 相关文件：
 
-- `scripts/real_aubo_payload.py`
-- `scripts/real_full_teach.sh`
-- `scripts/real_full_acceptance.sh`
+- `scripts/hardware/real_aubo_payload.py`
+- `scripts/hardware/real_full_teach.sh`
+- `scripts/hardware/real_full_acceptance.sh`
 
 观察：
 
@@ -139,8 +139,8 @@ inertia = 0,0,0,0,0,0
 
 相关文件：
 
-- `scripts/setup_jetson_humble.sh`
-- `scripts/check_real_hardware_env.sh`
+- `scripts/build/setup_jetson_humble.sh`
+- `scripts/hardware/check_real_hardware_env.sh`
 
 观察：
 
@@ -177,7 +177,7 @@ Humble 和 Jazzy 的差异可能影响：
 uname -r
 ros2 control list_controllers
 ros2 topic hz /joint_states
-python3 scripts/real_aubo_payload.py --check-only
+python3 scripts/hardware/real_aubo_payload.py --check-only
 ```
 
 如果可以，再增加：
