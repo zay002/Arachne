@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>arachne_sensors</name>
+  <version>0.1.0</version>
+  <description>Sensor bringup nodes for Arachne.</description>
+  <maintainer email="maintainer@example.com">Arachne Maintainers</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>camera_info_manager</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>image_view</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>sensor_msgs_py</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

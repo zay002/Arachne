@@ -202,6 +202,7 @@ hardware_interface::return_type AuboHardwareInterface::write(
         readActualQ();
         aubo_position_commands_ = actual_q_copy_;
         aubo_velocity_commands_.fill(0.0);
+        velocity_command_active_ = false;
         if (safety_ok && servo_mode_start_ && stopServoMode() != 0) {
             RCLCPP_ERROR(rclcpp::get_logger("AuboHardwareInterface"),
                          "Failed to stop Aubo servo mode for teach control.");
@@ -220,6 +221,7 @@ hardware_interface::return_type AuboHardwareInterface::write(
             readActualQ();
             aubo_position_commands_ = actual_q_copy_;
             aubo_velocity_commands_.fill(0.0);
+            velocity_command_active_ = false;
             if (!servo_mode_recovery_warned_) {
                 RCLCPP_WARN(
                     rclcpp::get_logger("AuboHardwareInterface"),
@@ -229,6 +231,32 @@ hardware_interface::return_type AuboHardwareInterface::write(
             return hardware_interface::return_type::OK;
         }
         servo_mode_recovery_warned_ = false;
+        const bool velocity_commanded = std::any_of(
+            aubo_velocity_commands_.begin(), aubo_velocity_commands_.end(),
+            [](double velocity) { return std::abs(velocity) > 1e-5; });
+        if (velocity_commanded) {
+            if (!velocity_command_active_) {
+                readActualQ();
+                aubo_position_commands_ = actual_q_copy_;
+            }
+            constexpr double kMaxVelocityCommandRadSec = 0.45;
+            const double dt = std::clamp(period.seconds(), 0.001, 0.02);
+            for (std::size_t i = 0; i < aubo_position_commands_.size(); ++i) {
+                double velocity = aubo_velocity_commands_[i];
+                if (!std::isfinite(velocity)) {
+                    velocity = 0.0;
+                }
+                velocity = std::clamp(
+                    velocity, -kMaxVelocityCommandRadSec, kMaxVelocityCommandRadSec);
+                aubo_position_commands_[i] += velocity * dt;
+            }
+        } else if (velocity_command_active_) {
+            // Deadman release: zero velocity means hold the measured position
+            // immediately, not the last lookahead target from the jog stream.
+            readActualQ();
+            aubo_position_commands_ = actual_q_copy_;
+        }
+        velocity_command_active_ = velocity_commanded;
         try {
             if (Servoj(aubo_position_commands_) != 0) {
                 return hardware_interface::return_type::ERROR;
@@ -242,6 +270,7 @@ hardware_interface::return_type AuboHardwareInterface::write(
         readActualQ();
         aubo_position_commands_ = actual_q_copy_;
         aubo_velocity_commands_.fill(0.0);
+        velocity_command_active_ = false;
         if (!waiting_for_running_warned_) {
             RCLCPP_WARN_STREAM(
                 rclcpp::get_logger("AuboHardwareInterface"),

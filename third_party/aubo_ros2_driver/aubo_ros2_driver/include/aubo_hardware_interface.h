@@ -8,6 +8,7 @@
 #include <limits>
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 // ros2_control hardware_interface
@@ -96,6 +97,7 @@ private:
     bool teach_mode_warned_{ false };
     bool servo_mode_recovery_warned_{ false };
     bool servo_joint_retry_warned_{ false };
+    bool velocity_command_active_{ false };
 
     std::atomic<bool> robot_program_running_;
     std::atomic<bool> controller_reset_necessary_{ false };

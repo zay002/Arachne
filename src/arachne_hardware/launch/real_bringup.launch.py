@@ -186,6 +186,13 @@ def _launch_setup(context, *args, **kwargs):
                     "aubo_type": LaunchConfiguration("aubo_type"),
                     "robot_ip": LaunchConfiguration("aubo_robot_ip"),
                     "use_fake_hardware": "false",
+                    "runtime_config_package": LaunchConfiguration(
+                        "aubo_runtime_config_package"
+                    ),
+                    "controllers_file": LaunchConfiguration("aubo_controllers_file"),
+                    "initial_joint_controller": LaunchConfiguration(
+                        "aubo_initial_joint_controller"
+                    ),
                 }.items(),
             )
         )
@@ -258,6 +265,12 @@ def generate_launch_description():
             DeclareLaunchArgument("ms42dc_speed_tenths", default_value="150"),
             DeclareLaunchArgument("aubo_robot_ip", default_value="192.168.127.128"),
             DeclareLaunchArgument("aubo_type", default_value="aubo_i5"),
+            DeclareLaunchArgument("aubo_runtime_config_package", default_value="arachne_hardware"),
+            DeclareLaunchArgument("aubo_controllers_file", default_value="aubo_smooth_controllers.yaml"),
+            DeclareLaunchArgument(
+                "aubo_initial_joint_controller",
+                default_value="forward_command_controller_velocity",
+            ),
             DeclareLaunchArgument("aubo_port", default_value="80"),
             DeclareLaunchArgument("aubo_teach_command_topic", default_value="/arachne/aubo/teach_command"),
             DeclareLaunchArgument("aubo_rpc_port", default_value="30004"),

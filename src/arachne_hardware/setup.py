@@ -9,7 +9,10 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
-        (f"share/{package_name}/config", ["config/real_hardware.yaml"]),
+        (
+            f"share/{package_name}/config",
+            ["config/real_hardware.yaml", "config/aubo_smooth_controllers.yaml"],
+        ),
         (
             f"share/{package_name}/launch",
             ["launch/real_bringup.launch.py", "launch/mock_bringup.launch.py"],

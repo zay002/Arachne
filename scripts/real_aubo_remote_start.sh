@@ -19,13 +19,13 @@ releaseRobotBrake bypasses that startup path and is unsafe for this project.
 
 Required safe order:
   1. Start the Aubo ROS driver in prestart mode.
-  2. Confirm joint_state_broadcaster and joint_trajectory_controller are active.
+  2. Confirm joint_state_broadcaster and velocity controller are active.
   3. Read current joint angles.
-  4. Send a hold-position action goal at the measured joint angles.
+  4. Publish zero joint velocity before power transition.
   5. Power on and wait for Idle.
-  6. Re-send hold-position.
+  6. Re-publish zero joint velocity.
   7. Call RobotManage.startup and wait for Running.
-  8. Verify steady joint feedback and hold-position again.
+  8. Verify steady joint feedback under zero-speed hold.
 
 Driver terminal:
   ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/real_aubo_bringup.sh

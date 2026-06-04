@@ -15,6 +15,14 @@ AUBO_JOINT_ALIASES = {
     "wrist3_joint": "aubo_wrist3_joint",
 }
 
+DEFAULT_VISUALIZATION_JOINTS = {
+    "front_right_wheel": 0.0,
+    "front_left_wheel": 0.0,
+    "rear_left_wheel": 0.0,
+    "rear_right_wheel": 0.0,
+    "ms42dc_left_finger_joint": 0.0,
+}
+
 
 class TeachVisualizationJointStates(Node):
     def __init__(self) -> None:
@@ -69,6 +77,17 @@ class TeachVisualizationJointStates(Node):
                 velocities[out_index] = float(msg.velocity[index])
             if has_efforts:
                 efforts[out_index] = float(msg.effort[index])
+
+        for name, default_position in DEFAULT_VISUALIZATION_JOINTS.items():
+            if name in index_by_name:
+                continue
+            index_by_name[name] = len(names)
+            names.append(name)
+            positions.append(default_position)
+            if has_velocities:
+                velocities.append(0.0)
+            if has_efforts:
+                efforts.append(0.0)
 
         out.name = names
         out.position = positions

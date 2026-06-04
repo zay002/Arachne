@@ -1,0 +1,68 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 200
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    forward_command_controller_position:
+      type: forward_command_controller/ForwardCommandController
+
+    forward_command_controller_velocity:
+      type: forward_command_controller/ForwardCommandController
+
+joint_state_broadcaster:
+  ros__parameters:
+    update_rate: 100
+
+joint_trajectory_controller:
+  ros__parameters:
+    joints:
+      - shoulder_joint
+      - upperArm_joint
+      - foreArm_joint
+      - wrist1_joint
+      - wrist2_joint
+      - wrist3_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 100.0
+    action_monitor_rate: 50.0
+    allow_partial_joints_goal: false
+    constraints:
+      stopped_velocity_tolerance: 0.02
+      goal_time: 0.5
+      shoulder_joint: {trajectory: 0.08, goal: 0.04}
+      upperArm_joint: {trajectory: 0.08, goal: 0.04}
+      foreArm_joint: {trajectory: 0.08, goal: 0.04}
+      wrist1_joint: {trajectory: 0.08, goal: 0.04}
+      wrist2_joint: {trajectory: 0.08, goal: 0.04}
+      wrist3_joint: {trajectory: 0.08, goal: 0.04}
+
+forward_command_controller_position:
+  ros__parameters:
+    joints:
+      - shoulder_joint
+      - upperArm_joint
+      - foreArm_joint
+      - wrist1_joint
+      - wrist2_joint
+      - wrist3_joint
+    interface_name: position
+
+forward_command_controller_velocity:
+  ros__parameters:
+    joints:
+      - shoulder_joint
+      - upperArm_joint
+      - foreArm_joint
+      - wrist1_joint
+      - wrist2_joint
+      - wrist3_joint
+    interface_name: velocity

@@ -11,11 +11,9 @@ import time
 from typing import Any
 
 import rclpy
-from control_msgs.action import FollowJointTrajectory
-from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
-from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from std_msgs.msg import Float64MultiArray
 
 
 DEFAULT_IP = "192.168.127.128"
@@ -28,11 +26,12 @@ JOINTS = (
     "wrist3_joint",
 )
 SAFE_SAFETY_MODES = {"Normal", "ReducedMode"}
+REMOTE_START_TRANSITION_MODES = {"PowerOff", "Booting"}
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def safety_allows_prestart(mode: str, safety: str) -> bool:
-    return mode == "PowerOff" and safety == "Undefined"
+    return mode in REMOTE_START_TRANSITION_MODES and safety == "Undefined"
 
 
 class AuboJsonRpc:
@@ -81,12 +80,12 @@ class AuboJsonRpc:
         return str(self.robot_call("RobotState.getSafetyModeType"))
 
 
-class HoldActionClient(Node):
-    def __init__(self, action_name: str, joint_state_topic: str) -> None:
+class AuboVelocityStartupMonitor(Node):
+    def __init__(self, joint_state_topic: str, velocity_topic: str) -> None:
         super().__init__("arachne_aubo_remote_start")
-        self.action = ActionClient(self, FollowJointTrajectory, action_name)
         self.positions: dict[str, float] = {}
         self.create_subscription(JointState, joint_state_topic, self._on_joint_state, 10)
+        self.velocity_pub = self.create_publisher(Float64MultiArray, velocity_topic, 10)
 
     def wait_for_positions(self, timeout: float) -> list[float]:
         deadline = time.monotonic() + timeout
@@ -97,64 +96,14 @@ class HoldActionClient(Node):
         missing = [name for name in JOINTS if name not in self.positions]
         raise TimeoutError(f"missing Aubo joint states: {missing}")
 
-    def send_hold(self, positions: list[float], *, duration: float, timeout: float, label: str) -> None:
-        if not self.action.wait_for_server(timeout_sec=timeout):
-            raise TimeoutError("joint trajectory action server is not available")
-
-        trajectory = JointTrajectory()
-        trajectory.header.stamp = self.get_clock().now().to_msg()
-        trajectory.joint_names = list(JOINTS)
-        point = JointTrajectoryPoint()
-        point.positions = [float(value) for value in positions]
-        point.velocities = [0.0 for _ in point.positions]
-        point.accelerations = [0.0 for _ in point.positions]
-        point.time_from_start.sec = int(duration)
-        point.time_from_start.nanosec = int((duration % 1.0) * 1e9)
-        trajectory.points = [point]
-
-        goal = FollowJointTrajectory.Goal()
-        goal.trajectory = trajectory
-        goal.goal_time_tolerance.sec = int(timeout)
-
-        print(f"send hold action ({label}): {[round(value, 6) for value in positions]}")
-        goal_future = self.action.send_goal_async(goal)
-        rclpy.spin_until_future_complete(self, goal_future, timeout_sec=timeout)
-        goal_handle = goal_future.result()
-        if goal_handle is None:
-            raise TimeoutError(f"hold action response timed out: {label}")
-        if not goal_handle.accepted:
-            raise RuntimeError(f"hold action rejected: {label}")
-
-        result_future = goal_handle.get_result_async()
-        rclpy.spin_until_future_complete(self, result_future, timeout_sec=duration + timeout)
-        result_response = result_future.result()
-        if result_response is None:
-            raise TimeoutError(f"hold action result timed out: {label}")
-        result = result_response.result
-        if result.error_code != FollowJointTrajectory.Result.SUCCESSFUL:
-            raise RuntimeError(
-                f"hold action failed ({label}): code={result.error_code} {result.error_string}"
-            )
-        self.wait_until_near(positions, timeout=timeout, label=label)
-
-    def wait_until_near(
-        self,
-        target: list[float],
-        *,
-        timeout: float,
-        tolerance: float = 0.03,
-        label: str,
-    ) -> None:
-        deadline = time.monotonic() + timeout
-        best_error = float("inf")
-        while rclpy.ok() and time.monotonic() < deadline:
-            current = self.wait_for_positions(timeout=0.2)
-            error = max(abs(a - b) for a, b in zip(current, target))
-            best_error = min(best_error, error)
-            if error <= tolerance:
-                print(f"hold verified ({label}): max_error={error:.4f}")
-                return
-        raise TimeoutError(f"hold verification failed ({label}): best_error={best_error:.4f}")
+    def publish_zero_velocity(self, label: str, count: int = 5, period: float = 0.04) -> None:
+        msg = Float64MultiArray()
+        msg.data = [0.0 for _ in JOINTS]
+        print(f"publish zero velocity ({label})")
+        for _ in range(max(count, 1)):
+            self.velocity_pub.publish(msg)
+            rclpy.spin_once(self, timeout_sec=0.01)
+            time.sleep(max(period, 0.0))
 
     def _on_joint_state(self, msg: JointState) -> None:
         for name, position in zip(msg.name, msg.position):
@@ -180,7 +129,7 @@ def strip_ansi(text: str) -> str:
 
 
 def ensure_controllers_active(timeout: float, poll: float) -> None:
-    required_names = ("joint_state_broadcaster", "joint_trajectory_controller")
+    required_names = ("joint_state_broadcaster", "forward_command_controller_velocity")
     deadline = time.monotonic() + timeout
     last_output = ""
     while time.monotonic() < deadline:
@@ -227,7 +176,7 @@ def wait_for_mode(rpc: AuboJsonRpc, expected: set[str], timeout: float, poll: fl
 
 
 def wait_until_joints_steady(
-    node: HoldActionClient,
+    node: AuboVelocityStartupMonitor,
     *,
     timeout: float,
     poll: float,
@@ -250,7 +199,7 @@ def wait_until_joints_steady(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Safely transition a real Aubo arm to ROS hold control using the "
+            "Safely transition a real Aubo arm to ROS zero-speed hold using the "
             "Aubo lifecycle startup API."
         )
     )
@@ -262,13 +211,16 @@ def main() -> int:
     parser.add_argument("--steady-timeout", type=float, default=8.0)
     parser.add_argument("--controller-timeout", type=float, default=30.0)
     parser.add_argument("--poll", type=float, default=0.5)
-    parser.add_argument("--hold-duration", type=float, default=1.0)
-    parser.add_argument("--action-timeout", type=float, default=8.0)
     parser.add_argument(
         "--action-name",
         default="/joint_trajectory_controller/follow_joint_trajectory",
+        help="Deprecated; velocity startup no longer uses FollowJointTrajectory.",
     )
     parser.add_argument("--joint-state-topic", default="/joint_states")
+    parser.add_argument(
+        "--velocity-topic",
+        default="/forward_command_controller_velocity/commands",
+    )
     args = parser.parse_args()
 
     print(
@@ -279,17 +231,12 @@ def main() -> int:
     ensure_controllers_active(args.controller_timeout, args.poll)
 
     rclpy.init()
-    node = HoldActionClient(args.action_name, args.joint_state_topic)
+    node = AuboVelocityStartupMonitor(args.joint_state_topic, args.velocity_topic)
     try:
         print("blocking step 2/8: read measured joint state")
-        current = node.wait_for_positions(args.state_timeout)
-        print("blocking step 3/8: send pre-power hold command")
-        node.send_hold(
-            current,
-            duration=args.hold_duration,
-            timeout=args.action_timeout,
-            label="before-power",
-        )
+        node.wait_for_positions(args.state_timeout)
+        print("blocking step 3/8: publish zero velocity before power transition")
+        node.publish_zero_velocity("before-power")
 
         with AuboJsonRpc(args.ip, args.rpc_timeout) as rpc:
             mode = rpc.mode()
@@ -308,13 +255,8 @@ def main() -> int:
                     print("blocking step 4/8: robot already Idle")
 
                 print("blocking step 5/8: refresh measured joint state before startup")
-                current = node.wait_for_positions(args.state_timeout)
-                node.send_hold(
-                    current,
-                    duration=args.hold_duration,
-                    timeout=args.action_timeout,
-                    label="before-startup",
-                )
+                node.wait_for_positions(args.state_timeout)
+                node.publish_zero_velocity("before-startup")
 
                 print("blocking step 6/8: call RobotManage.startup and wait for Running")
                 print("startup")
@@ -328,17 +270,16 @@ def main() -> int:
                     poll=args.poll,
                 )
             else:
-                print("blocking steps 4-7/8: Aubo is already Running; keeping current hold command.")
+                print("blocking steps 4-7/8: Aubo is already Running; keeping zero velocity hold.")
 
-        print("blocking step 8/8: verify hold feedback after Running")
-        current = node.wait_for_positions(args.state_timeout)
-        node.send_hold(
-            current,
-            duration=args.hold_duration,
-            timeout=args.action_timeout,
-            label="after-running",
+        print("blocking step 8/8: verify velocity hold feedback after Running")
+        node.publish_zero_velocity("after-running")
+        wait_until_joints_steady(
+            node,
+            timeout=args.steady_timeout,
+            poll=args.poll,
         )
-        print("Aubo remote startup complete: controller active, servo hold verified.")
+        print("Aubo remote startup complete: velocity controller active, zero-speed hold verified.")
         return 0
     finally:
         node.destroy_node()

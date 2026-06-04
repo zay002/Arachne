@@ -10,6 +10,10 @@ AUBO_PAYLOAD_MASS="${ARACHNE_AUBO_PAYLOAD_MASS:-3.5}"
 AUBO_PAYLOAD_COG="${ARACHNE_AUBO_PAYLOAD_COG:-0,0,0.18}"
 AUBO_PAYLOAD_AOM="${ARACHNE_AUBO_PAYLOAD_AOM:-0,0,0}"
 AUBO_PAYLOAD_INERTIA="${ARACHNE_AUBO_PAYLOAD_INERTIA:-0,0,0,0,0,0}"
+TEACH_WITH_CAMERA="${ARACHNE_TEACH_WITH_CAMERA:-true}"
+TEACH_CAMERA_COLOR_VIEW="${ARACHNE_TEACH_CAMERA_COLOR_VIEW:-true}"
+TEACH_CAMERA_DEPTH_VIEW="${ARACHNE_TEACH_CAMERA_DEPTH_VIEW:-false}"
+TEACH_CAMERA_POINTCLOUD="${ARACHNE_TEACH_CAMERA_POINTCLOUD:-true}"
 RUN_ENV_CHECK=true
 KEEP_RUNNING=false
 STOP_EXISTING=true
@@ -24,7 +28,7 @@ Usage:
 Starts the complete real teach/replay stack:
   1. check real-hardware environment,
   2. start Aubo ROS2 driver in guarded prestart mode,
-  3. remotely power on / startup Aubo and verify hold control,
+  3. remotely power on / startup Aubo and verify velocity hold control,
   4. start Scout + MS42DC bringup,
   5. open the teach/replay panel,
   6. stop background bringup processes when the panel exits.
@@ -45,6 +49,10 @@ Environment:
   ARACHNE_AUBO_PAYLOAD_COG=${AUBO_PAYLOAD_COG}
   ARACHNE_AUBO_PAYLOAD_AOM=${AUBO_PAYLOAD_AOM}
   ARACHNE_AUBO_PAYLOAD_INERTIA=${AUBO_PAYLOAD_INERTIA}
+  ARACHNE_TEACH_WITH_CAMERA=${TEACH_WITH_CAMERA}
+  ARACHNE_TEACH_CAMERA_COLOR_VIEW=${TEACH_CAMERA_COLOR_VIEW}
+  ARACHNE_TEACH_CAMERA_DEPTH_VIEW=${TEACH_CAMERA_DEPTH_VIEW}
+  ARACHNE_TEACH_CAMERA_POINTCLOUD=${TEACH_CAMERA_POINTCLOUD}
 
 Examples:
   ./scripts/real_full_teach.sh --yes
@@ -194,8 +202,10 @@ wait_for_topic() {
   local topic="$1"
   local label="$2"
   local deadline=$((SECONDS + WAIT_TIMEOUT_SEC))
+  local info
   while (( SECONDS < deadline )); do
-    if timeout 3 ros2 topic list 2>/dev/null | grep -qx "${topic}"; then
+    info="$(timeout 3 ros2 topic info "${topic}" 2>/dev/null || true)"
+    if grep -Eq '^Publisher count: [1-9][0-9]*$' <<<"${info}"; then
       echo "  ready: ${label} (${topic})"
       return 0
     fi
@@ -220,6 +230,26 @@ wait_for_action() {
   exit 1
 }
 
+wait_for_controller_active() {
+  local controller="$1"
+  local label="$2"
+  local deadline=$((SECONDS + WAIT_TIMEOUT_SEC))
+  local output
+  local clean_output
+  while (( SECONDS < deadline )); do
+    output="$(timeout 3 ros2 control list_controllers 2>/dev/null || true)"
+    clean_output="$("${ARACHNE_SYSTEM_PYTHON}" -c 'import re,sys; print(re.sub("\x1b\\[[0-9;]*m", "", sys.stdin.read()), end="")' <<<"${output}")"
+    if awk '{print $1, $NF}' <<<"${clean_output}" | grep -qx "${controller} active"; then
+      echo "  ready: ${label} (${controller})"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Timed out waiting for ${label} (${controller})." >&2
+  timeout 3 ros2 control list_controllers 2>/dev/null || true
+  exit 1
+}
+
 has_recording_dir=false
 for arg in "${PANEL_ARGS[@]}"; do
   if [[ "${arg}" == recording_dir:=* || "${arg}" == --recording_dir:=* ]]; then
@@ -232,6 +262,7 @@ echo "Arachne full real teach startup"
 echo "  workspace: ${ROOT_DIR}"
 echo "  Aubo IP/model: ${AUBO_ROBOT_IP} / ${AUBO_TYPE}"
 echo "  Aubo payload: mass=${AUBO_PAYLOAD_MASS}kg cog=${AUBO_PAYLOAD_COG}"
+echo "  camera: enabled=${TEACH_WITH_CAMERA} color_view=${TEACH_CAMERA_COLOR_VIEW} depth_view=${TEACH_CAMERA_DEPTH_VIEW}"
 echo "  recording dir: ${RECORDING_DIR}"
 echo "  logs: ${LOG_DIR}"
 
@@ -278,7 +309,7 @@ run_logged "Aubo running/safety check" \
   "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}"
 
 wait_for_topic "/joint_states" "Aubo joint states"
-wait_for_action "/joint_trajectory_controller/follow_joint_trajectory" "Aubo trajectory action"
+wait_for_controller_active "forward_command_controller_velocity" "Aubo velocity controller"
 
 start_background "Scout + MS42DC bringup" \
   "${LOG_DIR}/06_base_gripper_bringup.log" \
@@ -291,10 +322,19 @@ echo "Opening teach/replay panel..."
 if [[ "${has_recording_dir}" == "true" ]]; then
   run_logged "teach/replay panel" \
     "${LOG_DIR}/07_teach_panel.log" \
-    ros2 launch arachne_operator teach_panel.launch.py "${PANEL_ARGS[@]}"
+    ros2 launch arachne_operator teach_panel.launch.py \
+      with_camera:="${TEACH_WITH_CAMERA}" \
+      camera_with_color_view:="${TEACH_CAMERA_COLOR_VIEW}" \
+      camera_with_depth_view:="${TEACH_CAMERA_DEPTH_VIEW}" \
+      camera_publish_pointcloud:="${TEACH_CAMERA_POINTCLOUD}" \
+      "${PANEL_ARGS[@]}"
 else
   run_logged "teach/replay panel" \
     "${LOG_DIR}/07_teach_panel.log" \
     ros2 launch arachne_operator teach_panel.launch.py \
+      with_camera:="${TEACH_WITH_CAMERA}" \
+      camera_with_color_view:="${TEACH_CAMERA_COLOR_VIEW}" \
+      camera_with_depth_view:="${TEACH_CAMERA_DEPTH_VIEW}" \
+      camera_publish_pointcloud:="${TEACH_CAMERA_POINTCLOUD}" \
       recording_dir:="${RECORDING_DIR}" "${PANEL_ARGS[@]}"
 fi

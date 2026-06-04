@@ -10,6 +10,7 @@ from typing import Any
 
 DEFAULT_IP = "192.168.127.128"
 SAFE_SAFETY_MODES = {"Normal", "ReducedMode"}
+REMOTE_START_TRANSITION_MODES = {"PowerOff", "Booting"}
 
 
 class AuboJsonRpc:
@@ -84,8 +85,12 @@ def main() -> int:
         print(f"simulation: {sim}")
         print(f"joints: {joints}")
 
-    poweroff_prestart = args.allow_not_running and mode == "PowerOff" and safety == "Undefined"
-    if safety not in SAFE_SAFETY_MODES and not poweroff_prestart:
+    remote_start_prestart = (
+        args.allow_not_running
+        and mode in REMOTE_START_TRANSITION_MODES
+        and safety == "Undefined"
+    )
+    if safety not in SAFE_SAFETY_MODES and not remote_start_prestart:
         print(
             "ERROR: Aubo safety state is not safe for remote control. "
             "Resolve it on the teach pendant/control cabinet before retrying.",
@@ -95,9 +100,9 @@ def main() -> int:
 
     if mode != "Running":
         if args.allow_not_running:
-            if poweroff_prestart:
+            if remote_start_prestart:
                 print(
-                    "poweroff prestart: continuing because --allow-not-running is set "
+                    "remote-start prestart: continuing because --allow-not-running is set "
                     "for the guarded remote poweron/startup flow."
                 )
                 return 0

@@ -18,8 +18,9 @@ from nav_msgs.msg import Odometry
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.parameter import Parameter
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
-from std_msgs.msg import String
+from std_msgs.msg import Float64MultiArray, String
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from arachne_operator.real_hardware_acceptance_test import AuboI5Kinematics
@@ -170,11 +171,28 @@ class TeachPanelNode(Node):
         self.declare_parameter("base_manual_publish_rate", 12.0)
         self.declare_parameter("base_motion_max_segment_sec", 20.0)
         self.declare_parameter("arm_jog_step_m", 0.008)
-        self.declare_parameter("arm_jog_duration_sec", 0.11)
+        self.declare_parameter("arm_jog_duration_sec", 0.24)
         self.declare_parameter("arm_rotate_step_rad", math.radians(0.7))
-        self.declare_parameter("arm_rotate_duration_sec", 0.11)
+        self.declare_parameter("arm_rotate_duration_sec", 0.24)
         self.declare_parameter("arm_joint_step_rad", math.radians(0.4))
-        self.declare_parameter("arm_hold_period_sec", 0.07)
+        self.declare_parameter("arm_hold_period_sec", 0.10)
+        self.declare_parameter("arm_manual_prefer_topic", True)
+        self.declare_parameter(
+            "arm_velocity_command_topic", "/forward_command_controller_velocity/commands"
+        )
+        self.declare_parameter("arm_velocity_publish_rate", 80.0)
+        self.declare_parameter("arm_velocity_watchdog_sec", 0.20)
+        self.declare_parameter("arm_joint_jog_speed_rad_sec", 0.08)
+        self.declare_parameter("arm_cartesian_jog_speed_m_sec", 0.025)
+        self.declare_parameter("arm_cartesian_rotate_speed_rad_sec", 0.08)
+        self.declare_parameter("arm_velocity_damping", 0.08)
+        self.declare_parameter("arm_velocity_max_joint_speed_rad_sec", 0.25)
+        self.declare_parameter("arm_velocity_max_joint_accel_rad_sec2", 1.60)
+        self.declare_parameter("arm_velocity_max_joint_jerk_rad_sec3", 24.0)
+        self.declare_parameter("arm_velocity_smoothing_tau_sec", 0.08)
+        self.declare_parameter("arm_velocity_keepout_predict_sec", 0.35)
+        self.declare_parameter("arm_velocity_keepout_check_interval_sec", 0.05)
+        self.declare_parameter("arm_velocity_stream_deadman_sec", 0.18)
         self.declare_parameter("arm_waypoint_duration_sec", 3.75)
         self.declare_parameter("arm_home_joints_deg", DEFAULT_ARM_HOME_JOINTS_DEG)
         self.declare_parameter("arm_install_joints_deg", DEFAULT_ARM_INSTALL_JOINTS_DEG)
@@ -226,6 +244,12 @@ class TeachPanelNode(Node):
         self.gripper_pub = self.create_publisher(String, gripper_topic, 10)
         self.aubo_teach_pub = self.create_publisher(String, aubo_teach_topic, 10)
         self.arm_publishers = [self.create_publisher(JointTrajectory, topic, 10) for topic in arm_topics]
+        arm_velocity_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+        self.arm_velocity_pub = self.create_publisher(
+            Float64MultiArray,
+            str(self.get_parameter("arm_velocity_command_topic").value),
+            arm_velocity_qos,
+        )
         self.status_pub = self.create_publisher(String, "/arachne/teach/status", 10)
         self.arm_action_client = ActionClient(
             self,
@@ -248,6 +272,15 @@ class TeachPanelNode(Node):
         self.base_motion_segments: list[dict] = []
         self.active_base_motion: dict | None = None
         self.manual_base_velocity: tuple[float, float] | None = None
+        self.manual_arm_stream_command: dict[str, object] | None = None
+        self.manual_arm_stream_deadline = 0.0
+        self.manual_arm_velocity: list[float] | None = None
+        self.manual_arm_velocity_deadline = 0.0
+        self.arm_velocity_filtered = [0.0 for _ in self.arm_command_joint_names]
+        self.arm_velocity_accel = [0.0 for _ in self.arm_command_joint_names]
+        self.arm_velocity_last_update = time.monotonic()
+        self.arm_velocity_keepout_last_check = 0.0
+        self.arm_velocity_keepout_last_violation: str | None = None
         self.current_arm: dict[str, float] = {}
         self.tool_position: tuple[float, float, float] | None = None
         self.gripper_state = "open"
@@ -260,10 +293,13 @@ class TeachPanelNode(Node):
         self.cancel_event = threading.Event()
         self.replay_thread: threading.Thread | None = None
         self._active_goal_handle = None
+        self._last_manual_arm_stream_status = 0.0
         if bool(self.get_parameter("teach_config_autoload").value):
             self.load_teach_config(status=False)
         publish_rate = max(float(self.get_parameter("base_manual_publish_rate").value), 1.0)
         self.create_timer(1.0 / publish_rate, self._publish_manual_base_velocity)
+        arm_velocity_rate = max(float(self.get_parameter("arm_velocity_publish_rate").value), 1.0)
+        self.create_timer(1.0 / arm_velocity_rate, self._publish_manual_arm_velocity)
         self._status("ready")
 
     def _odom_callback(self, msg: Odometry) -> None:
@@ -631,6 +667,7 @@ class TeachPanelNode(Node):
 
     def stop_arm_motion(self) -> None:
         self.cancel_event.set()
+        self.stop_arm_velocity_hold()
         goal_handle = self._active_goal_handle
         if goal_handle is not None:
             try:
@@ -641,12 +678,9 @@ class TeachPanelNode(Node):
         self._status("arm stop requested")
 
     def hold_arm_current(self) -> None:
-        self.stop_arm_motion()
-        current = self._current_arm_vector()
-        if current is None:
-            return
-        self.cancel_event.clear()
-        self._send_arm_positions(current, 0.25, "hold current", wait=False)
+        self.cancel_event.set()
+        self.stop_arm_velocity_hold()
+        self._status("arm hold current requested")
 
     def publish_gripper(self, command: str) -> None:
         msg = String()
@@ -661,6 +695,7 @@ class TeachPanelNode(Node):
         if enabled:
             self.cancel_event.set()
             self.drive_base_manual("stop")
+            self.stop_arm_velocity_hold()
             goal_handle = self._active_goal_handle
             if goal_handle is not None:
                 try:
@@ -704,7 +739,14 @@ class TeachPanelNode(Node):
 
     def jog_arm(self, axis: str, sign: float) -> None:
         self.cancel_event.clear()
-        self._start_manual_arm_worker(lambda: self._jog_arm_worker(axis, sign))
+        if axis not in ("x", "y", "z"):
+            self._status(f"arm velocity jog skipped: unknown axis {axis}", warn=True)
+            self.stop_arm_velocity_hold()
+            return
+        self._set_manual_arm_stream_command(
+            {"kind": "cartesian", "axis": axis, "sign": float(sign)},
+            f"{axis}{'+' if sign > 0 else '-'}",
+        )
 
     def _track_base_motion(self, direction: str, linear_x: float, angular_z: float) -> None:
         now = time.monotonic()
@@ -728,6 +770,224 @@ class TeachPanelNode(Node):
         if velocity is None:
             return
         self.set_base_velocity(velocity[0], velocity[1])
+
+    def _publish_manual_arm_velocity(self) -> None:
+        now = time.monotonic()
+        with self.lock:
+            dt = max(0.001, min(now - self.arm_velocity_last_update, 0.10))
+            self.arm_velocity_last_update = now
+            velocity = list(self.manual_arm_velocity) if self.manual_arm_velocity is not None else None
+            expired = velocity is not None and now > self.manual_arm_velocity_deadline
+            if expired:
+                self.manual_arm_velocity = None
+                self.manual_arm_velocity_deadline = 0.0
+        stream_velocity = self._manual_arm_stream_velocity(now)
+        if stream_velocity is not None:
+            velocity = stream_velocity
+            expired = False
+        if velocity is None:
+            return
+        if expired:
+            self.stop_arm_velocity_hold()
+            return
+        self._publish_arm_velocity(self._smooth_arm_velocity(velocity, dt))
+
+    def _publish_arm_velocity(self, velocity: list[float]) -> None:
+        msg = Float64MultiArray()
+        msg.data = [float(value) for value in velocity]
+        self.arm_velocity_pub.publish(msg)
+
+    def _publish_arm_velocity_zero(self) -> None:
+        self._publish_arm_velocity([0.0 for _ in self.arm_command_joint_names])
+
+    def _set_manual_arm_stream_command(self, command: dict[str, object], label: str) -> None:
+        now = time.monotonic()
+        deadman = max(float(self.get_parameter("arm_velocity_stream_deadman_sec").value), 0.08)
+        with self.lock:
+            self.manual_arm_stream_command = dict(command, label=label)
+            self.manual_arm_stream_deadline = now + deadman
+            self.manual_arm_velocity = None
+            self.manual_arm_velocity_deadline = 0.0
+        if now - self._last_manual_arm_stream_status >= 0.8:
+            self._status(f"arm velocity stream: {label}")
+            self._last_manual_arm_stream_status = now
+
+    def refresh_arm_velocity_stream_deadman(self) -> None:
+        deadman = max(float(self.get_parameter("arm_velocity_stream_deadman_sec").value), 0.08)
+        with self.lock:
+            if self.manual_arm_stream_command is not None:
+                self.manual_arm_stream_deadline = time.monotonic() + deadman
+
+    def _manual_arm_stream_velocity(self, now: float) -> list[float] | None:
+        with self.lock:
+            command = (
+                dict(self.manual_arm_stream_command)
+                if self.manual_arm_stream_command is not None
+                else None
+            )
+            deadline = self.manual_arm_stream_deadline
+        if command is None:
+            return None
+        if now > deadline:
+            self.stop_arm_velocity_hold()
+            self._status("arm velocity stream timeout: deadman hold", warn=True)
+            return None
+
+        label = str(command.get("label", "stream"))
+        kind = str(command.get("kind", ""))
+        sign = float(command.get("sign", 0.0))
+        current = self._current_arm_vector()
+        if current is None:
+            self._status(f"arm velocity skipped: no joint state for {label}", warn=True)
+            self.stop_arm_velocity_hold()
+            return None
+
+        velocity: list[float] | None = None
+        if kind == "cartesian":
+            axes = {
+                "x": np.array([1.0, 0.0, 0.0], dtype=float),
+                "y": np.array([0.0, 1.0, 0.0], dtype=float),
+                "z": np.array([0.0, 0.0, 1.0], dtype=float),
+            }
+            axis = str(command.get("axis", ""))
+            if axis not in axes:
+                self._status(f"arm velocity skipped: unknown axis {axis}", warn=True)
+                self.stop_arm_velocity_hold()
+                return None
+            speed = max(float(self.get_parameter("arm_cartesian_jog_speed_m_sec").value), 0.0)
+            twist = np.zeros(6, dtype=float)
+            twist[:3] = axes[axis] * sign * speed
+            velocity = self._joint_velocity_from_twist(np.array(current, dtype=float), twist)
+        elif kind == "rotation":
+            axes = {
+                "rx": np.array([1.0, 0.0, 0.0], dtype=float),
+                "ry": np.array([0.0, 1.0, 0.0], dtype=float),
+                "rz": np.array([0.0, 0.0, 1.0], dtype=float),
+            }
+            axis = str(command.get("axis", ""))
+            if axis not in axes:
+                self._status(f"arm rotation velocity skipped: unknown axis {axis}", warn=True)
+                self.stop_arm_velocity_hold()
+                return None
+            speed = max(float(self.get_parameter("arm_cartesian_rotate_speed_rad_sec").value), 0.0)
+            twist = np.zeros(6, dtype=float)
+            twist[3:] = axes[axis] * sign * speed
+            velocity = self._joint_velocity_from_twist(np.array(current, dtype=float), twist)
+        elif kind == "joint":
+            index = int(command.get("index", -1))
+            if index < 0 or index >= len(self.arm_command_joint_names):
+                self._status(f"joint velocity skipped: invalid joint {index + 1}", warn=True)
+                self.stop_arm_velocity_hold()
+                return None
+            speed = max(float(self.get_parameter("arm_joint_jog_speed_rad_sec").value), 0.0)
+            velocity = [0.0 for _ in self.arm_command_joint_names]
+            velocity[index] = sign * speed
+        else:
+            self._status(f"arm velocity skipped: unknown stream kind {kind}", warn=True)
+            self.stop_arm_velocity_hold()
+            return None
+
+        if velocity is None:
+            self.stop_arm_velocity_hold()
+            return None
+        clamped = self._validated_arm_velocity(velocity, label)
+        if clamped is None:
+            self.stop_arm_velocity_hold()
+        return clamped
+
+    def _validated_arm_velocity(self, velocity: list[float], label: str) -> list[float] | None:
+        if len(velocity) != len(self.arm_command_joint_names):
+            self._status(f"arm velocity ignored: invalid length for {label}", warn=True)
+            return None
+        max_speed = max(float(self.get_parameter("arm_velocity_max_joint_speed_rad_sec").value), 0.01)
+        clamped = [
+            max(-max_speed, min(max_speed, float(value)))
+            if math.isfinite(float(value))
+            else 0.0
+            for value in velocity
+        ]
+        current = self._current_arm_vector()
+        if current is None:
+            self._status(f"arm velocity skipped: no joint state for {label}", warn=True)
+            return None
+        now = time.monotonic()
+        keepout_interval = max(
+            float(self.get_parameter("arm_velocity_keepout_check_interval_sec").value), 0.0
+        )
+        with self.lock:
+            cached_violation = self.arm_velocity_keepout_last_violation
+            next_check_due = now - self.arm_velocity_keepout_last_check >= keepout_interval
+        if next_check_due:
+            violation = self._arm_velocity_keepout_violation(np.array(current, dtype=float), clamped, label)
+            with self.lock:
+                self.arm_velocity_keepout_last_check = now
+                self.arm_velocity_keepout_last_violation = violation
+        else:
+            violation = cached_violation
+        if violation is not None:
+            self._status(f"arm velocity blocked by safety zone: {violation}", warn=True)
+            return None
+        return clamped
+
+    def _smooth_arm_velocity(self, velocity: list[float], dt: float) -> list[float]:
+        target = np.array([float(value) for value in velocity], dtype=float)
+        max_speed = max(float(self.get_parameter("arm_velocity_max_joint_speed_rad_sec").value), 0.01)
+        max_accel = max(
+            float(self.get_parameter("arm_velocity_max_joint_accel_rad_sec2").value), 0.05
+        )
+        max_jerk = max(
+            float(self.get_parameter("arm_velocity_max_joint_jerk_rad_sec3").value), 0.1
+        )
+        tau = max(float(self.get_parameter("arm_velocity_smoothing_tau_sec").value), 0.02)
+        target = np.clip(target, -max_speed, max_speed)
+
+        with self.lock:
+            current = np.array(self.arm_velocity_filtered, dtype=float)
+            accel = np.array(self.arm_velocity_accel, dtype=float)
+
+            desired_accel = np.clip((target - current) / tau, -max_accel, max_accel)
+            accel_delta = np.clip(desired_accel - accel, -max_jerk * dt, max_jerk * dt)
+            accel = accel + accel_delta
+            next_velocity = current + accel * dt
+
+            for index, (start, end, goal) in enumerate(zip(current, next_velocity, target)):
+                if (goal - start) * (goal - end) <= 0.0 and abs(goal - start) > 1e-9:
+                    next_velocity[index] = goal
+                    accel[index] = 0.0
+
+            next_velocity = np.clip(next_velocity, -max_speed, max_speed)
+            self.arm_velocity_filtered = [float(value) for value in next_velocity]
+            self.arm_velocity_accel = [float(value) for value in accel]
+            return list(self.arm_velocity_filtered)
+
+    def _set_manual_arm_velocity(self, velocity: list[float], label: str) -> None:
+        clamped = self._validated_arm_velocity(velocity, label)
+        if clamped is None:
+            self.stop_arm_velocity_hold()
+            return
+        watchdog = max(float(self.get_parameter("arm_velocity_watchdog_sec").value), 0.05)
+        with self.lock:
+            self.manual_arm_stream_command = None
+            self.manual_arm_velocity = clamped
+            self.manual_arm_velocity_deadline = time.monotonic() + watchdog
+        now = time.monotonic()
+        if now - self._last_manual_arm_stream_status >= 0.8:
+            self._status(f"arm velocity jog: {label}")
+            self._last_manual_arm_stream_status = now
+
+    def stop_arm_velocity_hold(self) -> None:
+        with self.lock:
+            self.manual_arm_stream_command = None
+            self.manual_arm_stream_deadline = 0.0
+            self.manual_arm_velocity = None
+            self.manual_arm_velocity_deadline = 0.0
+            self.arm_velocity_filtered = [0.0 for _ in self.arm_command_joint_names]
+            self.arm_velocity_accel = [0.0 for _ in self.arm_command_joint_names]
+            self.arm_velocity_last_update = time.monotonic()
+            self.arm_velocity_keepout_last_check = 0.0
+            self.arm_velocity_keepout_last_violation = None
+        for _ in range(3):
+            self._publish_arm_velocity_zero()
 
     def _close_base_motion_locked(self, now: float) -> None:
         if self.active_base_motion is None:
@@ -865,11 +1125,19 @@ class TeachPanelNode(Node):
             f"jog {axis}",
             wait=False,
             velocities=self._target_joint_velocities(q_start, q_target, duration),
+            manual_stream=True,
         )
 
     def jog_arm_rotation(self, axis: str, sign: float) -> None:
         self.cancel_event.clear()
-        self._start_manual_arm_worker(lambda: self._jog_arm_rotation_worker(axis, sign))
+        if axis not in ("rx", "ry", "rz"):
+            self._status(f"arm rotation velocity skipped: unknown axis {axis}", warn=True)
+            self.stop_arm_velocity_hold()
+            return
+        self._set_manual_arm_stream_command(
+            {"kind": "rotation", "axis": axis, "sign": float(sign)},
+            f"{axis}{'+' if sign > 0 else '-'}",
+        )
 
     def _jog_arm_rotation_worker(self, axis: str, sign: float) -> None:
         q_start = self._current_arm_vector()
@@ -895,11 +1163,19 @@ class TeachPanelNode(Node):
             f"rotate {axis}",
             wait=False,
             velocities=self._target_joint_velocities(q_start, q_target, duration),
+            manual_stream=True,
         )
 
     def jog_arm_joint(self, index: int, sign: float) -> None:
         self.cancel_event.clear()
-        self._start_manual_arm_worker(lambda: self._jog_arm_joint_worker(index, sign))
+        if index < 0 or index >= len(self.arm_command_joint_names):
+            self._status(f"joint velocity skipped: invalid joint {index + 1}", warn=True)
+            self.stop_arm_velocity_hold()
+            return
+        self._set_manual_arm_stream_command(
+            {"kind": "joint", "index": int(index), "sign": float(sign)},
+            f"J{index + 1}{'+' if sign > 0 else '-'}",
+        )
 
     def _jog_arm_joint_worker(self, index: int, sign: float) -> None:
         q_start = self._current_arm_vector()
@@ -923,6 +1199,7 @@ class TeachPanelNode(Node):
             f"jog J{index + 1}",
             wait=False,
             velocities=self._target_joint_velocities(q_start, q_target, duration),
+            manual_stream=True,
         )
 
     def move_arm_to_joints_degrees(self, degrees: list[float]) -> None:
@@ -968,12 +1245,7 @@ class TeachPanelNode(Node):
             self._status("joint target skipped: expected 6 joint angles", warn=True)
             return
         target = [math.radians(float(value)) for value in degrees]
-        self._send_arm_positions(
-            target,
-            float(self.get_parameter("arm_waypoint_duration_sec").value),
-            label,
-            wait=False,
-        )
+        self._move_arm_to_positions_velocity(target, label)
 
     def move_tool_to_position(self, position: list[float]) -> None:
         self.cancel_event.clear()
@@ -1011,12 +1283,51 @@ class TeachPanelNode(Node):
         if max_delta > float(self.get_parameter("arm_target_max_joint_delta").value):
             self._status(f"TCP target blocked: joint delta {max_delta:.3f} rad", warn=True)
             return
-        self._send_arm_positions(
-            [float(value) for value in q_target],
-            float(self.get_parameter("arm_waypoint_duration_sec").value),
-            "TCP target",
-            wait=False,
-        )
+        self._move_arm_to_positions_velocity([float(value) for value in q_target], "TCP target")
+
+    def _move_arm_to_positions_velocity(self, target: list[float], label: str) -> bool:
+        if len(target) != 6:
+            self._status(f"{label} skipped: expected 6 joint positions", warn=True)
+            return False
+        violation = self._arm_keepout_violation(target, label)
+        if violation is not None:
+            self._status(f"arm target blocked by safety zone: {violation}", warn=True)
+            self.stop_arm_velocity_hold()
+            return False
+        target_array = np.array([float(value) for value in target], dtype=float)
+        tolerance = max(float(self.get_parameter("arm_goal_tolerance").value), 0.005)
+        gain = 0.85
+        max_speed = max(float(self.get_parameter("arm_velocity_max_joint_speed_rad_sec").value), 0.01)
+        rate = max(float(self.get_parameter("arm_velocity_publish_rate").value), 1.0)
+        period = 1.0 / rate
+        duration = float(self.get_parameter("arm_waypoint_duration_sec").value)
+        deadline = time.monotonic() + max(duration + 8.0, 4.0)
+        self._status(f"arm velocity target started: {label}")
+        try:
+            while not self.cancel_event.is_set() and time.monotonic() < deadline:
+                current = self._current_arm_vector()
+                if current is None:
+                    self._status(f"{label} skipped: no joint state", warn=True)
+                    return False
+                current_array = np.array(current, dtype=float)
+                error = np.array(
+                    [
+                        _angle_diff(float(target_value), float(current_value))
+                        for target_value, current_value in zip(target_array, current_array)
+                    ],
+                    dtype=float,
+                )
+                max_error = float(np.max(np.abs(error)))
+                if max_error <= tolerance:
+                    self._status(f"arm velocity target reached: {label}")
+                    return True
+                velocity = np.clip(error * gain, -max_speed, max_speed)
+                self._set_manual_arm_velocity([float(value) for value in velocity], label)
+                time.sleep(period)
+            self._status(f"arm velocity target timeout/cancel: {label}", warn=True)
+            return False
+        finally:
+            self.stop_arm_velocity_hold()
 
     def record_waypoint(self, label: str) -> TeachWaypoint:
         with self.lock:
@@ -1092,12 +1403,7 @@ class TeachPanelNode(Node):
                     self._replay_base_motion(waypoint.base_motion, waypoint.label)
                 if waypoint.gripper in ("open", "close"):
                     self.publish_gripper(waypoint.gripper)
-                if not self._send_arm_positions(
-                    waypoint.arm_joints,
-                    float(self.get_parameter("arm_waypoint_duration_sec").value),
-                    waypoint.label,
-                    wait=True,
-                ):
+                if not self._move_arm_to_positions_velocity(waypoint.arm_joints, waypoint.label):
                     raise RuntimeError(f"arm waypoint failed: {waypoint.label}")
                 self._sleep(float(self.get_parameter("replay_settle_sec").value))
             self.set_base_velocity(0.0, 0.0)
@@ -1257,6 +1563,64 @@ class TeachPanelNode(Node):
             for start_value, target_value in zip(start, target)
         ]
 
+    def _joint_velocity_from_twist(self, q: np.ndarray, twist: np.ndarray) -> list[float] | None:
+        try:
+            jacobian = self._numeric_twist_jacobian(q)
+            damping = max(float(self.get_parameter("arm_velocity_damping").value), 1e-4)
+            lhs = jacobian @ jacobian.T + (damping**2) * np.eye(6)
+            qdot = jacobian.T @ np.linalg.solve(lhs, twist)
+        except Exception as exc:
+            self._status(f"arm velocity IK failed: {exc}", warn=True)
+            return None
+        max_speed = max(float(self.get_parameter("arm_velocity_max_joint_speed_rad_sec").value), 0.01)
+        peak = float(np.max(np.abs(qdot))) if qdot.size else 0.0
+        if peak > max_speed:
+            qdot = qdot * (max_speed / peak)
+        return [float(value) for value in qdot]
+
+    def _numeric_twist_jacobian(self, q: np.ndarray) -> np.ndarray:
+        eps = 1e-5
+        base_transform = self.kinematics.fk(q)
+        base_position = base_transform[:3, 3]
+        base_rotation = base_transform[:3, :3]
+        jacobian = np.zeros((6, len(q)))
+        for index in range(len(q)):
+            q_eps = np.array(q, dtype=float)
+            q_eps[index] += eps
+            next_transform = self.kinematics.fk(q_eps)
+            jacobian[:3, index] = (next_transform[:3, 3] - base_position) / eps
+            jacobian[3:, index] = (
+                self.kinematics._rotation_vector(next_transform[:3, :3] @ base_rotation.T)
+                / eps
+            )
+        return jacobian
+
+    def _arm_velocity_keepout_violation(
+        self, q_start: np.ndarray, velocity: list[float], label: str
+    ) -> str | None:
+        if not bool(self.get_parameter("arm_keepout_enabled").value):
+            return None
+        qdot = np.array(velocity, dtype=float)
+        if q_start.shape[0] != 6 or qdot.shape[0] != 6:
+            return "invalid arm velocity length"
+        predict_sec = max(float(self.get_parameter("arm_velocity_keepout_predict_sec").value), 0.05)
+        try:
+            boxes = self._arm_keepout_boxes()
+            samples_count = max(2, int(math.ceil(predict_sec / 0.05)))
+            for path_index in range(1, samples_count + 1):
+                q = q_start + qdot * predict_sec * (path_index / samples_count)
+                for sample_name, point in self._arm_keepout_samples(q):
+                    for box in boxes:
+                        if bool(np.all(point >= box.minimum) and np.all(point <= box.maximum)):
+                            xyz = ",".join(f"{value:.3f}" for value in point)
+                            return (
+                                f"{label} predicts {box.name}: {sample_name} "
+                                f"at base_link xyz=({xyz}), sample {path_index}/{samples_count}"
+                            )
+        except Exception as exc:
+            return f"keepout config invalid: {exc}"
+        return None
+
     def _send_arm_positions(
         self,
         positions: list[float],
@@ -1265,6 +1629,7 @@ class TeachPanelNode(Node):
         *,
         wait: bool,
         velocities: list[float] | None = None,
+        manual_stream: bool = False,
     ) -> bool:
         if label != "hold current":
             violation = self._arm_keepout_violation(positions, label)
@@ -1282,10 +1647,25 @@ class TeachPanelNode(Node):
             if velocities is not None and len(velocities) == len(point.positions)
             else [0.0 for _ in point.positions]
         )
-        point.accelerations = [0.0 for _ in point.positions]
+        if not manual_stream:
+            point.accelerations = [0.0 for _ in point.positions]
         point.time_from_start.sec = int(duration)
         point.time_from_start.nanosec = int((duration % 1.0) * 1e9)
         trajectory.points = [point]
+
+        if (
+            manual_stream
+            and not wait
+            and bool(self.get_parameter("arm_manual_prefer_topic").value)
+            and self.arm_publishers
+        ):
+            for publisher in self.arm_publishers:
+                publisher.publish(trajectory)
+            now = time.monotonic()
+            if label == "hold current" or now - self._last_manual_arm_stream_status >= 0.8:
+                self._status(f"arm stream sent: {label}")
+                self._last_manual_arm_stream_status = now
+            return True
 
         if self.arm_action_client.wait_for_server(timeout_sec=0.25):
             goal = FollowJointTrajectory.Goal()
@@ -1610,6 +1990,8 @@ class TeachPanelApp:
         self.log_text: tk.Text | None = None
         self.joint_tree: ttk.Treeview | None = None
         self._build()
+        self.root.bind_all("<ButtonRelease-1>", lambda _event: self._arm_hold_release(), add=True)
+        self.root.bind("<FocusOut>", lambda _event: self._arm_hold_release(), add=True)
         self._refresh()
 
     def _build(self) -> None:
@@ -2152,16 +2534,15 @@ class TeachPanelApp:
     def _arm_hold_start(self, callback) -> None:
         self._arm_hold_release(cancel_arm=False)
         self._arm_hold_callback = callback
+        self._arm_hold_callback()
+        self._arm_hold_after = self.root.after(50, self._arm_hold_heartbeat)
 
-        def tick() -> None:
-            if self._arm_hold_callback is None:
-                return
-            self._arm_hold_callback()
-            interval_sec = float(self.node.get_parameter("arm_hold_period_sec").value)
-            interval = max(60, int(interval_sec * 1000))
-            self._arm_hold_after = self.root.after(interval, tick)
-
-        tick()
+    def _arm_hold_heartbeat(self) -> None:
+        if self._arm_hold_callback is None:
+            self._arm_hold_after = None
+            return
+        self.node.refresh_arm_velocity_stream_deadman()
+        self._arm_hold_after = self.root.after(50, self._arm_hold_heartbeat)
 
     def _arm_hold_release(self, *, cancel_arm: bool = True) -> None:
         was_active = self._arm_hold_after is not None or self._arm_hold_callback is not None
