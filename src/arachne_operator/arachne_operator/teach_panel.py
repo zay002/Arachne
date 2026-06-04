@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import ctypes
-import ctypes.util
 import json
 import math
 import threading
@@ -194,7 +192,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_velocity_smoothing_tau_sec", 0.08)
         self.declare_parameter("arm_velocity_keepout_predict_sec", 0.35)
         self.declare_parameter("arm_velocity_keepout_check_interval_sec", 0.05)
-        self.declare_parameter("arm_velocity_stream_deadman_sec", 0.12)
+        self.declare_parameter("arm_velocity_stream_deadman_sec", 0.75)
         self.declare_parameter("arm_waypoint_duration_sec", 3.75)
         self.declare_parameter("arm_home_joints_deg", DEFAULT_ARM_HOME_JOINTS_DEG)
         self.declare_parameter("arm_install_joints_deg", DEFAULT_ARM_INSTALL_JOINTS_DEG)
@@ -2001,13 +1999,10 @@ class TeachPanelApp:
         self._arm_hold_stream_active = False
         self._preset_hold_after: str | None = None
         self._preset_hold_active = False
-        self._x11 = None
-        self._x11_display = None
         self.listbox: tk.Listbox | None = None
         self.log_text: tk.Text | None = None
         self.joint_tree: ttk.Treeview | None = None
         self._build()
-        self._setup_pointer_button_probe()
         self.root.bind_all("<ButtonRelease-1>", lambda _event: self._arm_hold_release(), add=True)
         self.root.bind("<FocusOut>", lambda _event: self._arm_hold_release(), add=True)
         self.root.protocol("WM_DELETE_WINDOW", self._close)
@@ -2460,7 +2455,6 @@ class TeachPanelApp:
         button = ttk.Button(parent, text=text)
         button.bind("<ButtonPress-1>", lambda _event, b=button: self._arm_hold_start(callback, b))
         button.bind("<ButtonRelease-1>", lambda _event: self._arm_hold_release())
-        button.bind("<Leave>", lambda _event: self._arm_hold_release())
         return button
 
     def _make_preset_hold_button(self, parent: ttk.Frame, text: str, preset: str):
@@ -2556,71 +2550,6 @@ class TeachPanelApp:
             messagebox.showerror("Apply failed", str(exc))
             return False
 
-    def _setup_pointer_button_probe(self) -> None:
-        try:
-            if str(self.root.tk.call("tk", "windowingsystem")) != "x11":
-                return
-            libname = ctypes.util.find_library("X11") or "libX11.so.6"
-            x11 = ctypes.cdll.LoadLibrary(libname)
-            x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
-            x11.XOpenDisplay.restype = ctypes.c_void_p
-            x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
-            x11.XDefaultRootWindow.restype = ctypes.c_ulong
-            x11.XQueryPointer.argtypes = [
-                ctypes.c_void_p,
-                ctypes.c_ulong,
-                ctypes.POINTER(ctypes.c_ulong),
-                ctypes.POINTER(ctypes.c_ulong),
-                ctypes.POINTER(ctypes.c_int),
-                ctypes.POINTER(ctypes.c_int),
-                ctypes.POINTER(ctypes.c_int),
-                ctypes.POINTER(ctypes.c_int),
-                ctypes.POINTER(ctypes.c_uint),
-            ]
-            x11.XQueryPointer.restype = ctypes.c_int
-            display = x11.XOpenDisplay(None)
-            if display:
-                self._x11 = x11
-                self._x11_display = display
-        except Exception as exc:
-            self.node.get_logger().warning(f"X11 pointer probe disabled: {exc}")
-            self._x11 = None
-            self._x11_display = None
-
-    def _pointer_button1_down(self) -> bool:
-        if self._x11 is not None and self._x11_display is not None:
-            try:
-                root = self._x11.XDefaultRootWindow(self._x11_display)
-                root_return = ctypes.c_ulong()
-                child_return = ctypes.c_ulong()
-                root_x = ctypes.c_int()
-                root_y = ctypes.c_int()
-                win_x = ctypes.c_int()
-                win_y = ctypes.c_int()
-                mask = ctypes.c_uint()
-                ok = self._x11.XQueryPointer(
-                    self._x11_display,
-                    root,
-                    ctypes.byref(root_return),
-                    ctypes.byref(child_return),
-                    ctypes.byref(root_x),
-                    ctypes.byref(root_y),
-                    ctypes.byref(win_x),
-                    ctypes.byref(win_y),
-                    ctypes.byref(mask),
-                )
-                if ok:
-                    return bool(mask.value & (1 << 8))
-            except Exception as exc:
-                self.node.get_logger().warning(f"X11 pointer query failed: {exc}")
-                self._x11 = None
-                self._x11_display = None
-        return bool(
-            self._arm_hold_button is not None
-            and self._arm_hold_button.winfo_exists()
-            and self._arm_hold_button.instate(["pressed"])
-        )
-
     def _arm_hold_start(self, callback, button: ttk.Button) -> None:
         self._arm_hold_release(cancel_arm=False)
         self._arm_hold_callback = callback
@@ -2633,9 +2562,6 @@ class TeachPanelApp:
     def _arm_hold_heartbeat(self) -> None:
         if self._arm_hold_callback is None:
             self._arm_hold_after = None
-            return
-        if not self._pointer_button1_down():
-            self._arm_hold_release()
             return
         self.node.refresh_arm_velocity_stream_deadman()
         self._arm_hold_after = self.root.after(50, self._arm_hold_heartbeat)
