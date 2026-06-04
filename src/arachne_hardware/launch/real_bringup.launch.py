@@ -193,6 +193,7 @@ def _launch_setup(context, *args, **kwargs):
                     "initial_joint_controller": LaunchConfiguration(
                         "aubo_initial_joint_controller"
                     ),
+                    "aubo_control_prefix": LaunchConfiguration("aubo_control_prefix"),
                 }.items(),
             )
         )
@@ -277,6 +278,7 @@ def generate_launch_description():
             DeclareLaunchArgument("aubo_rpc_timeout_sec", default_value="2.0"),
             DeclareLaunchArgument("aubo_teach_method", default_value="freedrive"),
             DeclareLaunchArgument("aubo_teach_flag_path", default_value="/tmp/arachne_aubo_teach_mode"),
+            DeclareLaunchArgument("aubo_control_prefix", default_value=""),
             OpaqueFunction(function=_launch_setup),
         ]
     )

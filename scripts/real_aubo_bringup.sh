@@ -7,6 +7,8 @@ source "${ROOT_DIR}/scripts/ros_env.sh"
 
 AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
 AUBO_TYPE="${AUBO_TYPE:-aubo_i5}"
+AUBO_CONTROL_CPUSET="${AUBO_CONTROL_CPUSET-3}"
+AUBO_CONTROL_PREFIX="${AUBO_CONTROL_PREFIX:-}"
 AUBO_TEACH_FLAG_PATH="${AUBO_TEACH_FLAG_PATH:-/tmp/arachne_aubo_teach_mode}"
 AUBO_KEEP_TEACH_FLAG="${AUBO_KEEP_TEACH_FLAG:-false}"
 
@@ -59,10 +61,21 @@ if [[ "${AUBO_KEEP_TEACH_FLAG}" != "true" ]]; then
   rm -f "${AUBO_TEACH_FLAG_PATH}"
 fi
 
+if [[ -z "${AUBO_CONTROL_PREFIX}" && -n "${AUBO_CONTROL_CPUSET}" ]]; then
+  if command -v taskset >/dev/null 2>&1; then
+    AUBO_CONTROL_PREFIX="taskset -c ${AUBO_CONTROL_CPUSET}"
+  else
+    echo "Warning: taskset not found; Aubo control CPU pinning disabled." >&2
+  fi
+fi
+
+echo "Aubo control prefix: ${AUBO_CONTROL_PREFIX:-none}"
+
 exec ros2 launch arachne_hardware real_bringup.launch.py \
   use_scout:=false \
   use_ms42dc:=false \
   use_aubo:=true \
   aubo_robot_ip:="${AUBO_ROBOT_IP}" \
   aubo_type:="${AUBO_TYPE}" \
+  aubo_control_prefix:="${AUBO_CONTROL_PREFIX}" \
   "$@"

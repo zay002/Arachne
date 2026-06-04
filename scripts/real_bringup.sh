@@ -9,6 +9,8 @@ USE_AUBO="${USE_AUBO:-true}"
 SCOUT_DRIVER="${SCOUT_DRIVER:-waveshare}"
 AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
 AUBO_TYPE="${AUBO_TYPE:-aubo_i5}"
+AUBO_CONTROL_CPUSET="${AUBO_CONTROL_CPUSET-3}"
+AUBO_CONTROL_PREFIX="${AUBO_CONTROL_PREFIX:-}"
 SKIP_AUBO_CHECK="${SKIP_AUBO_CHECK:-false}"
 HURRY_AUTO_ATTACH="${HURRY_AUTO_ATTACH:-true}"
 AUBO_TEACH_FLAG_PATH="${AUBO_TEACH_FLAG_PATH:-/tmp/arachne_aubo_teach_mode}"
@@ -35,6 +37,8 @@ Useful environment overrides:
   MS42DC_PORT=/dev/...      Override MS42DC serial path.
   AUBO_ROBOT_IP=...         Override Aubo controller IP.
   AUBO_TYPE=aubo_i5_31      Override Aubo official URDF/model type.
+  AUBO_CONTROL_CPUSET=3     Pin Aubo control process to one CPU core; empty disables.
+  AUBO_CONTROL_PREFIX=...   Override the Aubo process prefix, e.g. "taskset -c 4".
   HURRY_AUTO_ATTACH=false   Disable automatic WSL2 usbipd attach attempts.
   AUBO_KEEP_TEACH_FLAG=true Keep an existing Aubo teach gate flag for debugging.
 EOF
@@ -205,10 +209,19 @@ if [[ "${USE_AUBO}" == "true" && "${AUBO_KEEP_TEACH_FLAG}" != "true" ]]; then
   rm -f "${AUBO_TEACH_FLAG_PATH}"
 fi
 
+if [[ "${USE_AUBO}" == "true" && -z "${AUBO_CONTROL_PREFIX}" && -n "${AUBO_CONTROL_CPUSET}" ]]; then
+  if command -v taskset >/dev/null 2>&1; then
+    AUBO_CONTROL_PREFIX="taskset -c ${AUBO_CONTROL_CPUSET}"
+  else
+    echo "Warning: taskset not found; Aubo control CPU pinning disabled." >&2
+  fi
+fi
+
 echo "Arachne real bringup:"
 echo "  Scout: ${USE_SCOUT} ${SCOUT_PORT_RESOLVED:+(${SCOUT_PORT_RESOLVED})}"
 echo "  MS42DC: ${USE_MS42DC} ${MS42DC_PORT_RESOLVED:+(${MS42DC_PORT_RESOLVED})}"
 echo "  Aubo: ${USE_AUBO} (${AUBO_ROBOT_IP}, ${AUBO_TYPE})"
+echo "  Aubo control prefix: ${AUBO_CONTROL_PREFIX:-none}"
 
 exec ros2 launch arachne_hardware real_bringup.launch.py \
   use_scout:="${USE_SCOUT}" \
@@ -220,4 +233,5 @@ exec ros2 launch arachne_hardware real_bringup.launch.py \
   use_aubo:="${USE_AUBO}" \
   aubo_robot_ip:="${AUBO_ROBOT_IP}" \
   aubo_type:="${AUBO_TYPE}" \
+  aubo_control_prefix:="${AUBO_CONTROL_PREFIX}" \
   "${EXTRA_ARGS[@]}"

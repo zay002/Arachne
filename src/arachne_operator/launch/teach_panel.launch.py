@@ -271,7 +271,7 @@ def generate_launch_description():
             DeclareLaunchArgument("arm_velocity_smoothing_tau_sec", default_value="0.08"),
             DeclareLaunchArgument("arm_velocity_keepout_predict_sec", default_value="0.35"),
             DeclareLaunchArgument("arm_velocity_keepout_check_interval_sec", default_value="0.05"),
-            DeclareLaunchArgument("arm_velocity_stream_deadman_sec", default_value="0.18"),
+            DeclareLaunchArgument("arm_velocity_stream_deadman_sec", default_value="0.12"),
             DeclareLaunchArgument("arm_waypoint_duration_sec", default_value="3.75"),
             DeclareLaunchArgument("arm_jog_position_tolerance", default_value="0.0008"),
             DeclareLaunchArgument("arm_orientation_tolerance", default_value="0.01"),

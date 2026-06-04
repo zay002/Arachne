@@ -416,30 +416,26 @@ int AuboHardwareInterface::Servoj(
                                << joint_position_command[5] << "]");
         first_servoj_logged_ = true;
     }
-    // 接口调用 : 获取机器人的名字
-    auto robot_name = rpc_client_->getRobotNames().front();
-
     std::vector<double> traj(6, 0);
     for (size_t i = 0; i < traj.size(); i++) {
         traj[i] = joint_position_command[i];
     }
-    
-    if(!rpc_client_->getRobotInterface(robot_name)
-                ->getMotionControl()
-                ->isServoModeEnabled()){
-                
-        rpc_client_->getRobotInterface(robot_name)
-        ->getMotionControl()
-        ->setServoMode(true);           
+
+    if (robot_name_.empty()) {
+        RCLCPP_ERROR(rclcpp::get_logger("AuboHardwareInterface"),
+                     "Aubo robot name is empty; refusing servoJoint command.");
+        return -1;
     }
+
     // Arachne servoJoint tuning: keep one bounded SDK call per ros2_control
-    // write cycle. The controller config runs at 200 Hz, so t must be 5 ms.
+    // write cycle. Jetson's stock PREEMPT kernel is not RT; a 125 Hz loop with
+    // t=8 ms is steadier than chasing the nominal 5 ms SDK example period.
     constexpr double kServoJointVelocity = 0.2;
     constexpr double kServoJointAcceleration = 0.2;
-    constexpr double kServoJointPeriodSec = 0.005;
+    constexpr double kServoJointPeriodSec = 0.008;
     constexpr double kServoJointLookaheadSec = 0.12;
     constexpr int kServoJointGain = 150;
-    const int servoJoint_num = rpc_client_->getRobotInterface(robot_name)
+    const int servoJoint_num = rpc_client_->getRobotInterface(robot_name_)
                                    ->getMotionControl()
                                    ->servoJoint(
                                        traj,

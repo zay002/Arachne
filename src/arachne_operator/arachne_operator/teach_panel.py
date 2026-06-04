@@ -194,7 +194,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_velocity_smoothing_tau_sec", 0.08)
         self.declare_parameter("arm_velocity_keepout_predict_sec", 0.35)
         self.declare_parameter("arm_velocity_keepout_check_interval_sec", 0.05)
-        self.declare_parameter("arm_velocity_stream_deadman_sec", 0.18)
+        self.declare_parameter("arm_velocity_stream_deadman_sec", 0.12)
         self.declare_parameter("arm_waypoint_duration_sec", 3.75)
         self.declare_parameter("arm_home_joints_deg", DEFAULT_ARM_HOME_JOINTS_DEG)
         self.declare_parameter("arm_install_joints_deg", DEFAULT_ARM_INSTALL_JOINTS_DEG)
@@ -2616,8 +2616,9 @@ class TeachPanelApp:
         self._arm_hold_callback = callback
         self._arm_hold_button = button
         self._arm_hold_started_at = time.monotonic()
-        self._arm_hold_stream_active = False
-        self._arm_hold_after = self.root.after(35, self._arm_hold_heartbeat)
+        self._arm_hold_callback()
+        self._arm_hold_stream_active = True
+        self._arm_hold_after = self.root.after(50, self._arm_hold_heartbeat)
 
     def _arm_hold_heartbeat(self) -> None:
         if self._arm_hold_callback is None:
@@ -2626,11 +2627,7 @@ class TeachPanelApp:
         if not self._pointer_button1_down():
             self._arm_hold_release()
             return
-        if not self._arm_hold_stream_active:
-            self._arm_hold_callback()
-            self._arm_hold_stream_active = True
-        else:
-            self.node.refresh_arm_velocity_stream_deadman()
+        self.node.refresh_arm_velocity_stream_deadman()
         self._arm_hold_after = self.root.after(50, self._arm_hold_heartbeat)
 
     def _arm_hold_release(self, *, cancel_arm: bool = True) -> None:
