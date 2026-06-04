@@ -21,6 +21,7 @@ def launch_setup(context, *args, **kwargs):
     model_path = description_share / "urdf" / "arachne.urdf.xacro"
     gripper_type = LaunchConfiguration("gripper_type").perform(context)
     srdf_path = moveit_share / "config" / f"arachne_{gripper_type}.srdf.xacro"
+    joint_states_topic = LaunchConfiguration("joint_states_topic")
 
     robot_description = xacro.process_file(
         str(model_path),
@@ -54,6 +55,7 @@ def launch_setup(context, *args, **kwargs):
             executable="move_group",
             output="screen",
             parameters=[moveit_params],
+            remappings=[("joint_states", joint_states_topic)],
         ),
         Node(
             package="rviz2",
@@ -61,6 +63,7 @@ def launch_setup(context, *args, **kwargs):
             output="screen",
             condition=IfCondition(LaunchConfiguration("launch_rviz")),
             parameters=[moveit_params],
+            remappings=[("joint_states", joint_states_topic)],
         ),
     ]
 
@@ -71,6 +74,7 @@ def generate_launch_description():
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
             DeclareLaunchArgument("launch_rviz", default_value="true"),
             DeclareLaunchArgument("with_robot_state_publisher", default_value="true"),
+            DeclareLaunchArgument("joint_states_topic", default_value="/joint_states"),
             OpaqueFunction(function=launch_setup),
         ]
     )

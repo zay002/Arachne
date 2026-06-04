@@ -162,6 +162,122 @@ ARACHNE_YOLO_CLASSES= ./scripts/vision/gemini_yolo_live.sh --classes ""
 ./scripts/vision/stop_gemini_yolo_live.sh
 ```
 
+### Bottle 抓取入篮路径预览
+
+如果镜头里已经放了一个 bottle，可以启动快速 MVP 链路：
+
+```bash
+cd /home/jetson/zhaoyang/Arachne
+source scripts/env/arachne_env.sh
+./scripts/vision/grasp_preview.sh
+```
+
+这个脚本会默认启动：
+
+- Arachne 模型 TF，不控制真机。
+- MoveIt 2 `move_group`，使用 OMPL 做 Aubo 轨迹规划。
+- Gemini335 RGB-D 相机。
+- RViz 抓取预览界面。
+- YOLO bottle 检测、ROI 点云、深度测量和抓取入篮路径预览节点。
+
+抓取预览依赖 `base_link -> ee_camera_link` 的 TF。真机没电或没有 Aubo driver 时，RViz 里的机械臂不会自动同步到真机末端姿态，相机坐标会随模型关节角偏掉。当前离线模型默认姿态已固定为最后一次有效示教记录：
+
+```text
+source: recordings/teach/demo_real_1.json
+waypoint: wp_20, 2026-05-31T16:02:52
+joints: -1.5408120029719,0.0593612532330225,2.03497187013844,1.97166718909566,1.54149915004866,-0.00236931686049663
+```
+
+如果需要手动指定机械臂当前姿态：
+
+```bash
+ARACHNE_GRASP_ARM_JOINTS="-1.5408120029719,0.0593612532330225,2.03497187013844,1.97166718909566,1.54149915004866,-0.00236931686049663" \
+  ./scripts/vision/grasp_preview.sh
+```
+
+后续真机在线时应直接使用 Aubo driver 的实时 `/joint_states` 同步模型，不再依赖离线示教姿态。
+
+RViz 中重点看：
+
+```text
+/arachne/grasp_preview/markers    检测框、抓取点、入篮路径、篮子 keepout
+/arachne/grasp_preview/roi_cloud  检测框内用于估深的点云
+/arachne/grasp_preview/path       base_link 下的抓取到入篮路径
+```
+
+节点会把最近一次结果保存到：
+
+```text
+yolo_workspace/runs/grasp_preview/latest_annotated.jpg
+yolo_workspace/runs/grasp_preview/latest_grasp_preview.json
+```
+
+当前路径只是可视化规划，不会控制机械臂。默认流程是：
+
+```text
+SEARCH_2D: YOLO 持续寻找 bottle
+-> SNAPSHOT_3D: 目标确认后只拍一次深度 ROI / 点云
+-> PLAN_LOCKED: 锁定抓取点和入篮路径，暂停 YOLO 2D 推理
+-> 执行/调试结束后重新开始 SEARCH_2D
+```
+
+这样做的目的是把 YOLO 当作高速 2D 搜索前端：视野里看到目标后，只在目标变化时触发 3D；规划和抓取阶段不再持续跑 2D 推理，减少 Jetson 负载，也避免深度噪声让抓取点每帧跳动。当前 demo 默认会在第一次有效 3D 快照后暂停 YOLO，并继续发布缓存的点云、抓取点和曲线轨迹。
+
+重新开始搜寻：
+
+```bash
+ros2 topic pub --once /arachne/grasp_preview/restart_search std_msgs/msg/Empty "{}"
+```
+
+入篮轨迹当前不是简单直线连接，而是由语义关键点和约束共同生成的预览轨迹：短距离接近和释放段保留可控直线，抓取后转运到篮子上方先用抬高控制点的曲线作为参考输入。RViz 里的 `/arachne/grasp_preview/path` 是用于显示和任务理解的采样 base_link 参考曲线；机械臂动画不会实时追这个小球，而是在锁定计划时把关键目标交给 MoveIt 2 `/plan_kinematic_path`，由 OMPL 在完整 Arachne URDF 碰撞模型里规划 Aubo 关节轨迹，再按预览速度、加速度和 jerk 限制重新生成固定频率 joint trajectory。
+
+默认 planner 是快速的：
+
+```text
+RRTConnectkConfigDefault
+```
+
+PRM 和 RRTstar 已经在 OMPL 配置里保留；需要对比时可以手动指定：
+
+```bash
+./scripts/vision/grasp_preview.sh \
+  --moveit-planners RRTConnectkConfigDefault,PRMkConfigDefault,RRTstarkConfigDefault
+```
+
+如果需要临时退回旧的本地 IK 预览，可追加：
+
+```bash
+./scripts/vision/grasp_preview.sh --planner-backend local
+```
+
+如果只想调相机/YOLO，不启动 MoveIt：
+
+```bash
+ARACHNE_GRASP_START_MOVEIT=false ./scripts/vision/grasp_preview.sh --planner-backend local
+```
+
+当前完整任务路径包含这些语义关键点：
+
+```text
+start_ee       当前末端起始位置，默认使用 grasp_frame
+approach       抓取前接近位
+grasp          抓取位置
+safe_mid       中间安全位置
+drop           篮子上方丢放位置
+observe_start  回到观察/初始位置
+```
+
+RViz 中会同时显示：
+
+- `/arachne/grasp_preview/path`：完整采样路径。
+- `/arachne/grasp_preview/markers` 里的 `task_waypoints`：上述关键点和文字标签。
+- `/arachne/grasp_preview/markers` 里的 `path_playback`：洋红色播放游标，会按已生成的受限关节轨迹进度移动，表示执行顺序；默认播放到末端后保持，不自动回初始位。
+- RViz 的 RobotModel：机械臂会按默认 80 Hz 播放 MoveIt 返回并重新限速后的 joint trajectory frame。每帧包含关节位置、速度和加速度，位置/速度发布到 `/arachne/grasp_preview/joint_states`；默认播放一次并保持末端姿态，经过模型用的 joint_state_mux 进入 RViz，不控制真机。
+
+Grasp preview 的模型可视化使用专用 `/arachne/display/joint_states` 和 `/arachne/display/robot_description`，并把预览机器人 link/TF frame 加上 `grasp_preview_` 前缀；全局 `base_link` 只通过一条静态 TF 接到 `grasp_preview_base_link`。这样全局 `/joint_states`、真机/mock 的 `robot_state_publisher`、以及预览 RobotModel 使用的 TF 树彼此隔离。启动脚本会清理旧的预览专用 display RSP/static bridge，避免残留预览 TF 与新预览 TF 冲突。
+
+为了避免夹具碰到篮子，预览节点会画出 `basket_keepout` 半透明红色盒子。URDF 中车头吊篮碰撞体约为 `x=[0.4415,0.6455] y=[-0.09,0.09] z=[-0.0735,0.0135]`；当前默认 keepout 在 X/Y 方向各外扩 2 cm，在 Z 方向各外扩 5 cm，即 `x=[0.4215,0.6655] y=[-0.11,0.11] z=[-0.1235,0.0635]`。路径检查时会额外按 `gripper_radius` 扩展这一区域做采样判断；如果 RViz 文本显示 `basket collision risk`，先不要按这个轨迹做真机运动。
+
 实时日志：
 
 ```bash

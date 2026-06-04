@@ -72,6 +72,7 @@ Without that environment, RViz may fail to resolve `package://...` mesh paths, c
 | Gazebo autonomous pick validation | `./scripts/sim/gazebo_autopick_demo.sh` |
 | Godot showcase | `./scripts/godot/godot_showcase.sh` |
 | Gemini335 YOLO live preview | `./scripts/vision/gemini_yolo_live.sh` |
+| Bottle grasp-to-basket path preview | `./scripts/vision/grasp_preview.sh` |
 | Real-hardware environment check | `./scripts/hardware/check_real_hardware_env.sh` |
 | Real one-command bringup | `./scripts/hardware/real_bringup.sh` |
 | Real teach demo | `./scripts/hardware/real_teach_demo.sh` |

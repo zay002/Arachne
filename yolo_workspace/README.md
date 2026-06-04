@@ -1,14 +1,14 @@
 # Arachne YOLO Workspace
 
-This directory keeps the YOLO side of the static trash picking project separate
-from ROS 2 packages.
+This directory keeps the YOLO side of the static trash picking and charging-gun
+perception projects separate from ROS 2 packages.
 
 ## Layout
 
 - `.venv/`: local Python environment, reusing Jetson system torch/TensorRT.
 - `weights/`: downloaded `.pt` weights.
 - `engines/`: TensorRT `.engine` exports.
-- `datasets/`: labeled trash datasets and dataset YAML files.
+- `datasets/`: labeled trash, workpiece, and charging-gun datasets.
 - `calibration/`: representative Gemini335 images for INT8 calibration.
 - `runs/`: Ultralytics training, validation, export, and benchmark outputs.
 - `ultralytics_config/`: local Ultralytics and matplotlib cache/config.
@@ -25,15 +25,16 @@ Use YOLO26 as the default family.
 - Later comparison: `yolo26s.pt` or `yolo26s-seg.pt` only if TensorRT FPS has
   enough headroom.
 
-The final trash model should be fine-tuned on Arachne/Gemini335 images. COCO
-weights are only the bootstrap baseline.
+The final trash and charging-gun models should be fine-tuned on
+Arachne/Gemini335 images. COCO weights are only the bootstrap baseline; a
+charging gun needs a dedicated local dataset.
 
 ## Commands
 
 ```bash
 cd /home/jetson/zhaoyang/Arachne
-./scripts/setup_yolo_env.sh
-./scripts/download_yolo_weights.sh
+./scripts/vision/setup_yolo_env.sh
+./scripts/vision/download_yolo_weights.sh
 ```
 
 Activate the environment:
@@ -49,12 +50,18 @@ smoke test.
 Export a fast FP16 TensorRT smoke-test engine:
 
 ```bash
-./scripts/export_yolo_engine.sh yolo26n.pt fp16
+./scripts/vision/export_yolo_engine.sh yolo26n.pt fp16
 ```
 
 Export INT8 only after `datasets/trash_mvp/images/val` contains representative
 Gemini335 images:
 
 ```bash
-./scripts/export_yolo_engine.sh yolo26n.pt int8
+./scripts/vision/export_yolo_engine.sh yolo26n.pt int8
+```
+
+Preview a bottle detect-depth-grasp-to-basket path in RViz:
+
+```bash
+./scripts/vision/grasp_preview.sh
 ```

@@ -16,8 +16,19 @@ ompl:
     RRTConnectkConfigDefault:
       type: geometric::RRTConnect
       range: 0.0
+    PRMkConfigDefault:
+      type: geometric::PRM
+      max_nearest_neighbors: 10
+    RRTstarkConfigDefault:
+      type: geometric::RRTstar
+      range: 0.0
+      goal_bias: 0.05
+      delay_collision_checking: 1
   aubo_arm:
     planner_configs:
       - RRTConnectkConfigDefault
+      - PRMkConfigDefault
+      - RRTstarkConfigDefault
     projection_evaluator: joints(aubo_shoulder_joint,aubo_upperArm_joint)
-    longest_valid_segment_fraction: 0.01
+    longest_valid_segment_fraction: 0.005
+    enforce_joint_model_state_space: true

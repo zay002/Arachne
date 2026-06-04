@@ -1,4 +1,5 @@
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import xacro
 from ament_index_python.packages import get_package_share_directory
@@ -11,13 +12,43 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 DISPLAY_ARM_ZEROS = {
-    "zeros.aubo_shoulder_joint": -1.5407387550371199,
-    "zeros.aubo_upperArm_joint": 0.05937252214606485,
-    "zeros.aubo_foreArm_joint": 2.0350620214427786,
-    "zeros.aubo_wrist1_joint": 1.9717090402766757,
-    "zeros.aubo_wrist2_joint": 1.5416031029821449,
-    "zeros.aubo_wrist3_joint": -0.002335565908067907,
+    "aubo_shoulder_joint": -1.540812002971895,
+    "aubo_upperArm_joint": 0.05936125323302253,
+    "aubo_foreArm_joint": 2.03497187013844,
+    "aubo_wrist1_joint": 1.971667189095664,
+    "aubo_wrist2_joint": 1.5414991500486643,
+    "aubo_wrist3_joint": -0.002369316860496634,
 }
+
+
+def _float_launch_arg(context, name):
+    return float(LaunchConfiguration(name).perform(context))
+
+
+def _prefix_robot_links(robot_description: str, prefix: str) -> str:
+    if not prefix:
+        return robot_description
+    root = ET.fromstring(robot_description)
+    for link in root.findall("link"):
+        name = link.get("name")
+        if name and not name.startswith(prefix):
+            link.set("name", f"{prefix}{name}")
+    for joint in root.findall("joint"):
+        parent = joint.find("parent")
+        child = joint.find("child")
+        if parent is not None:
+            link = parent.get("link")
+            if link and not link.startswith(prefix):
+                parent.set("link", f"{prefix}{link}")
+        if child is not None:
+            link = child.get("link")
+            if link and not link.startswith(prefix):
+                child.set("link", f"{prefix}{link}")
+    for gazebo in root.findall("gazebo"):
+        reference = gazebo.get("reference")
+        if reference and not reference.startswith(prefix):
+            gazebo.set("reference", f"{prefix}{reference}")
+    return ET.tostring(root, encoding="unicode")
 
 
 def launch_setup(context, *args, **kwargs):
@@ -46,14 +77,48 @@ def launch_setup(context, *args, **kwargs):
         "ee_camera_rpy": LaunchConfiguration("ee_camera_rpy").perform(context),
     }
 
-    robot_description = xacro.process_file(str(model_path), mappings=mappings).toxml()
+    display_frame_prefix = LaunchConfiguration("display_frame_prefix").perform(context)
+    robot_description = _prefix_robot_links(
+        xacro.process_file(str(model_path), mappings=mappings).toxml(),
+        display_frame_prefix,
+    )
     generated_urdf.write_text(robot_description)
+    display_arm_zeros = {
+        f"zeros.{joint_name}": _float_launch_arg(context, joint_name)
+        for joint_name in DISPLAY_ARM_ZEROS
+    }
+    display_base_link = f"{display_frame_prefix}base_link"
 
     return [
         Node(
             package="robot_state_publisher",
             executable="robot_state_publisher",
-            parameters=[{"robot_description": robot_description}],
+            name="arachne_display_robot_state_publisher",
+            parameters=[
+                {
+                    "robot_description": robot_description,
+                }
+            ],
+            remappings=[
+                ("joint_states", LaunchConfiguration("display_joint_states_topic")),
+                ("robot_description", LaunchConfiguration("display_robot_description_topic")),
+            ],
+            output="screen",
+        ),
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="arachne_display_base_link_bridge",
+            arguments=[
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "base_link",
+                display_base_link,
+            ],
             output="screen",
         ),
         Node(
@@ -61,7 +126,7 @@ def launch_setup(context, *args, **kwargs):
             executable="joint_state_publisher",
             name="default_joint_state_publisher",
             arguments=[str(generated_urdf)],
-            parameters=[DISPLAY_ARM_ZEROS],
+            parameters=[display_arm_zeros],
             remappings=[("joint_states", "/arachne/default_joint_states")],
             output="screen",
         ),
@@ -70,7 +135,7 @@ def launch_setup(context, *args, **kwargs):
             executable="joint_state_publisher_gui",
             name="joint_state_publisher_gui",
             arguments=[str(generated_urdf)],
-            parameters=[DISPLAY_ARM_ZEROS],
+            parameters=[display_arm_zeros],
             remappings=[("joint_states", "/arachne/gui_joint_states")],
             condition=IfCondition(LaunchConfiguration("use_gui")),
             output="screen",
@@ -79,6 +144,15 @@ def launch_setup(context, *args, **kwargs):
             package="arachne_gripper",
             executable="joint_state_mux",
             name="joint_state_mux",
+            parameters=[
+                {
+                    "publish_rate": ParameterValue(
+                        LaunchConfiguration("joint_state_publish_rate"), value_type=float
+                    ),
+                    "preview_active_timeout_sec": 0.35,
+                    "output_topic": LaunchConfiguration("display_joint_states_topic"),
+                }
+            ],
             output="screen",
         ),
         Node(
@@ -179,6 +253,15 @@ def generate_launch_description():
             DeclareLaunchArgument("with_ee_camera", default_value="true"),
             DeclareLaunchArgument("with_rear_rack", default_value="true"),
             DeclareLaunchArgument("with_front_basket", default_value="true"),
+            DeclareLaunchArgument("joint_state_publish_rate", default_value="80.0"),
+            DeclareLaunchArgument(
+                "display_joint_states_topic", default_value="/arachne/display/joint_states"
+            ),
+            DeclareLaunchArgument(
+                "display_robot_description_topic",
+                default_value="/arachne/display/robot_description",
+            ),
+            DeclareLaunchArgument("display_frame_prefix", default_value="grasp_preview_"),
             DeclareLaunchArgument("front_basket_xyz", default_value="0.4655 0.0 -0.0735"),
             DeclareLaunchArgument("front_basket_rpy", default_value="0.0 0.0 0.0"),
             DeclareLaunchArgument("rear_rack_xyz", default_value="-0.16 0.0 0.105"),
@@ -187,6 +270,30 @@ def generate_launch_description():
             DeclareLaunchArgument("lidar_rpy", default_value="0.0 0.0 0.0"),
             DeclareLaunchArgument("ee_camera_xyz", default_value="0.0 0.0 0.0"),
             DeclareLaunchArgument("ee_camera_rpy", default_value="0.0 0.0 0.0"),
+            DeclareLaunchArgument(
+                "aubo_shoulder_joint",
+                default_value=str(DISPLAY_ARM_ZEROS["aubo_shoulder_joint"]),
+            ),
+            DeclareLaunchArgument(
+                "aubo_upperArm_joint",
+                default_value=str(DISPLAY_ARM_ZEROS["aubo_upperArm_joint"]),
+            ),
+            DeclareLaunchArgument(
+                "aubo_foreArm_joint",
+                default_value=str(DISPLAY_ARM_ZEROS["aubo_foreArm_joint"]),
+            ),
+            DeclareLaunchArgument(
+                "aubo_wrist1_joint",
+                default_value=str(DISPLAY_ARM_ZEROS["aubo_wrist1_joint"]),
+            ),
+            DeclareLaunchArgument(
+                "aubo_wrist2_joint",
+                default_value=str(DISPLAY_ARM_ZEROS["aubo_wrist2_joint"]),
+            ),
+            DeclareLaunchArgument(
+                "aubo_wrist3_joint",
+                default_value=str(DISPLAY_ARM_ZEROS["aubo_wrist3_joint"]),
+            ),
             OpaqueFunction(function=launch_setup),
         ]
     )
