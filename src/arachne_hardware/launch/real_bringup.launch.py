@@ -339,7 +339,7 @@ def generate_launch_description():
             DeclareLaunchArgument("aubo_sdk_velocity_watchdog_sec", default_value="0.75"),
             DeclareLaunchArgument("aubo_sdk_velocity_send_period_sec", default_value="0.20"),
             DeclareLaunchArgument("aubo_sdk_velocity_start_delay_sec", default_value="0.04"),
-            DeclareLaunchArgument("aubo_sdk_velocity_change_epsilon_rad_sec", default_value="0.025"),
+            DeclareLaunchArgument("aubo_sdk_velocity_change_epsilon_rad_sec", default_value="0.30"),
             DeclareLaunchArgument("aubo_sdk_speed_joint_accel_rad_sec2", default_value="2.0"),
             DeclareLaunchArgument("aubo_sdk_speed_joint_time_sec", default_value="100.0"),
             DeclareLaunchArgument("aubo_sdk_stop_joint_accel_rad_sec2", default_value="8.0"),

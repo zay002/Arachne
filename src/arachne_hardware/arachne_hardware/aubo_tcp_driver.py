@@ -272,7 +272,7 @@ class AuboSdkVelocityBridge(Node):
         self.declare_parameter("gate_settle_sec", 0.08)
         self.declare_parameter("command_start_delay_sec", 0.04)
         self.declare_parameter("max_joint_speed_rad_sec", 0.25)
-        self.declare_parameter("velocity_change_epsilon_rad_sec", 0.025)
+        self.declare_parameter("velocity_change_epsilon_rad_sec", 0.30)
         self.declare_parameter("speed_joint_accel_rad_sec2", 2.0)
         self.declare_parameter("speed_joint_time_sec", 100.0)
         self.declare_parameter("stop_joint_accel_rad_sec2", 8.0)
