@@ -51,6 +51,15 @@ source scripts/arachne_env.sh
 
 `view_model.sh` 会启动默认 MS42DC 模型、底盘遥控 GUI、Aubo 关节滑条和夹爪 Open/Close 控制窗。
 
+推荐始终通过 `./scripts/view_model.sh` 查看模型；脚本会自动加载 ROS 和 workspace 环境。若手动运行 `ros2 launch` 或直接打开 RViz，必须先执行：
+
+```bash
+source scripts/arachne_env.sh
+source install/setup.bash
+```
+
+否则 RViz 的 `package://...` mesh 路径可能解析失败，表现为白模、部件堆叠或材质丢失。
+
 ## 常用入口
 
 | 目标 | 命令 |

@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="arachne_front_basket" params="parent xyz:='0.4655 0 -0.0735' rpy:='0 0 0'">
+    <link name="front_basket_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://arachne_description/meshes/accessories/front_basket/scout_front_basket_180x180x60mm_colored.dae"/>
+        </geometry>
+        <material name="arachne_front_basket">
+          <color rgba="0.96 0.94 0.86 1.0"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="0.078 0 0.0435" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.204 0.180 0.087"/>
+        </geometry>
+      </collision>
+      <xacro:box_inertial mass="0.25" x="0.204" y="0.180" z="0.087"/>
+    </link>
+
+    <joint name="front_basket_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="front_basket_link"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+    </joint>
+  </xacro:macro>
+</robot>

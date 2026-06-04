@@ -51,6 +51,15 @@ The repository vendors a small runnable third-party subset: required Aubo i5 mes
 
 `view_model.sh` starts the default MS42DC model, base teleop GUI, Aubo joint sliders, and gripper Open/Close controls.
 
+Prefer `./scripts/view_model.sh` for model inspection; the script loads the ROS and workspace environment automatically. If you run `ros2 launch` manually or open RViz directly, run:
+
+```bash
+source scripts/arachne_env.sh
+source install/setup.bash
+```
+
+Without that environment, RViz may fail to resolve `package://...` mesh paths, causing white meshes, stacked parts, or missing materials.
+
 ## Common Commands
 
 | Goal | Command |
