@@ -71,11 +71,17 @@ fi
 
 echo "Aubo control prefix: ${AUBO_CONTROL_PREFIX:-none}"
 
+LAUNCH_ARGS=(
+  use_scout:=false
+  use_ms42dc:=false
+  use_aubo:=true
+  aubo_robot_ip:="${AUBO_ROBOT_IP}"
+  aubo_type:="${AUBO_TYPE}"
+)
+if [[ -n "${AUBO_CONTROL_PREFIX}" ]]; then
+  LAUNCH_ARGS+=(aubo_control_prefix:="${AUBO_CONTROL_PREFIX}")
+fi
+
 exec ros2 launch arachne_hardware real_bringup.launch.py \
-  use_scout:=false \
-  use_ms42dc:=false \
-  use_aubo:=true \
-  aubo_robot_ip:="${AUBO_ROBOT_IP}" \
-  aubo_type:="${AUBO_TYPE}" \
-  aubo_control_prefix:="${AUBO_CONTROL_PREFIX}" \
+  "${LAUNCH_ARGS[@]}" \
   "$@"

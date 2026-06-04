@@ -223,15 +223,21 @@ echo "  MS42DC: ${USE_MS42DC} ${MS42DC_PORT_RESOLVED:+(${MS42DC_PORT_RESOLVED})}
 echo "  Aubo: ${USE_AUBO} (${AUBO_ROBOT_IP}, ${AUBO_TYPE})"
 echo "  Aubo control prefix: ${AUBO_CONTROL_PREFIX:-none}"
 
+LAUNCH_ARGS=(
+  use_scout:="${USE_SCOUT}"
+  scout_driver:="${SCOUT_DRIVER}"
+  scout_port:="${SCOUT_PORT_RESOLVED:-${SCOUT_PORT:-/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0}}"
+  use_ms42dc:="${USE_MS42DC}"
+  ms42dc_driver:=direct
+  ms42dc_port:="${MS42DC_PORT_RESOLVED:-${MS42DC_PORT:-/dev/motor_serial}}"
+  use_aubo:="${USE_AUBO}"
+  aubo_robot_ip:="${AUBO_ROBOT_IP}"
+  aubo_type:="${AUBO_TYPE}"
+)
+if [[ -n "${AUBO_CONTROL_PREFIX}" ]]; then
+  LAUNCH_ARGS+=(aubo_control_prefix:="${AUBO_CONTROL_PREFIX}")
+fi
+
 exec ros2 launch arachne_hardware real_bringup.launch.py \
-  use_scout:="${USE_SCOUT}" \
-  scout_driver:="${SCOUT_DRIVER}" \
-  scout_port:="${SCOUT_PORT_RESOLVED:-${SCOUT_PORT:-/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0}}" \
-  use_ms42dc:="${USE_MS42DC}" \
-  ms42dc_driver:=direct \
-  ms42dc_port:="${MS42DC_PORT_RESOLVED:-${MS42DC_PORT:-/dev/motor_serial}}" \
-  use_aubo:="${USE_AUBO}" \
-  aubo_robot_ip:="${AUBO_ROBOT_IP}" \
-  aubo_type:="${AUBO_TYPE}" \
-  aubo_control_prefix:="${AUBO_CONTROL_PREFIX}" \
+  "${LAUNCH_ARGS[@]}" \
   "${EXTRA_ARGS[@]}"
