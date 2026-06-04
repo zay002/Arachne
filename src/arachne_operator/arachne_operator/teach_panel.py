@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import json
 import math
 import threading
@@ -1984,14 +1986,21 @@ class TeachPanelApp:
         self.move_joint_vars: list[tk.StringVar] = []
         self._arm_hold_after: str | None = None
         self._arm_hold_callback = None
+        self._arm_hold_button: ttk.Button | None = None
+        self._arm_hold_started_at = 0.0
+        self._arm_hold_stream_active = False
         self._preset_hold_after: str | None = None
         self._preset_hold_active = False
+        self._x11 = None
+        self._x11_display = None
         self.listbox: tk.Listbox | None = None
         self.log_text: tk.Text | None = None
         self.joint_tree: ttk.Treeview | None = None
         self._build()
+        self._setup_pointer_button_probe()
         self.root.bind_all("<ButtonRelease-1>", lambda _event: self._arm_hold_release(), add=True)
         self.root.bind("<FocusOut>", lambda _event: self._arm_hold_release(), add=True)
+        self.root.protocol("WM_DELETE_WINDOW", self._close)
         self._refresh()
 
     def _build(self) -> None:
@@ -2017,6 +2026,12 @@ class TeachPanelApp:
         self._build_program_tab()
         self._build_config_tab()
         self._build_log_tab()
+
+    def _close(self) -> None:
+        self._arm_hold_release()
+        self._preset_hold_release()
+        self.node.hold_arm_current()
+        self.root.destroy()
 
     def _add_scrollable_tab(self, title: str) -> ttk.Frame:
         outer = ttk.Frame(self.notebook)
@@ -2433,7 +2448,7 @@ class TeachPanelApp:
 
     def _make_arm_hold_button(self, parent: ttk.Frame, text: str, callback):
         button = ttk.Button(parent, text=text)
-        button.bind("<ButtonPress-1>", lambda _event: self._arm_hold_start(callback))
+        button.bind("<ButtonPress-1>", lambda _event, b=button: self._arm_hold_start(callback, b))
         button.bind("<ButtonRelease-1>", lambda _event: self._arm_hold_release())
         button.bind("<Leave>", lambda _event: self._arm_hold_release())
         return button
@@ -2531,17 +2546,91 @@ class TeachPanelApp:
             messagebox.showerror("Apply failed", str(exc))
             return False
 
-    def _arm_hold_start(self, callback) -> None:
+    def _setup_pointer_button_probe(self) -> None:
+        try:
+            if str(self.root.tk.call("tk", "windowingsystem")) != "x11":
+                return
+            libname = ctypes.util.find_library("X11") or "libX11.so.6"
+            x11 = ctypes.cdll.LoadLibrary(libname)
+            x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+            x11.XOpenDisplay.restype = ctypes.c_void_p
+            x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+            x11.XDefaultRootWindow.restype = ctypes.c_ulong
+            x11.XQueryPointer.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_ulong,
+                ctypes.POINTER(ctypes.c_ulong),
+                ctypes.POINTER(ctypes.c_ulong),
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_uint),
+            ]
+            x11.XQueryPointer.restype = ctypes.c_int
+            display = x11.XOpenDisplay(None)
+            if display:
+                self._x11 = x11
+                self._x11_display = display
+        except Exception as exc:
+            self.node.get_logger().warning(f"X11 pointer probe disabled: {exc}")
+            self._x11 = None
+            self._x11_display = None
+
+    def _pointer_button1_down(self) -> bool:
+        if self._x11 is not None and self._x11_display is not None:
+            try:
+                root = self._x11.XDefaultRootWindow(self._x11_display)
+                root_return = ctypes.c_ulong()
+                child_return = ctypes.c_ulong()
+                root_x = ctypes.c_int()
+                root_y = ctypes.c_int()
+                win_x = ctypes.c_int()
+                win_y = ctypes.c_int()
+                mask = ctypes.c_uint()
+                ok = self._x11.XQueryPointer(
+                    self._x11_display,
+                    root,
+                    ctypes.byref(root_return),
+                    ctypes.byref(child_return),
+                    ctypes.byref(root_x),
+                    ctypes.byref(root_y),
+                    ctypes.byref(win_x),
+                    ctypes.byref(win_y),
+                    ctypes.byref(mask),
+                )
+                if ok:
+                    return bool(mask.value & (1 << 8))
+            except Exception as exc:
+                self.node.get_logger().warning(f"X11 pointer query failed: {exc}")
+                self._x11 = None
+                self._x11_display = None
+        return bool(
+            self._arm_hold_button is not None
+            and self._arm_hold_button.winfo_exists()
+            and self._arm_hold_button.instate(["pressed"])
+        )
+
+    def _arm_hold_start(self, callback, button: ttk.Button) -> None:
         self._arm_hold_release(cancel_arm=False)
         self._arm_hold_callback = callback
-        self._arm_hold_callback()
-        self._arm_hold_after = self.root.after(50, self._arm_hold_heartbeat)
+        self._arm_hold_button = button
+        self._arm_hold_started_at = time.monotonic()
+        self._arm_hold_stream_active = False
+        self._arm_hold_after = self.root.after(35, self._arm_hold_heartbeat)
 
     def _arm_hold_heartbeat(self) -> None:
         if self._arm_hold_callback is None:
             self._arm_hold_after = None
             return
-        self.node.refresh_arm_velocity_stream_deadman()
+        if not self._pointer_button1_down():
+            self._arm_hold_release()
+            return
+        if not self._arm_hold_stream_active:
+            self._arm_hold_callback()
+            self._arm_hold_stream_active = True
+        else:
+            self.node.refresh_arm_velocity_stream_deadman()
         self._arm_hold_after = self.root.after(50, self._arm_hold_heartbeat)
 
     def _arm_hold_release(self, *, cancel_arm: bool = True) -> None:
@@ -2550,6 +2639,9 @@ class TeachPanelApp:
             self.root.after_cancel(self._arm_hold_after)
             self._arm_hold_after = None
         self._arm_hold_callback = None
+        self._arm_hold_button = None
+        self._arm_hold_started_at = 0.0
+        self._arm_hold_stream_active = False
         if cancel_arm and was_active:
             self.node.hold_arm_current()
 
