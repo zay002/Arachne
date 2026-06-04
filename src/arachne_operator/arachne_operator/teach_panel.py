@@ -20,7 +20,7 @@ from nav_msgs.msg import Odometry
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from rclpy.qos import QoSProfile, ReliabilityPolicy
+from rclpy.qos import QoSProfile
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray, String
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -180,7 +180,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_hold_period_sec", 0.10)
         self.declare_parameter("arm_manual_prefer_topic", True)
         self.declare_parameter(
-            "arm_velocity_command_topic", "/forward_command_controller_velocity/commands"
+            "arm_velocity_command_topic", "/arachne/aubo/joint_velocity_command"
         )
         self.declare_parameter("arm_velocity_publish_rate", 80.0)
         self.declare_parameter("arm_velocity_watchdog_sec", 0.20)
@@ -246,7 +246,7 @@ class TeachPanelNode(Node):
         self.gripper_pub = self.create_publisher(String, gripper_topic, 10)
         self.aubo_teach_pub = self.create_publisher(String, aubo_teach_topic, 10)
         self.arm_publishers = [self.create_publisher(JointTrajectory, topic, 10) for topic in arm_topics]
-        arm_velocity_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+        arm_velocity_qos = QoSProfile(depth=1)
         self.arm_velocity_pub = self.create_publisher(
             Float64MultiArray,
             str(self.get_parameter("arm_velocity_command_topic").value),
@@ -281,6 +281,7 @@ class TeachPanelNode(Node):
         self.arm_velocity_filtered = [0.0 for _ in self.arm_command_joint_names]
         self.arm_velocity_accel = [0.0 for _ in self.arm_command_joint_names]
         self.arm_velocity_last_update = time.monotonic()
+        self.arm_velocity_command_generation = 0
         self.arm_velocity_keepout_last_check = 0.0
         self.arm_velocity_keepout_last_violation: str | None = None
         self.current_arm: dict[str, float] = {}
@@ -778,6 +779,7 @@ class TeachPanelNode(Node):
         with self.lock:
             dt = max(0.001, min(now - self.arm_velocity_last_update, 0.10))
             self.arm_velocity_last_update = now
+            generation = self.arm_velocity_command_generation
             velocity = list(self.manual_arm_velocity) if self.manual_arm_velocity is not None else None
             expired = velocity is not None and now > self.manual_arm_velocity_deadline
             if expired:
@@ -785,13 +787,16 @@ class TeachPanelNode(Node):
                 self.manual_arm_velocity_deadline = 0.0
         stream_velocity = self._manual_arm_stream_velocity(now)
         if stream_velocity is not None:
-            velocity = stream_velocity
+            velocity, generation = stream_velocity
             expired = False
         if velocity is None:
             return
         if expired:
             self.stop_arm_velocity_hold()
             return
+        with self.lock:
+            if generation != self.arm_velocity_command_generation:
+                return
         self._publish_arm_velocity(self._smooth_arm_velocity(velocity, dt))
 
     def _publish_arm_velocity(self, velocity: list[float]) -> None:
@@ -806,6 +811,7 @@ class TeachPanelNode(Node):
         now = time.monotonic()
         deadman = max(float(self.get_parameter("arm_velocity_stream_deadman_sec").value), 0.08)
         with self.lock:
+            self.arm_velocity_command_generation += 1
             self.manual_arm_stream_command = dict(command, label=label)
             self.manual_arm_stream_deadline = now + deadman
             self.manual_arm_velocity = None
@@ -820,7 +826,7 @@ class TeachPanelNode(Node):
             if self.manual_arm_stream_command is not None:
                 self.manual_arm_stream_deadline = time.monotonic() + deadman
 
-    def _manual_arm_stream_velocity(self, now: float) -> list[float] | None:
+    def _manual_arm_stream_velocity(self, now: float) -> tuple[list[float], int] | None:
         with self.lock:
             command = (
                 dict(self.manual_arm_stream_command)
@@ -828,6 +834,7 @@ class TeachPanelNode(Node):
                 else None
             )
             deadline = self.manual_arm_stream_deadline
+            generation = self.arm_velocity_command_generation
         if command is None:
             return None
         if now > deadline:
@@ -895,7 +902,8 @@ class TeachPanelNode(Node):
         clamped = self._validated_arm_velocity(velocity, label)
         if clamped is None:
             self.stop_arm_velocity_hold()
-        return clamped
+            return None
+        return clamped, generation
 
     def _validated_arm_velocity(self, velocity: list[float], label: str) -> list[float] | None:
         if len(velocity) != len(self.arm_command_joint_names):
@@ -969,6 +977,7 @@ class TeachPanelNode(Node):
             return
         watchdog = max(float(self.get_parameter("arm_velocity_watchdog_sec").value), 0.05)
         with self.lock:
+            self.arm_velocity_command_generation += 1
             self.manual_arm_stream_command = None
             self.manual_arm_velocity = clamped
             self.manual_arm_velocity_deadline = time.monotonic() + watchdog
@@ -979,6 +988,7 @@ class TeachPanelNode(Node):
 
     def stop_arm_velocity_hold(self) -> None:
         with self.lock:
+            self.arm_velocity_command_generation += 1
             self.manual_arm_stream_command = None
             self.manual_arm_stream_deadline = 0.0
             self.manual_arm_velocity = None

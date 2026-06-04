@@ -218,7 +218,7 @@ echo
 
 echo "== Aubo TCP/IP =="
 aubo_ip="${AUBO_ROBOT_IP:-192.168.127.128}"
-aubo_port="${AUBO_PORT:-80}"
+aubo_port="${AUBO_PORT:-30004}"
 aubo_mac_hint="${AUBO_MAC_HINT:-CC:82:7F:A3:E6:2E}"
 echo "Aubo target: ${aubo_ip}:${aubo_port}"
 echo "Aubo MAC hint: ${aubo_mac_hint}"

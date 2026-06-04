@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import socket
 import time
 from pathlib import Path
@@ -8,7 +9,8 @@ from typing import Any
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from rclpy.qos import QoSProfile, ReliabilityPolicy
+from std_msgs.msg import Float64MultiArray, String
 
 
 class AuboOfficialStatusProbe(Node):
@@ -22,7 +24,7 @@ class AuboOfficialStatusProbe(Node):
     def __init__(self) -> None:
         super().__init__("aubo_official_status_probe")
         self.declare_parameter("robot_ip", "192.168.127.128")
-        self.declare_parameter("aubo_port", 80)
+        self.declare_parameter("aubo_port", 30004)
         self.declare_parameter("timeout_sec", 0.4)
         self.status_pub = self.create_publisher(String, "/arachne/hardware/aubo_status", 10)
         self.create_timer(1.0, self._probe)
@@ -53,16 +55,26 @@ class AuboDirectJsonRpc:
         self.sock: socket.socket | None = None
 
     def __enter__(self) -> "AuboDirectJsonRpc":
+        self.connect()
+        return self
+
+    def connect(self) -> None:
+        self.close()
         self.sock = socket.create_connection((self.ip, self.port), timeout=self.timeout)
         self.sock.settimeout(self.timeout)
         names = self.call("getRobotNames")
         if names:
             self.robot_name = str(names[0])
-        return self
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.close()
+
+    def close(self) -> None:
         if self.sock is not None:
-            self.sock.close()
+            try:
+                self.sock.close()
+            finally:
+                self.sock = None
 
     def call(self, method: str, params: list[Any] | None = None) -> Any:
         if self.sock is None:
@@ -238,6 +250,240 @@ class AuboTeachCommandBridge(Node):
             self.get_logger().info(text)
 
 
+class AuboSdkVelocityBridge(Node):
+    """Bridge Arachne manual jog commands to AUBO SDK speedJoint.
+
+    Manual jog should not depend on a high-frequency external servoJoint loop on
+    the Jetson.  This node gates ros2_control's servoJoint writer, then lets the
+    AUBO controller execute speed following internally.  Release and watchdog
+    paths call stopJoint first, then release the gate so ros2_control can resume
+    measured-position hold.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("aubo_sdk_velocity_bridge")
+        self.declare_parameter("command_topic", "/arachne/aubo/joint_velocity_command")
+        self.declare_parameter("robot_ip", "192.168.127.128")
+        self.declare_parameter("rpc_port", 30004)
+        self.declare_parameter("rpc_timeout_sec", 0.6)
+        self.declare_parameter("teach_flag_path", "/tmp/arachne_aubo_teach_mode")
+        self.declare_parameter("command_watchdog_sec", 0.16)
+        self.declare_parameter("send_period_sec", 0.04)
+        self.declare_parameter("gate_settle_sec", 0.08)
+        self.declare_parameter("max_joint_speed_rad_sec", 0.25)
+        self.declare_parameter("speed_joint_accel_rad_sec2", 2.0)
+        self.declare_parameter("speed_joint_time_sec", 0.04)
+        self.declare_parameter("stop_joint_accel_rad_sec2", 8.0)
+        self.declare_parameter("zero_epsilon_rad_sec", 1.0e-4)
+
+        self.status_pub = self.create_publisher(String, "/arachne/hardware/aubo_status", 10)
+        qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+        self.create_subscription(
+            Float64MultiArray,
+            str(self.get_parameter("command_topic").value),
+            self._on_velocity_command,
+            qos,
+        )
+
+        self.rpc: AuboDirectJsonRpc | None = None
+        self.target_velocity: list[float] | None = None
+        self.last_command_stamp = 0.0
+        self.last_send_stamp = 0.0
+        self.active = False
+        self.gate_owned = False
+        self.last_status_stamp = 0.0
+        self.create_timer(0.01, self._tick)
+        self._publish_status(
+            "aubo sdk velocity bridge ready: "
+            f"topic={self.get_parameter('command_topic').value}"
+        )
+
+    def destroy_node(self) -> bool:
+        self._stop_velocity("node shutdown")
+        self._close_rpc()
+        return super().destroy_node()
+
+    def _on_velocity_command(self, msg: Float64MultiArray) -> None:
+        velocity = self._validated_velocity(list(msg.data))
+        if velocity is None:
+            return
+        now = time.monotonic()
+        self.target_velocity = velocity
+        self.last_command_stamp = now
+        if self._is_zero_velocity(velocity):
+            self._stop_velocity("zero command")
+
+    def _tick(self) -> None:
+        velocity = self.target_velocity
+        if velocity is None:
+            return
+
+        now = time.monotonic()
+        watchdog = max(float(self.get_parameter("command_watchdog_sec").value), 0.04)
+        if now - self.last_command_stamp > watchdog:
+            self.target_velocity = None
+            self._stop_velocity("watchdog timeout")
+            return
+        if self._is_zero_velocity(velocity):
+            return
+
+        period = max(float(self.get_parameter("send_period_sec").value), 0.01)
+        if now - self.last_send_stamp < period:
+            return
+        if not self._ensure_active():
+            return
+        self._send_speed_joint(velocity)
+        self.last_send_stamp = now
+
+    def _validated_velocity(self, values: list[float]) -> list[float] | None:
+        if len(values) != 6:
+            self._publish_status(
+                f"aubo sdk velocity ignored invalid length={len(values)}", warn=True
+            )
+            return None
+        max_speed = max(float(self.get_parameter("max_joint_speed_rad_sec").value), 0.01)
+        clamped: list[float] = []
+        for value in values:
+            value = float(value) if math.isfinite(float(value)) else 0.0
+            clamped.append(max(-max_speed, min(max_speed, value)))
+        return clamped
+
+    def _is_zero_velocity(self, values: list[float]) -> bool:
+        epsilon = max(float(self.get_parameter("zero_epsilon_rad_sec").value), 0.0)
+        return all(abs(value) <= epsilon for value in values)
+
+    def _ensure_active(self) -> bool:
+        if self.active:
+            return True
+        if not self._robot_running():
+            return False
+        self._set_gate(True)
+        settle = max(float(self.get_parameter("gate_settle_sec").value), 0.0)
+        if settle > 0.0:
+            time.sleep(settle)
+        self._exit_servo_mode()
+        self.active = True
+        self._publish_status("aubo sdk velocity active")
+        return True
+
+    def _robot_running(self) -> bool:
+        try:
+            mode = str(self._robot_call("RobotState.getRobotModeType")).strip().lower()
+            safety = str(self._robot_call("RobotState.getSafetyModeType")).strip().lower()
+        except Exception as exc:
+            self._publish_status_throttled(f"aubo sdk velocity state read failed: {exc}", warn=True)
+            return False
+        ready = mode == "running" and safety in ("normal", "reducedmode")
+        if not ready:
+            self._publish_status_throttled(
+                f"aubo sdk velocity waiting for Running/Normal: mode={mode} safety={safety}",
+                warn=True,
+            )
+        return ready
+
+    def _send_speed_joint(self, velocity: list[float]) -> None:
+        accel = max(float(self.get_parameter("speed_joint_accel_rad_sec2").value), 0.05)
+        duration = max(float(self.get_parameter("speed_joint_time_sec").value), 0.005)
+        try:
+            result = self._robot_call("MotionControl.speedJoint", [velocity, accel, duration])
+        except Exception as exc:
+            self._publish_status(f"aubo sdk speedJoint failed: {exc}", warn=True)
+            self._close_rpc()
+            self._stop_velocity("speedJoint failure", close_rpc=False)
+            return
+        if result not in (0, None):
+            self._publish_status_throttled(f"aubo sdk speedJoint result={result}", warn=True)
+
+    def _stop_velocity(self, reason: str, *, close_rpc: bool = True) -> None:
+        if not self.active:
+            if self.gate_owned:
+                self._set_gate(False)
+            if close_rpc:
+                self._close_rpc()
+            return
+        try:
+            accel = max(float(self.get_parameter("stop_joint_accel_rad_sec2").value), 0.05)
+            result = self._robot_call("MotionControl.stopJoint", [accel])
+            if result not in (0, None):
+                self._publish_status(f"aubo sdk stopJoint result={result}", warn=True)
+        except Exception as exc:
+            self._publish_status(f"aubo sdk stopJoint failed during {reason}: {exc}", warn=True)
+        finally:
+            self.active = False
+            self.last_send_stamp = 0.0
+            if self.gate_owned:
+                self._set_gate(False)
+            if close_rpc:
+                self._close_rpc()
+            self._publish_status(f"aubo sdk velocity stopped: {reason}")
+
+    def _exit_servo_mode(self) -> None:
+        try:
+            result = self._robot_call("MotionControl.setServoModeSelect", [0])
+            if result not in (0, None):
+                self._publish_status_throttled(
+                    f"aubo setServoModeSelect(0) result={result}", warn=True
+                )
+        except Exception as exc:
+            self._publish_status_throttled(
+                f"aubo setServoModeSelect unavailable, trying deprecated setServoMode(false): {exc}",
+                warn=True,
+            )
+            try:
+                self._robot_call("MotionControl.setServoMode", [False])
+            except Exception as fallback_exc:
+                self._publish_status_throttled(
+                    f"aubo setServoMode(false) failed: {fallback_exc}", warn=True
+                )
+
+    def _robot_call(self, suffix: str, params: list[Any] | None = None) -> Any:
+        rpc = self._rpc()
+        return rpc.robot_call(suffix, params)
+
+    def _rpc(self) -> AuboDirectJsonRpc:
+        if self.rpc is not None and self.rpc.sock is not None:
+            return self.rpc
+        ip = str(self.get_parameter("robot_ip").value)
+        port = int(self.get_parameter("rpc_port").value)
+        timeout = float(self.get_parameter("rpc_timeout_sec").value)
+        self.rpc = AuboDirectJsonRpc(ip, port, timeout)
+        self.rpc.connect()
+        return self.rpc
+
+    def _close_rpc(self) -> None:
+        if self.rpc is not None:
+            self.rpc.close()
+            self.rpc = None
+
+    def _set_gate(self, enabled: bool) -> None:
+        path = Path(str(self.get_parameter("teach_flag_path").value))
+        try:
+            if enabled:
+                path.write_text("1\n", encoding="utf-8")
+            else:
+                path.unlink(missing_ok=True)
+        except OSError as exc:
+            self._publish_status(f"aubo sdk velocity gate update failed: {exc}", warn=True)
+            return
+        self.gate_owned = enabled
+
+    def _publish_status_throttled(self, text: str, *, warn: bool = False) -> None:
+        now = time.monotonic()
+        if now - self.last_status_stamp < 1.0:
+            return
+        self.last_status_stamp = now
+        self._publish_status(text, warn=warn)
+
+    def _publish_status(self, text: str, *, warn: bool = False) -> None:
+        msg = String()
+        msg.data = text
+        self.status_pub.publish(msg)
+        if warn:
+            self.get_logger().warning(text)
+        else:
+            self.get_logger().info(text)
+
+
 def status_probe_main() -> None:
     rclpy.init()
     node = AuboOfficialStatusProbe()
@@ -254,6 +500,19 @@ def status_probe_main() -> None:
 def teach_command_bridge_main() -> None:
     rclpy.init()
     node = AuboTeachCommandBridge()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def sdk_velocity_bridge_main() -> None:
+    rclpy.init()
+    node = AuboSdkVelocityBridge()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

@@ -209,7 +209,7 @@ def generate_launch_description():
             DeclareLaunchArgument("camera_depth_device", default_value="/dev/video0"),
             DeclareLaunchArgument("camera_with_color_view", default_value="false"),
             DeclareLaunchArgument("camera_with_depth_view", default_value="false"),
-            DeclareLaunchArgument("camera_publish_pointcloud", default_value="true"),
+            DeclareLaunchArgument("camera_publish_pointcloud", default_value="false"),
             DeclareLaunchArgument("camera_parent_frame", default_value="ee_camera_link"),
             DeclareLaunchArgument(
                 "arm_follow_joint_trajectory_action",
@@ -257,7 +257,7 @@ def generate_launch_description():
             DeclareLaunchArgument("arm_manual_prefer_topic", default_value="true"),
             DeclareLaunchArgument(
                 "arm_velocity_command_topic",
-                default_value="/forward_command_controller_velocity/commands",
+                default_value="/arachne/aubo/joint_velocity_command",
             ),
             DeclareLaunchArgument("arm_velocity_publish_rate", default_value="80.0"),
             DeclareLaunchArgument("arm_velocity_watchdog_sec", default_value="0.20"),

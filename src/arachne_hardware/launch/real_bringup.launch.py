@@ -238,6 +238,48 @@ def _launch_setup(context, *args, **kwargs):
             )
         )
 
+        actions.append(
+            Node(
+                package="arachne_hardware",
+                executable="aubo_sdk_velocity_bridge",
+                name="aubo_sdk_velocity_bridge",
+                parameters=[
+                    {
+                        "command_topic": LaunchConfiguration("aubo_sdk_velocity_command_topic"),
+                        "robot_ip": LaunchConfiguration("aubo_robot_ip"),
+                        "rpc_port": ParameterValue(
+                            LaunchConfiguration("aubo_rpc_port"), value_type=int
+                        ),
+                        "rpc_timeout_sec": ParameterValue(
+                            LaunchConfiguration("aubo_rpc_timeout_sec"), value_type=float
+                        ),
+                        "teach_flag_path": LaunchConfiguration("aubo_teach_flag_path"),
+                        "command_watchdog_sec": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_velocity_watchdog_sec"),
+                            value_type=float,
+                        ),
+                        "send_period_sec": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_velocity_send_period_sec"),
+                            value_type=float,
+                        ),
+                        "speed_joint_accel_rad_sec2": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_speed_joint_accel_rad_sec2"),
+                            value_type=float,
+                        ),
+                        "speed_joint_time_sec": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_speed_joint_time_sec"),
+                            value_type=float,
+                        ),
+                        "stop_joint_accel_rad_sec2": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_stop_joint_accel_rad_sec2"),
+                            value_type=float,
+                        ),
+                    }
+                ],
+                output="screen",
+            )
+        )
+
     return actions
 
 
@@ -272,12 +314,21 @@ def generate_launch_description():
                 "aubo_initial_joint_controller",
                 default_value="forward_command_controller_velocity",
             ),
-            DeclareLaunchArgument("aubo_port", default_value="80"),
+            DeclareLaunchArgument("aubo_port", default_value="30004"),
             DeclareLaunchArgument("aubo_teach_command_topic", default_value="/arachne/aubo/teach_command"),
+            DeclareLaunchArgument(
+                "aubo_sdk_velocity_command_topic",
+                default_value="/arachne/aubo/joint_velocity_command",
+            ),
             DeclareLaunchArgument("aubo_rpc_port", default_value="30004"),
             DeclareLaunchArgument("aubo_rpc_timeout_sec", default_value="2.0"),
             DeclareLaunchArgument("aubo_teach_method", default_value="freedrive"),
             DeclareLaunchArgument("aubo_teach_flag_path", default_value="/tmp/arachne_aubo_teach_mode"),
+            DeclareLaunchArgument("aubo_sdk_velocity_watchdog_sec", default_value="0.16"),
+            DeclareLaunchArgument("aubo_sdk_velocity_send_period_sec", default_value="0.04"),
+            DeclareLaunchArgument("aubo_sdk_speed_joint_accel_rad_sec2", default_value="2.0"),
+            DeclareLaunchArgument("aubo_sdk_speed_joint_time_sec", default_value="0.04"),
+            DeclareLaunchArgument("aubo_sdk_stop_joint_accel_rad_sec2", default_value="8.0"),
             DeclareLaunchArgument("aubo_control_prefix", default_value=""),
             OpaqueFunction(function=_launch_setup),
         ]

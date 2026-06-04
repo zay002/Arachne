@@ -19,6 +19,14 @@
 
 所以，ROS 版本和 Jetson 平台可能是放大因素，但核心风险仍然是“外部高频 `servoJoint` + 非实时系统 + 轨迹不连续 + payload 粗估”的组合。
 
+## 2026-06-04 当前修正
+
+- 手动 jog 已改为默认发布到 `/arachne/aubo/joint_velocity_command`，由 `aubo_sdk_velocity_bridge` 调用 AUBO SDK `MotionControl.speedJoint(qd, a, t)`。
+- SDK 速度桥进入手动速度控制前会暂停 ROS Driver 的 `servoJoint` 写入，松手、零速度、watchdog 超时和节点退出都会调用 `MotionControl.stopJoint(acc)`。
+- 示教器增加速度命令 generation，松手后旧定时器中已经算出的非零速度会被丢弃，避免“轻点一下仍继续动”。
+- 相机点云在一键示教和示教器 launch 中默认关闭，减少 Jetson Orin Nano 上对控制实时性的干扰。
+- `check_real_hardware_env.sh` 的 AUBO TCP 默认检查端口改为 RPC `30004`，因为当前控制器 `80` 端口拒绝连接但 `30004` 正常。
+
 ## 关键证据
 
 ### 1. `servoJoint` 调用周期和 ROS 控制周期不匹配

@@ -7,6 +7,7 @@ PATTERNS=(
   "/install/aubo_ros2_driver/lib/aubo_ros2_driver/aubo_ros2_control_node"
   "/install/arachne_hardware/lib/arachne_hardware/aubo_official_status_probe"
   "/install/arachne_hardware/lib/arachne_hardware/aubo_teach_command_bridge"
+  "/install/arachne_hardware/lib/arachne_hardware/aubo_sdk_velocity_bridge"
   "/install/arachne_hardware/lib/arachne_hardware/ms42dc_direct_serial_driver"
   "/install/arachne_hardware/lib/arachne_hardware/ms42dc_official_bridge"
   "/install/arachne_hardware/lib/arachne_hardware/scout_waveshare_serial_driver"

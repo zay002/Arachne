@@ -13,7 +13,8 @@ AUBO_PAYLOAD_INERTIA="${ARACHNE_AUBO_PAYLOAD_INERTIA:-0,0,0,0,0,0}"
 TEACH_WITH_CAMERA="${ARACHNE_TEACH_WITH_CAMERA:-true}"
 TEACH_CAMERA_COLOR_VIEW="${ARACHNE_TEACH_CAMERA_COLOR_VIEW:-true}"
 TEACH_CAMERA_DEPTH_VIEW="${ARACHNE_TEACH_CAMERA_DEPTH_VIEW:-false}"
-TEACH_CAMERA_POINTCLOUD="${ARACHNE_TEACH_CAMERA_POINTCLOUD:-true}"
+TEACH_CAMERA_POINTCLOUD="${ARACHNE_TEACH_CAMERA_POINTCLOUD:-false}"
+AUBO_ARM_VELOCITY_COMMAND_TOPIC="${ARACHNE_AUBO_ARM_VELOCITY_COMMAND_TOPIC:-/arachne/aubo/joint_velocity_command}"
 RUN_ENV_CHECK=true
 KEEP_RUNNING=false
 STOP_EXISTING=true
@@ -53,6 +54,7 @@ Environment:
   ARACHNE_TEACH_CAMERA_COLOR_VIEW=${TEACH_CAMERA_COLOR_VIEW}
   ARACHNE_TEACH_CAMERA_DEPTH_VIEW=${TEACH_CAMERA_DEPTH_VIEW}
   ARACHNE_TEACH_CAMERA_POINTCLOUD=${TEACH_CAMERA_POINTCLOUD}
+  ARACHNE_AUBO_ARM_VELOCITY_COMMAND_TOPIC=${AUBO_ARM_VELOCITY_COMMAND_TOPIC}
 
 Examples:
   ./scripts/real_full_teach.sh --yes
@@ -262,7 +264,7 @@ echo "Arachne full real teach startup"
 echo "  workspace: ${ROOT_DIR}"
 echo "  Aubo IP/model: ${AUBO_ROBOT_IP} / ${AUBO_TYPE}"
 echo "  Aubo payload: mass=${AUBO_PAYLOAD_MASS}kg cog=${AUBO_PAYLOAD_COG}"
-echo "  camera: enabled=${TEACH_WITH_CAMERA} color_view=${TEACH_CAMERA_COLOR_VIEW} depth_view=${TEACH_CAMERA_DEPTH_VIEW}"
+echo "  camera: enabled=${TEACH_WITH_CAMERA} color_view=${TEACH_CAMERA_COLOR_VIEW} depth_view=${TEACH_CAMERA_DEPTH_VIEW} pointcloud=${TEACH_CAMERA_POINTCLOUD}"
 echo "  recording dir: ${RECORDING_DIR}"
 echo "  logs: ${LOG_DIR}"
 
@@ -327,6 +329,7 @@ if [[ "${has_recording_dir}" == "true" ]]; then
       camera_with_color_view:="${TEACH_CAMERA_COLOR_VIEW}" \
       camera_with_depth_view:="${TEACH_CAMERA_DEPTH_VIEW}" \
       camera_publish_pointcloud:="${TEACH_CAMERA_POINTCLOUD}" \
+      arm_velocity_command_topic:="${AUBO_ARM_VELOCITY_COMMAND_TOPIC}" \
       "${PANEL_ARGS[@]}"
 else
   run_logged "teach/replay panel" \
@@ -336,5 +339,6 @@ else
       camera_with_color_view:="${TEACH_CAMERA_COLOR_VIEW}" \
       camera_with_depth_view:="${TEACH_CAMERA_DEPTH_VIEW}" \
       camera_publish_pointcloud:="${TEACH_CAMERA_POINTCLOUD}" \
+      arm_velocity_command_topic:="${AUBO_ARM_VELOCITY_COMMAND_TOPIC}" \
       recording_dir:="${RECORDING_DIR}" "${PANEL_ARGS[@]}"
 fi

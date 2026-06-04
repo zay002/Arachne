@@ -32,6 +32,7 @@ setup(
             "ms42dc_direct_serial_driver = arachne_hardware.ms42dc_direct_serial_driver:main",
             "aubo_official_status_probe = arachne_hardware.aubo_tcp_driver:status_probe_main",
             "aubo_teach_command_bridge = arachne_hardware.aubo_tcp_driver:teach_command_bridge_main",
+            "aubo_sdk_velocity_bridge = arachne_hardware.aubo_tcp_driver:sdk_velocity_bridge_main",
             "safety_state_machine = arachne_hardware.safety_state_machine:main",
             "safety_cmd_vel_gate = arachne_hardware.safety_cmd_vel_gate:main",
             "hardware_mock = arachne_hardware.hardware_mock:main",
