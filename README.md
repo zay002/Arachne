@@ -74,6 +74,7 @@ source install/setup.bash
 | Gemini335 YOLO 实时标注 | `./scripts/vision/gemini_yolo_live.sh` |
 | Bottle 抓取入篮路径预览 | `./scripts/vision/grasp_preview.sh` |
 | 真机姿态同步抓取预览 | `./scripts/vision/grasp_preview_real_sync.sh` |
+| 真机同步并执行抓取 | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
 | 真机环境检查 | `./scripts/hardware/check_real_hardware_env.sh` |
 | 真机一键 bringup | `./scripts/hardware/real_bringup.sh` |
 | 真机示教演示 | `./scripts/hardware/real_teach_demo.sh` |
@@ -92,6 +93,10 @@ source install/setup.bash
 ## 真机接口
 
 Arachne 的真机层尽量复用官方或厂家 ROS 路线，并在本仓库内维护当前硬件需要的集成节点。
+
+### 坐标系约定
+
+Arachne 默认遵循 ROS 车体坐标约定：`base_link` 的 +X 指向小车前方，+Y 指向小车左侧，+Z 向上。`odom -> base_link` 来自底盘里程计，`map -> odom` 属于后续定位系统，不写进 URDF。机械臂链路挂在车体上：`base_link -> arm_mount_link -> aubo_base_link -> ... -> tool0 -> gripper_adapter_link -> grasp_frame`；其中 `aubo_base_link` 是 Aubo 底座坐标，`tool0` 是法兰中心，`grasp_frame` 是夹具中心/抓取 TCP。末端相机挂在 `tool0` 下方，RGB-D ROI 点先在相机深度 frame 中按深度投影得到，再经 TF 转成 `base_link` 下的抓取目标。抓取预览的补偿量 `ARACHNE_GRASP_BASE_OFFSET` 也是 `base_link` 下的 `(x,y,z)` 米制偏置；当前实测默认值为 `0.06,0.09,-0.10`，即向车前 6 cm、向左 9 cm、向下 10 cm。真机抓取执行默认在投放开爪后回到 `scripts/env/arachne_real_defaults.sh` 中的 home 姿态。
 
 | 设备 | 默认接口 | 说明 |
 | --- | --- | --- |

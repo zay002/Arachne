@@ -10,6 +10,10 @@ if [[ -f "${ROOT_DIR}/install/setup.bash" ]]; then
   # shellcheck disable=SC1091
   source "${ROOT_DIR}/install/setup.bash"
 fi
+if [[ -f "${ROOT_DIR}/scripts/env/arachne_real_defaults.sh" ]]; then
+  # shellcheck disable=SC1091
+  source "${ROOT_DIR}/scripts/env/arachne_real_defaults.sh"
+fi
 set -u
 hash -r
 
@@ -45,6 +49,9 @@ Environment:
   ARACHNE_GRASP_REAL_SYNC_TIMEOUT=3.0
   ARACHNE_GRASP_REAL_RPC_TIMEOUT=2.0
   ARACHNE_GRASP_ALLOW_POWERED_OFF_RPC_POSE=false
+  ARACHNE_GRASP_REAL_EXECUTE_BACKEND=sdk_move_joint|follow_joint_trajectory
+  ARACHNE_GRASP_REAL_RETURN_HOME=true
+  ARACHNE_GRASP_REAL_HOME_JOINTS=$ARACHNE_AUBO_HOME_JOINTS_RAD
   ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES  # required with --execute-real
 
 Examples:
@@ -333,5 +340,6 @@ fi
 if [[ "${EXECUTE_REAL}" == "true" ]]; then
   export ARACHNE_GRASP_EXECUTE_REAL=true
 fi
+export ARACHNE_GRASP_REAL_JOINT_STATES_TOPIC="${REAL_JOINT_TOPIC}"
 export ARACHNE_GRASP_ARM_JOINTS="${JOINTS_CSV}"
 exec "${ROOT_DIR}/scripts/vision/grasp_preview.sh" "${PREVIEW_ARGS[@]}"

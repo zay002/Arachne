@@ -12,6 +12,10 @@ refresh_arachne_environment() {
     # shellcheck disable=SC1091
     source "${ROOT_DIR}/install/setup.bash"
   fi
+  if [[ -f "${ROOT_DIR}/scripts/env/arachne_real_defaults.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "${ROOT_DIR}/scripts/env/arachne_real_defaults.sh"
+  fi
   set -u
   hash -r
 }
@@ -30,8 +34,17 @@ TOOL_ADAPTER_XYZ="${ARACHNE_GRASP_TOOL_ADAPTER_XYZ:-0.0 0.0 0.0}"
 TOOL_ADAPTER_RPY="${ARACHNE_GRASP_TOOL_ADAPTER_RPY:-0.0 0.0 0.785398163397}"
 DEPTH_PROJECTION_FLIP_X="${ARACHNE_GRASP_DEPTH_PROJECTION_FLIP_X:-true}"
 DEPTH_PROJECTION_FLIP_Y="${ARACHNE_GRASP_DEPTH_PROJECTION_FLIP_Y:-true}"
+GRASP_BASE_OFFSET="${ARACHNE_GRASP_BASE_OFFSET:-0.06,0.09,-0.10}"
 EXECUTE_REAL="${ARACHNE_GRASP_EXECUTE_REAL:-false}"
 EXECUTE_REAL_CONFIRM="${ARACHNE_CONFIRM_GRASP_EXECUTE_REAL:-}"
+REAL_JOINT_STATES_TOPIC="${ARACHNE_GRASP_REAL_JOINT_STATES_TOPIC:-/joint_states}"
+REAL_EXECUTE_BACKEND="${ARACHNE_GRASP_REAL_EXECUTE_BACKEND:-sdk_move_joint}"
+REAL_SDK_IP="${ARACHNE_GRASP_REAL_SDK_IP:-${AUBO_ROBOT_IP:-192.168.127.128}}"
+REAL_SDK_MOVE_SPEED="${ARACHNE_GRASP_REAL_SDK_MOVE_SPEED:-0.25}"
+REAL_SDK_MOVE_ACCEL="${ARACHNE_GRASP_REAL_SDK_MOVE_ACCEL:-0.45}"
+REAL_RETURN_HOME="${ARACHNE_GRASP_REAL_RETURN_HOME:-true}"
+REAL_HOME_JOINTS="${ARACHNE_GRASP_REAL_HOME_JOINTS:-${ARACHNE_AUBO_HOME_JOINTS_RAD:--1.5707963267949,0.201570428261868,1.65970467002488,0.485178041391533,1.67675136677345,0.76432946885334}}"
+REAL_HOME_DURATION="${ARACHNE_GRASP_REAL_HOME_DURATION:-2.5}"
 START_MODEL="${ARACHNE_GRASP_START_MODEL:-true}"
 START_MOVEIT="${ARACHNE_GRASP_START_MOVEIT:-true}"
 START_CAMERA="${ARACHNE_GRASP_START_CAMERA:-true}"
@@ -53,8 +66,17 @@ mkdir -p "${LOG_DIR}"
   echo "ament_prefix_path: ${AMENT_PREFIX_PATH:-}"
   echo "depth_projection_flip_x: ${DEPTH_PROJECTION_FLIP_X}"
   echo "depth_projection_flip_y: ${DEPTH_PROJECTION_FLIP_Y}"
+  echo "grasp_base_offset: ${GRASP_BASE_OFFSET}"
   echo "execute_real: ${EXECUTE_REAL}"
   echo "execute_real_confirmed: $([[ "${EXECUTE_REAL_CONFIRM}" == "YES" ]] && echo true || echo false)"
+  echo "real_joint_states_topic: ${REAL_JOINT_STATES_TOPIC}"
+  echo "real_execute_backend: ${REAL_EXECUTE_BACKEND}"
+  echo "real_sdk_ip: ${REAL_SDK_IP}"
+  echo "real_sdk_move_speed: ${REAL_SDK_MOVE_SPEED}"
+  echo "real_sdk_move_accel: ${REAL_SDK_MOVE_ACCEL}"
+  echo "real_return_home: ${REAL_RETURN_HOME}"
+  echo "real_home_joints: ${REAL_HOME_JOINTS}"
+  echo "real_home_duration: ${REAL_HOME_DURATION}"
 } >"${LOG_DIR}/00_environment.txt"
 
 if [[ "${EXECUTE_REAL}" == "true" && "${EXECUTE_REAL_CONFIRM}" != "YES" ]]; then
@@ -209,12 +231,14 @@ echo "  /arachne/grasp_preview/annotated_image"
 echo "Planner backend: MoveIt 2 + OMPL via /plan_kinematic_path"
 echo "RViz MarkerArray shows named task waypoints and a magenta playback cursor."
 if [[ "${EXECUTE_REAL}" == "true" ]]; then
-  echo "REAL execution is armed: trajectory will be sent to /joint_trajectory_controller/follow_joint_trajectory after planning."
+  echo "REAL execution is armed: backend=${REAL_EXECUTE_BACKEND}; default sends key joint targets through Aubo SDK moveJoint."
 else
   echo "REAL execution is disabled; this run only previews in RViz."
 fi
 echo "Restart search after PLAN_LOCKED:"
 echo "  ros2 topic pub --once /arachne/grasp_preview/restart_search std_msgs/msg/Empty '{}'"
+echo "Pipeline log:"
+echo "  ${LOG_DIR}/05_pipeline.log"
 
 run_pipeline() {
   local device_id="$1"
@@ -232,7 +256,22 @@ run_pipeline() {
   fi
   local execute_args=()
   if [[ "${EXECUTE_REAL}" == "true" ]]; then
-    execute_args+=(--execute-real --execute-real-confirm "${EXECUTE_REAL_CONFIRM}")
+    local return_home_arg="--real-return-home"
+    if [[ "${REAL_RETURN_HOME}" != "true" ]]; then
+      return_home_arg="--no-real-return-home"
+    fi
+    execute_args+=(
+      --execute-real
+      --execute-real-confirm "${EXECUTE_REAL_CONFIRM}"
+      --real-execute-backend "${REAL_EXECUTE_BACKEND}"
+      --real-joint-states-topic "${REAL_JOINT_STATES_TOPIC}"
+      --real-sdk-ip "${REAL_SDK_IP}"
+      --real-sdk-move-speed "${REAL_SDK_MOVE_SPEED}"
+      --real-sdk-move-accel "${REAL_SDK_MOVE_ACCEL}"
+      "${return_home_arg}"
+      "--real-home-joints=${REAL_HOME_JOINTS}"
+      --real-home-duration "${REAL_HOME_DURATION}"
+    )
   fi
   "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/vision/grasp_preview_pipeline.py" \
     --model "${MODEL}" \
@@ -243,9 +282,17 @@ run_pipeline() {
     --device-id "${device_id}" \
     --gripper-type "${GRIPPER_TYPE}" \
     --aubo-base-frame "${DISPLAY_FRAME_PREFIX}aubo_base_link" \
+    --grasp-base-offset "${GRASP_BASE_OFFSET}" \
     "${projection_args[@]}" \
     "${execute_args[@]}" \
     "$@"
 }
 
-run_pipeline "${DEVICE_ID}" "$@"
+set +e
+run_pipeline "${DEVICE_ID}" "$@" 2>&1 | tee "${LOG_DIR}/05_pipeline.log"
+PIPELINE_STATUS=${PIPESTATUS[0]}
+set -e
+if [[ "${PIPELINE_STATUS}" -ne 0 ]]; then
+  echo "grasp_preview_pipeline exited with status ${PIPELINE_STATUS}. See ${LOG_DIR}/05_pipeline.log" >&2
+fi
+exit "${PIPELINE_STATUS}"

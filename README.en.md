@@ -74,6 +74,7 @@ Without that environment, RViz may fail to resolve `package://...` mesh paths, c
 | Gemini335 YOLO live preview | `./scripts/vision/gemini_yolo_live.sh` |
 | Bottle grasp-to-basket path preview | `./scripts/vision/grasp_preview.sh` |
 | Real-pose synchronized grasp preview | `./scripts/vision/grasp_preview_real_sync.sh` |
+| Real-pose synchronized grasp execution | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
 | Real-hardware environment check | `./scripts/hardware/check_real_hardware_env.sh` |
 | Real one-command bringup | `./scripts/hardware/real_bringup.sh` |
 | Real teach demo | `./scripts/hardware/real_teach_demo.sh` |
@@ -92,6 +93,10 @@ Without that environment, RViz may fail to resolve `package://...` mesh paths, c
 ## Real Hardware
 
 Arachne keeps the real-hardware layer ROS-facing and uses official or vendor routes where they fit the deployed hardware.
+
+### Coordinate Frames
+
+Arachne follows the normal ROS mobile-base convention: `base_link` has +X toward the front of the vehicle, +Y toward the vehicle left, and +Z upward. `odom -> base_link` comes from base odometry, while `map -> odom` belongs to localization and is intentionally outside the URDF. The arm chain is mounted on the vehicle as `base_link -> arm_mount_link -> aubo_base_link -> ... -> tool0 -> gripper_adapter_link -> grasp_frame`; `aubo_base_link` is the Aubo base, `tool0` is the flange center, and `grasp_frame` is the gripper-center grasp TCP. The end-effector RGB-D camera is mounted under `tool0`; depth ROI points are first projected in the camera depth frame, then transformed into `base_link` before grasp planning. The grasp-preview correction `ARACHNE_GRASP_BASE_OFFSET` is a meter-scale `(x,y,z)` offset in `base_link`; the current measured default is `0.06,0.09,-0.10`, meaning 6 cm forward, 9 cm left, and 10 cm downward. Real grasp execution returns to the home pose from `scripts/env/arachne_real_defaults.sh` after opening over the basket by default.
 
 | Device | Default interface | Notes |
 | --- | --- | --- |
