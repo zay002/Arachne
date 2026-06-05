@@ -95,9 +95,9 @@ PREVIEW_IK_DAMPING = 0.08
 PREVIEW_IK_MAX_ITERATIONS = 180
 PREVIEW_IK_MAX_STEP = 0.05
 PREVIEW_IK_ORIENTATION_WEIGHT = 0.5
-PREVIEW_MAX_JOINT_SPEED_RAD_SEC = 0.60
-PREVIEW_MAX_JOINT_ACCEL_RAD_SEC2 = 3.00
-PREVIEW_MAX_JOINT_JERK_RAD_SEC3 = 60.0
+PREVIEW_MAX_JOINT_SPEED_RAD_SEC = 0.85
+PREVIEW_MAX_JOINT_ACCEL_RAD_SEC2 = 4.50
+PREVIEW_MAX_JOINT_JERK_RAD_SEC3 = 100.0
 PREVIEW_SMOOTHING_TAU_SEC = 0.04
 COLLISION_PENALTY = 1_000_000.0
 
@@ -242,7 +242,7 @@ def _parse_args() -> argparse.Namespace:
         default="RRTConnectkConfigDefault",
         help=hidden,
     )
-    parser.add_argument("--moveit-planning-time", type=float, default=0.7, help=hidden)
+    parser.add_argument("--moveit-planning-time", type=float, default=0.5, help=hidden)
     parser.add_argument("--moveit-planning-attempts", type=int, default=1, help=hidden)
     parser.add_argument("--moveit-max-goal-waypoints", type=int, default=3, help=hidden)
     parser.add_argument("--moveit-position-tolerance", type=float, default=0.015, help=hidden)
@@ -250,10 +250,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--moveit-release-orientation-tolerance", type=float, default=0.55, help=hidden)
     parser.add_argument("--moveit-joint-goal-tolerance", type=float, default=0.025, help=hidden)
     parser.add_argument("--moveit-ik-orientation-tolerance", type=float, default=0.35, help=hidden)
+    parser.add_argument("--moveit-ik-max-iterations", type=int, default=90, help=hidden)
+    parser.add_argument("--moveit-service-timeout-padding", type=float, default=0.25, help=hidden)
     parser.add_argument("--moveit-soft-waypoint-position-tolerance", type=float, default=0.08, help=hidden)
     parser.add_argument("--moveit-soft-waypoint-orientation-tolerance", type=float, default=0.50, help=hidden)
     parser.add_argument("--moveit-local-fallback-position-tolerance", type=float, default=0.04, help=hidden)
     parser.add_argument("--moveit-local-fallback-orientation-tolerance", type=float, default=0.50, help=hidden)
+    parser.add_argument("--moveit-grasp-fallback-position-tolerance", type=float, default=0.12, help=hidden)
+    parser.add_argument("--moveit-grasp-fallback-orientation-tolerance", type=float, default=0.65, help=hidden)
     parser.add_argument("--gripper-close-progress-start", type=float, default=0.30, help=hidden)
     parser.add_argument("--gripper-close-progress-end", type=float, default=0.42, help=hidden)
     parser.add_argument("--gripper-open-progress-start", type=float, default=0.84, help=hidden)
@@ -261,8 +265,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--tool-orientation-limit-deg", type=float, default=30.0, help=hidden)
     parser.add_argument("--moveit-use-orientation-path-constraint", action="store_true", help=hidden)
     parser.add_argument("--moveit-max-tool0-reach", type=float, default=1.03, help=hidden)
-    parser.add_argument("--moveit-velocity-scale", type=float, default=0.35, help=hidden)
-    parser.add_argument("--moveit-accel-scale", type=float, default=0.60, help=hidden)
+    parser.add_argument("--moveit-velocity-scale", type=float, default=0.50, help=hidden)
+    parser.add_argument("--moveit-accel-scale", type=float, default=0.80, help=hidden)
     parser.add_argument("--loop-playback", action="store_true", help=hidden)
     parser.add_argument(
         "--preview-max-joint-speed",
@@ -426,6 +430,7 @@ class GraspPreviewNode(Node):
         self.planning_thread: threading.Thread | None = None
         self.planning_generation = 0
         self.planning_lock = threading.Lock()
+        self.stopping = False
         self.plan_lock_time = 0.0
         self.tool_to_grasp_matrix: np.ndarray | None = None
         self.tool_to_grasp_frames: tuple[str, str] | None = None
@@ -838,6 +843,8 @@ class GraspPreviewNode(Node):
     ) -> None:
         start = time.monotonic()
         arm_frames, ik_message = self._make_constrained_arm_trajectory(preview)
+        if self.stopping or not rclpy.ok():
+            return
         planned_path = self._arm_trajectory_grasp_path_base(arm_frames) if arm_frames else []
         planned = replace(
             preview,
@@ -852,16 +859,36 @@ class GraspPreviewNode(Node):
             self.preview_ik_message = ik_message
             if arm_frames:
                 self.plan_lock_time = time.monotonic()
-        self._publish_preview(planned, preview_header)
+        if self.stopping or not rclpy.ok():
+            return
+        try:
+            self._publish_preview(planned, preview_header)
+        except RuntimeError as exc:
+            if "publisher's context is invalid" in str(exc):
+                return
+            raise
         elapsed = time.monotonic() - start
-        if arm_frames:
+        if arm_frames and "partial" not in ik_message:
             self.get_logger().info(
                 f"arm trajectory ready: frames={len(arm_frames)} "
                 f"duration={arm_frames[-1].time_from_start:.2f}s "
                 f"planning_wall={elapsed:.2f}s {ik_message}"
             )
+        elif arm_frames:
+            self.get_logger().warn(
+                f"arm trajectory partial after {elapsed:.2f}s: frames={len(arm_frames)} "
+                f"duration={arm_frames[-1].time_from_start:.2f}s {ik_message}"
+            )
         else:
             self.get_logger().warn(f"arm trajectory unavailable after {elapsed:.2f}s: {ik_message}")
+
+    def stop(self) -> None:
+        self.stopping = True
+        with self.planning_lock:
+            self.planning_generation += 1
+            thread = self.planning_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=0.3)
 
     def _draw_locked_detection(self, image: np.ndarray, preview: GraspPreview) -> None:
         self._draw_detection_overlay(image, preview.detection, "LOCKED")
@@ -1348,6 +1375,7 @@ class GraspPreviewNode(Node):
         total_points = 0
         soft_waypoints = 0
         local_fallbacks = 0
+        fallback_notes: list[str] = []
         current_rotation_base = self._current_end_effector_rotation_base()
         current_tool0_rotation_base = self._current_tool_rotation_base()
         base_from_aubo = self._invert_rigid(aubo_from_base)
@@ -1400,16 +1428,10 @@ class GraspPreviewNode(Node):
                     collision_free, clearance, hit_name = self._arm_collision_clearance_base(
                         q_unwrapped_goal, base_from_aubo
                     )
-                    fallback_position_tolerance = (
-                        max(float(self.args.moveit_soft_waypoint_position_tolerance), 0.0)
-                        if is_soft_waypoint
-                        else max(float(self.args.moveit_local_fallback_position_tolerance), 0.0)
-                    )
-                    fallback_orientation_tolerance = (
-                        max(float(self.args.moveit_soft_waypoint_orientation_tolerance), 0.01)
-                        if is_soft_waypoint
-                        else max(float(self.args.moveit_local_fallback_orientation_tolerance), 0.01)
-                    )
+                    (
+                        fallback_position_tolerance,
+                        fallback_orientation_tolerance,
+                    ) = self._moveit_fallback_tolerances(target_name, is_soft_waypoint)
                     fallback_ok = (
                         position_error <= fallback_position_tolerance
                         and orientation_error <= fallback_orientation_tolerance
@@ -1485,6 +1507,11 @@ class GraspPreviewNode(Node):
                         reached_targets.append(target_name)
                         planner_used.append(f"local_fallback_ori{orientation_index}")
                         local_fallbacks += 1
+                        fallback_notes.append(
+                            f"{target_name}/ori{orientation_index}:"
+                            f"pos_err={position_error:.3f}m,"
+                            f"ori_err={orientation_error:.3f}rad"
+                        )
                         self._throttled_log(
                             f"MoveIt blocked at {target_name}; using local fallback "
                             f"pos_err={position_error:.3f}m ori_err={orientation_error:.3f}rad"
@@ -1499,7 +1526,9 @@ class GraspPreviewNode(Node):
                         f"blocked_at={target_name} "
                         f"planners={'+'.join(planner_used)} raw_points={total_points} "
                         f"targets={','.join(reached_targets)} soft_waypoints={soft_waypoints} "
-                        f"local_fallbacks={local_fallbacks} {limit_message}; {failure_text}",
+                        f"local_fallbacks={local_fallbacks} "
+                        f"fallbacks={';'.join(fallback_notes) if fallback_notes else 'none'} "
+                        f"{limit_message}; {failure_text}",
                     )
                 return (
                     [],
@@ -1535,7 +1564,27 @@ class GraspPreviewNode(Node):
             "moveit_ompl_joint_goal "
             f"planners={'+'.join(planner_used)} raw_points={total_points} "
             f"targets={','.join(reached_targets)} "
-            f"soft_waypoints={soft_waypoints} local_fallbacks={local_fallbacks} {limit_message}",
+            f"soft_waypoints={soft_waypoints} local_fallbacks={local_fallbacks} "
+            f"fallbacks={';'.join(fallback_notes) if fallback_notes else 'none'} "
+            f"{limit_message}",
+        )
+
+    def _moveit_fallback_tolerances(
+        self, target_name: str, is_soft_waypoint: bool
+    ) -> tuple[float, float]:
+        if is_soft_waypoint:
+            return (
+                max(float(self.args.moveit_soft_waypoint_position_tolerance), 0.0),
+                max(float(self.args.moveit_soft_waypoint_orientation_tolerance), 0.01),
+            )
+        if target_name == "grasp":
+            return (
+                max(float(self.args.moveit_grasp_fallback_position_tolerance), 0.0),
+                max(float(self.args.moveit_grasp_fallback_orientation_tolerance), 0.01),
+            )
+        return (
+            max(float(self.args.moveit_local_fallback_position_tolerance), 0.0),
+            max(float(self.args.moveit_local_fallback_orientation_tolerance), 0.01),
         )
 
     def _planning_target_samples(
@@ -1589,7 +1638,7 @@ class GraspPreviewNode(Node):
             position_tolerance=position_tolerance,
             orientation_tolerance=orientation_tolerance,
             damping=PREVIEW_IK_DAMPING,
-            max_iterations=max(PREVIEW_IK_MAX_ITERATIONS, 260),
+            max_iterations=max(int(self.args.moveit_ik_max_iterations), 20),
             max_step=PREVIEW_IK_MAX_STEP,
             orientation_weight=0.25,
         )
@@ -1638,7 +1687,7 @@ class GraspPreviewNode(Node):
         motion_request.workspace_parameters.min_corner.x = -1.0
         motion_request.workspace_parameters.min_corner.y = -1.0
         motion_request.workspace_parameters.min_corner.z = -0.3
-        motion_request.workspace_parameters.max_corner.x = 1.2
+        motion_request.workspace_parameters.max_corner.x = 1.6
         motion_request.workspace_parameters.max_corner.y = 1.0
         motion_request.workspace_parameters.max_corner.z = 1.2
         motion_request.goal_constraints = [self._moveit_joint_goal_constraint(q_goal)]
@@ -1648,7 +1697,11 @@ class GraspPreviewNode(Node):
             )
 
         future = self.moveit_plan_client.call_async(request)
-        deadline = time.monotonic() + max(float(self.args.moveit_planning_time) + 1.0, 1.0)
+        deadline = time.monotonic() + max(
+            float(self.args.moveit_planning_time)
+            + max(float(self.args.moveit_service_timeout_padding), 0.0),
+            0.3,
+        )
         while not future.done() and time.monotonic() < deadline and rclpy.ok():
             time.sleep(0.02)
         if not future.done():
@@ -2869,6 +2922,7 @@ def main() -> None:
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        node.stop()
         executor.remove_node(node)
         node.destroy_node()
         if rclpy.ok():
