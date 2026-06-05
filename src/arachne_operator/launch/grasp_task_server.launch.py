@@ -26,6 +26,20 @@ def generate_launch_description():
             DeclareLaunchArgument("require_camera_topics", default_value="false"),
             DeclareLaunchArgument("set_safety_autonomous_on_start", default_value="true"),
             DeclareLaunchArgument("set_safety_manual_on_finish", default_value="true"),
+            DeclareLaunchArgument("cmd_vel_topic", default_value="/cmd_vel"),
+            DeclareLaunchArgument(
+                "base_command_topic", default_value="/arachne/grasp_task/base_command"
+            ),
+            DeclareLaunchArgument(
+                "base_state_topic", default_value="/arachne/grasp_task/base_state"
+            ),
+            DeclareLaunchArgument("base_linear_speed", default_value="0.08"),
+            DeclareLaunchArgument("base_angular_speed", default_value="0.30"),
+            DeclareLaunchArgument("base_replay_linear_speed", default_value="0.20"),
+            DeclareLaunchArgument("base_replay_angular_speed", default_value="0.24"),
+            DeclareLaunchArgument("base_position_tolerance", default_value="0.02"),
+            DeclareLaunchArgument("base_yaw_tolerance_deg", default_value="2.0"),
+            DeclareLaunchArgument("allow_base_commands_during_grasp", default_value="false"),
             Node(
                 package="arachne_operator",
                 executable="grasp_task_server",
@@ -77,6 +91,31 @@ def generate_launch_description():
                         ),
                         "set_safety_manual_on_finish": ParameterValue(
                             LaunchConfiguration("set_safety_manual_on_finish"),
+                            value_type=bool,
+                        ),
+                        "cmd_vel_topic": LaunchConfiguration("cmd_vel_topic"),
+                        "base_command_topic": LaunchConfiguration("base_command_topic"),
+                        "base_state_topic": LaunchConfiguration("base_state_topic"),
+                        "base_linear_speed": ParameterValue(
+                            LaunchConfiguration("base_linear_speed"), value_type=float
+                        ),
+                        "base_angular_speed": ParameterValue(
+                            LaunchConfiguration("base_angular_speed"), value_type=float
+                        ),
+                        "base_replay_linear_speed": ParameterValue(
+                            LaunchConfiguration("base_replay_linear_speed"), value_type=float
+                        ),
+                        "base_replay_angular_speed": ParameterValue(
+                            LaunchConfiguration("base_replay_angular_speed"), value_type=float
+                        ),
+                        "base_position_tolerance": ParameterValue(
+                            LaunchConfiguration("base_position_tolerance"), value_type=float
+                        ),
+                        "base_yaw_tolerance_deg": ParameterValue(
+                            LaunchConfiguration("base_yaw_tolerance_deg"), value_type=float
+                        ),
+                        "allow_base_commands_during_grasp": ParameterValue(
+                            LaunchConfiguration("allow_base_commands_during_grasp"),
                             value_type=bool,
                         ),
                     }

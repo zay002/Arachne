@@ -68,6 +68,59 @@ The server also publishes JSON strings on:
 - `/arachne/grasp_task/state`
 - `/arachne/grasp_task/event`
 
+## Autonomous Base Motion Primitive
+
+The task server now reserves a Scout base motion interface for future mobile
+manipulation. The intended production path is internal automatic triggering:
+detection/planning logic inside the task server decides when the base should
+move. The implementation follows the teach panel pattern: publish `/cmd_vel`
+and use `/odom` to stop relative translation and relative yaw motions.
+
+Base state:
+
+```bash
+ros2 service call /arachne/grasp_task/base_status std_srvs/srv/Trigger {}
+```
+
+Stop base motion:
+
+```bash
+ros2 service call /arachne/grasp_task/base_stop std_srvs/srv/Trigger {}
+```
+
+For debugging or external bridges, JSON commands can be sent to
+`/arachne/grasp_task/base_command`. This topic is not the final human-control
+path; later task logic can call the same internal primitive directly.
+
+Drive relative:
+
+```bash
+ros2 topic pub --once /arachne/grasp_task/base_command std_msgs/msg/String \
+  "{data: '{\"command\":\"drive_relative\",\"distance_m\":0.3}'}"
+```
+
+Turn relative:
+
+```bash
+ros2 topic pub --once /arachne/grasp_task/base_command std_msgs/msg/String \
+  "{data: '{\"command\":\"turn_relative\",\"angle_deg\":30.0}'}"
+```
+
+Replay base segments recorded by the teach panel:
+
+```json
+{
+  "command": "replay_segments",
+  "segments": [
+    {"type": "linear", "signed_distance_m": 0.5},
+    {"type": "angular", "signed_angle_rad": 0.52}
+  ]
+}
+```
+
+Base state is also published as JSON on `/arachne/grasp_task/base_state` and
+embedded in the `base` field of `/arachne/grasp_task/status`.
+
 ## Logs
 
 Each task creates one run directory:

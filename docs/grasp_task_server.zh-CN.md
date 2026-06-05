@@ -70,6 +70,52 @@ ros2 service call /arachne/grasp_task/cancel std_srvs/srv/Trigger {}
 
 消息内容是 JSON 字符串，方便 UI 或外部智能体直接解析。
 
+## 底盘自动控制原语
+
+任务服务器已经预留 Scout 底盘控制接口，后续移动抓取流程可以在同一个节点内部根据检测、规划和安全状态自动触发。它参考示教器的实现：向 `/cmd_vel` 发速度，并用 `/odom` 对相对直行和相对转向做闭环停止。
+
+底盘状态：
+
+```bash
+ros2 service call /arachne/grasp_task/base_status std_srvs/srv/Trigger {}
+```
+
+急停底盘运动：
+
+```bash
+ros2 service call /arachne/grasp_task/base_stop std_srvs/srv/Trigger {}
+```
+
+调试或外部桥接时，可以向 `/arachne/grasp_task/base_command` 发送 JSON。正式任务触发机制后续会在节点内部接入，不依赖人工遥控。
+
+相对直行：
+
+```bash
+ros2 topic pub --once /arachne/grasp_task/base_command std_msgs/msg/String \
+  "{data: '{\"command\":\"drive_relative\",\"distance_m\":0.3}'}"
+```
+
+相对转向：
+
+```bash
+ros2 topic pub --once /arachne/grasp_task/base_command std_msgs/msg/String \
+  "{data: '{\"command\":\"turn_relative\",\"angle_deg\":30.0}'}"
+```
+
+回放示教器记录的底盘段：
+
+```json
+{
+  "command": "replay_segments",
+  "segments": [
+    {"type": "linear", "signed_distance_m": 0.5},
+    {"type": "angular", "signed_angle_rad": 0.52}
+  ]
+}
+```
+
+相关状态也会以 JSON 持续发布到 `/arachne/grasp_task/base_state`，并嵌入 `/arachne/grasp_task/status` 的 `base` 字段。
+
 ## 日志
 
 每次任务会生成独立目录：

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shlex
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import rclpy
+from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import Image, JointState
@@ -33,6 +35,24 @@ AUBO_JOINT_ALIASES = (
 
 
 TERMINAL_STATES = {"succeeded", "failed", "canceled"}
+
+
+def _angle_diff(target: float, current: float) -> float:
+    return math.atan2(math.sin(target - current), math.cos(target - current))
+
+
+def _yaw_from_odom(msg: Odometry) -> float:
+    orientation = msg.pose.pose.orientation
+    siny_cosp = 2.0 * (orientation.w * orientation.z + orientation.x * orientation.y)
+    cosy_cosp = 1.0 - 2.0 * (orientation.y * orientation.y + orientation.z * orientation.z)
+    return math.atan2(siny_cosp, cosy_cosp)
+
+
+@dataclass(frozen=True)
+class Pose2D:
+    x: float
+    y: float
+    yaw: float
 
 
 @dataclass
@@ -64,6 +84,7 @@ class TaskSnapshot:
     returncode: int | None
     grasp_preview_log_dir: str
     preflight: list[dict[str, Any]]
+    base: dict[str, Any]
 
 
 class GraspTaskServer(Node):
@@ -105,18 +126,33 @@ class GraspTaskServer(Node):
         self.declare_parameter("require_camera_topics", False)
         self.declare_parameter("joint_states_topic", "/joint_states")
         self.declare_parameter("odom_topic", "/odom")
+        self.declare_parameter("cmd_vel_topic", "/cmd_vel")
         self.declare_parameter("aubo_status_topic", "/arachne/hardware/aubo_status")
         self.declare_parameter("gripper_status_topic", "/arachne/hardware/gripper_status")
         self.declare_parameter("base_status_topic", "/arachne/hardware/base_status")
         self.declare_parameter("safety_state_topic", "/arachne/safety/state")
         self.declare_parameter("color_topic", "/camera/color/image_raw")
         self.declare_parameter("depth_topic", "/camera/depth/image_raw")
+        self.declare_parameter("base_command_topic", "/arachne/grasp_task/base_command")
+        self.declare_parameter("base_state_topic", "/arachne/grasp_task/base_state")
+        self.declare_parameter("base_linear_speed", 0.08)
+        self.declare_parameter("base_angular_speed", 0.30)
+        self.declare_parameter("base_replay_linear_speed", 0.20)
+        self.declare_parameter("base_replay_angular_speed", 0.24)
+        self.declare_parameter("base_position_tolerance", 0.02)
+        self.declare_parameter("base_yaw_tolerance_deg", 2.0)
+        self.declare_parameter("base_manual_publish_rate", 12.0)
+        self.declare_parameter("base_motion_max_segment_sec", 20.0)
+        self.declare_parameter("base_pose_timeout_sec", 3.0)
+        self.declare_parameter("allow_base_commands_during_grasp", False)
 
         self.root = self._resolve_workspace_root()
         self.lock = threading.RLock()
         self.cancel_event = threading.Event()
+        self.base_cancel_event = threading.Event()
         self.process: subprocess.Popen[str] | None = None
         self.worker: threading.Thread | None = None
+        self.base_worker: threading.Thread | None = None
         self.latest: dict[str, tuple[float, Any]] = {}
         self.state = "idle"
         self.message = "ready"
@@ -127,13 +163,30 @@ class GraspTaskServer(Node):
         self.returncode: int | None = None
         self.preflight_checks: list[dict[str, Any]] = []
         self.grasp_preview_log_dir = ""
+        self.manual_base_velocity: tuple[float, float] | None = None
+        self.active_base_motion: dict[str, Any] | None = None
+        self.base_motion_segments: list[dict[str, Any]] = []
+        self.base_state = "idle"
+        self.base_message = "ready"
+        self.base_started_at = ""
+        self.base_finished_at = ""
+        self.base_active_command: dict[str, Any] = {}
+        self.base_latest_result: dict[str, Any] = {}
 
         self.state_pub = self.create_publisher(String, "/arachne/grasp_task/state", 10)
         self.event_pub = self.create_publisher(String, "/arachne/grasp_task/event", 10)
+        self.base_state_pub = self.create_publisher(
+            String, str(self.get_parameter("base_state_topic").value), 10
+        )
+        self.cmd_vel_pub = self.create_publisher(
+            Twist, str(self.get_parameter("cmd_vel_topic").value), 10
+        )
         self.create_service(Trigger, "/arachne/grasp_task/start", self._start_cb)
         self.create_service(Trigger, "/arachne/grasp_task/cancel", self._cancel_cb)
         self.create_service(Trigger, "/arachne/grasp_task/status", self._status_cb)
         self.create_service(Trigger, "/arachne/grasp_task/preflight", self._preflight_cb)
+        self.create_service(Trigger, "/arachne/grasp_task/base_stop", self._base_stop_cb)
+        self.create_service(Trigger, "/arachne/grasp_task/base_status", self._base_status_cb)
 
         self.set_autonomous_client = self.create_client(
             Trigger, "/arachne/safety/set_autonomous"
@@ -188,9 +241,18 @@ class GraspTaskServer(Node):
             lambda msg: self._cache("depth_image", msg.header.stamp),
             10,
         )
+        self.create_subscription(
+            String,
+            str(self.get_parameter("base_command_topic").value),
+            self._base_command_cb,
+            10,
+        )
 
         period = max(float(self.get_parameter("status_publish_period_sec").value), 0.1)
         self.create_timer(period, self._publish_state)
+        self.create_timer(period, self._publish_base_state)
+        base_rate = max(float(self.get_parameter("base_manual_publish_rate").value), 1.0)
+        self.create_timer(1.0 / base_rate, self._publish_manual_base_velocity)
         self._event("server_ready", {"workspace_root": str(self.root)})
 
     def _resolve_workspace_root(self) -> Path:
@@ -259,6 +321,540 @@ class GraspTaskServer(Node):
             sort_keys=True,
         )
         return response
+
+    def _base_stop_cb(self, _request, response):
+        ok, message = self._stop_base("service stop")
+        response.success = ok
+        response.message = message
+        return response
+
+    def _base_status_cb(self, _request, response):
+        response.success = True
+        response.message = self._base_snapshot_json()
+        return response
+
+    def _base_command_cb(self, msg: String) -> None:
+        text = msg.data.strip()
+        if not text:
+            return
+        try:
+            payload: Any = json.loads(text)
+        except json.JSONDecodeError:
+            payload = text
+        try:
+            ok, message = self._handle_base_command(payload)
+        except Exception as exc:
+            ok = False
+            message = f"base command rejected: {exc}"
+            self._set_base_state("failed", message)
+        self._event("base_command", {"ok": ok, "message": message, "payload": payload})
+
+    def request_base_motion(self, payload: dict[str, Any]) -> tuple[bool, str]:
+        """Internal entry for future autonomous task policies.
+
+        The ROS String topic uses the same parser for smoke tests and external
+        bridges, but the intended production path is for task logic in this node
+        to call this method after detection/planning decides a base motion is
+        needed.
+        """
+        return self._handle_base_command(payload)
+
+    def _handle_base_command(self, payload: Any) -> tuple[bool, str]:
+        if isinstance(payload, str):
+            payload = {"command": payload}
+        if not isinstance(payload, dict):
+            raise ValueError("base command must be a string or JSON object")
+
+        raw_command = str(payload.get("command", payload.get("type", ""))).strip().lower()
+        command = raw_command
+        if not command:
+            raise ValueError("missing base command")
+        if raw_command == "turn_left" and "direction" not in payload:
+            payload = dict(payload, direction="left")
+        elif raw_command == "turn_right" and "direction" not in payload:
+            payload = dict(payload, direction="right")
+        command = {
+            "backward": "back",
+            "reverse": "back",
+            "turn_left": "turn_relative",
+            "turn_right": "turn_relative",
+            "drive": "drive_relative",
+            "move": "drive_relative",
+            "velocity": "timed",
+            "cmd_vel": "timed",
+            "segments": "replay_segments",
+        }.get(command, command)
+
+        if command == "stop":
+            return self._stop_base("command stop")
+
+        if self._grasp_task_active() and not bool(
+            self.get_parameter("allow_base_commands_during_grasp").value
+        ):
+            return False, "base command rejected: grasp task is active"
+
+        if command in ("forward", "back", "left", "right", "manual", "jog"):
+            direction = str(payload.get("direction", command)).strip().lower()
+            if direction in ("backward", "reverse"):
+                direction = "back"
+            self._drive_base_manual(direction)
+            return True, self._base_message_snapshot()
+
+        if command == "drive_relative":
+            distance = self._payload_float(payload, "distance_m", "distance", default=0.0)
+            return self._start_base_worker(
+                "drive_relative",
+                payload,
+                lambda: self._drive_distance(distance),
+            )
+
+        if command == "turn_relative":
+            if "angle_rad" in payload:
+                angle = float(payload["angle_rad"])
+            elif "angle_deg" in payload:
+                angle = math.radians(float(payload["angle_deg"]))
+            else:
+                sign = -1.0 if str(payload.get("direction", "")).lower() == "right" else 1.0
+                angle = sign * math.radians(float(payload.get("angle", 0.0)))
+            return self._start_base_worker(
+                "turn_relative",
+                payload,
+                lambda: self._turn_relative(angle),
+            )
+
+        if command == "timed":
+            linear_x = self._payload_float(payload, "linear_x", "vx", "linear", default=0.0)
+            angular_z = self._payload_float(payload, "angular_z", "wz", "yaw_rate", default=0.0)
+            duration = self._payload_float(payload, "duration_sec", "duration", default=0.0)
+            return self._start_base_worker(
+                "timed",
+                payload,
+                lambda: self._run_timed_base_motion(linear_x, angular_z, duration),
+            )
+
+        if command in ("replay_segments", "replay"):
+            segments = payload.get("segments", payload.get("base_motion", []))
+            if not isinstance(segments, list):
+                raise ValueError("segments must be a list")
+            return self._start_base_worker(
+                "replay_segments",
+                payload,
+                lambda: self._replay_base_motion(segments, label=str(payload.get("label", "base"))),
+            )
+
+        if command == "segment":
+            segment = payload.get("segment", payload)
+            if not isinstance(segment, dict):
+                raise ValueError("segment must be an object")
+            return self._start_base_worker(
+                "segment",
+                payload,
+                lambda: self._replay_base_motion([segment], label=str(payload.get("label", "base"))),
+            )
+
+        raise ValueError(f"unsupported base command: {command}")
+
+    def _grasp_task_active(self) -> bool:
+        with self.lock:
+            worker_active = self.worker is not None and self.worker.is_alive()
+            return worker_active or self.state in ("preflight", "running")
+
+    def _payload_float(self, payload: dict[str, Any], *names: str, default: float) -> float:
+        for name in names:
+            if name in payload:
+                return float(payload[name])
+        return float(default)
+
+    def _start_base_worker(self, label: str, payload: dict[str, Any], target) -> tuple[bool, str]:
+        with self.lock:
+            busy = self.base_worker is not None and self.base_worker.is_alive()
+            if busy:
+                return False, self._base_message_snapshot()
+            self.base_cancel_event.clear()
+            self.manual_base_velocity = None
+            self._close_base_motion_locked(time.monotonic())
+            self.base_state = "running"
+            self.base_message = f"base {label} started"
+            self.base_started_at = datetime.now().isoformat(timespec="seconds")
+            self.base_finished_at = ""
+            self.base_active_command = dict(payload)
+            self.base_latest_result = {}
+            self.base_worker = threading.Thread(
+                target=self._base_worker_runner,
+                args=(label, target),
+                daemon=True,
+            )
+            self.base_worker.start()
+        self._event("base_state", {"state": "running", "message": f"base {label} started"})
+        self._publish_base_state()
+        return True, f"base {label} started"
+
+    def _base_worker_runner(self, label: str, target) -> None:
+        try:
+            target()
+            if self.base_cancel_event.is_set():
+                self._set_base_state("canceled", f"base {label} canceled")
+            else:
+                self._set_base_state("succeeded", f"base {label} complete")
+        except Exception as exc:
+            if self.base_cancel_event.is_set():
+                self._set_base_state("canceled", f"base {label} canceled")
+            else:
+                self._set_base_state("failed", f"base {label} failed: {exc}")
+        finally:
+            self._publish_base_stop()
+
+    def _drive_base_manual(self, direction: str) -> None:
+        linear = float(self.get_parameter("base_linear_speed").value)
+        angular = float(self.get_parameter("base_angular_speed").value)
+        mapping = {
+            "forward": (linear, 0.0),
+            "back": (-linear, 0.0),
+            "left": (0.0, angular),
+            "right": (0.0, -angular),
+            "stop": (0.0, 0.0),
+        }
+        if direction not in mapping:
+            raise ValueError(f"unsupported manual base direction: {direction}")
+        vx, wz = mapping[direction]
+        self._track_base_motion(direction, vx, wz)
+        with self.lock:
+            self.manual_base_velocity = None if direction == "stop" else (vx, wz)
+            if direction == "stop":
+                self.base_state = "idle"
+                self.base_message = "base manual stop"
+                self.base_finished_at = datetime.now().isoformat(timespec="seconds")
+            else:
+                self.base_cancel_event.clear()
+                self.base_state = "manual"
+                self.base_message = f"base manual {direction}"
+                self.base_started_at = self.base_started_at or datetime.now().isoformat(timespec="seconds")
+                self.base_finished_at = ""
+                self.base_active_command = {"command": "manual", "direction": direction}
+        self.set_base_velocity(vx, wz)
+        self._event("base_state", {"state": self.base_state, "message": self.base_message})
+        self._publish_base_state()
+
+    def _track_base_motion(self, direction: str, linear_x: float, angular_z: float) -> None:
+        now = time.monotonic()
+        with self.lock:
+            if direction == "stop" or (abs(linear_x) < 1e-9 and abs(angular_z) < 1e-9):
+                self._close_base_motion_locked(now)
+                return
+            self._close_base_motion_locked(now)
+            self.active_base_motion = {
+                "command": direction,
+                "linear_x": float(linear_x),
+                "angular_z": float(angular_z),
+                "_start_pose": self._base_pose_values_locked(),
+                "start_stamp": datetime.now().isoformat(timespec="seconds"),
+                "_start_monotonic": now,
+            }
+
+    def _close_base_motion_locked(self, now: float) -> None:
+        if self.active_base_motion is None:
+            return
+        active = dict(self.active_base_motion)
+        start = float(active.get("_start_monotonic", now))
+        duration = max(0.0, now - start)
+        if duration >= 0.05:
+            end_pose = self._base_pose_values_locked()
+            segment = self._make_relative_base_segment(active, end_pose, duration)
+            segment["end_stamp"] = datetime.now().isoformat(timespec="seconds")
+            self.base_motion_segments.append(segment)
+            self.base_latest_result = {"recorded_segment": segment}
+            self.base_message = self._describe_base_segment(segment)
+        self.active_base_motion = None
+
+    def _base_pose_values_locked(self) -> list[float]:
+        item = self.latest.get("odom")
+        if item is None or not isinstance(item[1], Odometry):
+            return []
+        pose = item[1].pose.pose
+        return [pose.position.x, pose.position.y, _yaw_from_odom(item[1])]
+
+    def _make_relative_base_segment(
+        self, active: dict[str, Any], end_pose: list[float], duration: float
+    ) -> dict[str, Any]:
+        command = str(active.get("command", "stop"))
+        linear_x = float(active.get("linear_x", 0.0))
+        angular_z = float(active.get("angular_z", 0.0))
+        start_pose = active.get("_start_pose", [])
+        source = "timed"
+        signed_distance = linear_x * duration
+        signed_angle = angular_z * duration
+
+        if len(start_pose) == 3 and len(end_pose) == 3:
+            dx = float(end_pose[0]) - float(start_pose[0])
+            dy = float(end_pose[1]) - float(start_pose[1])
+            start_yaw = float(start_pose[2])
+            signed_distance = dx * math.cos(start_yaw) + dy * math.sin(start_yaw)
+            signed_angle = _angle_diff(float(end_pose[2]), start_yaw)
+            source = "odom"
+
+        if command in ("forward", "back"):
+            if abs(signed_distance) < 1e-5:
+                signed_distance = linear_x * duration
+                source = "timed"
+            action = "forward" if signed_distance >= 0.0 else "back"
+            return {
+                "type": "linear",
+                "action": action,
+                "distance_m": abs(float(signed_distance)),
+                "signed_distance_m": float(signed_distance),
+                "duration_sec": float(duration),
+                "linear_x": linear_x,
+                "source": source,
+                "start_stamp": active.get("start_stamp", ""),
+            }
+
+        if command in ("left", "right"):
+            if abs(signed_angle) < 1e-5:
+                signed_angle = angular_z * duration
+                source = "timed"
+            action = "left" if signed_angle >= 0.0 else "right"
+            return {
+                "type": "angular",
+                "action": action,
+                "angle_rad": abs(float(signed_angle)),
+                "signed_angle_rad": float(signed_angle),
+                "duration_sec": float(duration),
+                "angular_z": angular_z,
+                "source": source,
+                "start_stamp": active.get("start_stamp", ""),
+            }
+
+        return {
+            "type": "timed",
+            "action": command,
+            "duration_sec": float(duration),
+            "linear_x": linear_x,
+            "angular_z": angular_z,
+            "source": source,
+            "start_stamp": active.get("start_stamp", ""),
+        }
+
+    def _describe_base_segment(self, segment: dict[str, Any]) -> str:
+        action = str(segment.get("action", "base"))
+        if segment.get("type") == "linear":
+            return f"base recorded: {action} {float(segment.get('distance_m', 0.0)):.3f} m"
+        if segment.get("type") == "angular":
+            angle = math.degrees(float(segment.get("angle_rad", 0.0)))
+            return f"base recorded: {action} {angle:.1f} deg"
+        return f"base recorded: {action} {float(segment.get('duration_sec', 0.0)):.1f} s"
+
+    def _publish_manual_base_velocity(self) -> None:
+        with self.lock:
+            velocity = self.manual_base_velocity
+        if velocity is None:
+            return
+        self.set_base_velocity(velocity[0], velocity[1])
+
+    def set_base_velocity(self, linear_x: float, angular_z: float) -> None:
+        twist = Twist()
+        twist.linear.x = float(linear_x)
+        twist.angular.z = float(angular_z)
+        self.cmd_vel_pub.publish(twist)
+
+    def _publish_base_stop(self) -> None:
+        self.set_base_velocity(0.0, 0.0)
+
+    def _stop_base(self, reason: str) -> tuple[bool, str]:
+        self.base_cancel_event.set()
+        with self.lock:
+            self.manual_base_velocity = None
+            self._close_base_motion_locked(time.monotonic())
+        self._publish_base_stop()
+        with self.lock:
+            running = self.base_worker is not None and self.base_worker.is_alive()
+        if not running:
+            self._set_base_state("idle", f"base stopped: {reason}")
+        else:
+            self._set_base_state("canceled", f"base stopping: {reason}")
+        return True, self._base_snapshot_json()
+
+    def _run_timed_base_motion(self, linear_x: float, angular_z: float, duration: float) -> None:
+        max_duration = float(self.get_parameter("base_motion_max_segment_sec").value)
+        duration = max(0.0, min(float(duration), max_duration))
+        deadline = time.monotonic() + duration
+        while rclpy.ok() and not self.base_cancel_event.is_set() and time.monotonic() < deadline:
+            self.set_base_velocity(linear_x, angular_z)
+            time.sleep(0.05)
+
+    def _drive_distance(self, distance: float, speed_override: float | None = None) -> None:
+        start = self._current_base_pose()
+        heading_x = math.cos(start.yaw)
+        heading_y = math.sin(start.yaw)
+        tolerance = float(self.get_parameter("base_position_tolerance").value)
+        speed = (
+            abs(float(speed_override))
+            if speed_override is not None
+            else abs(float(self.get_parameter("base_replay_linear_speed").value))
+        )
+        sign = 1.0 if distance >= 0.0 else -1.0
+        deadline = time.monotonic() + abs(distance) / max(speed, 1e-3) + 8.0
+        while rclpy.ok() and not self.base_cancel_event.is_set() and time.monotonic() < deadline:
+            current = self._current_base_pose(timeout=0.1)
+            progress = (current.x - start.x) * heading_x + (current.y - start.y) * heading_y
+            if sign * progress >= abs(distance) - tolerance:
+                self.base_latest_result = {
+                    "type": "linear",
+                    "target_m": float(distance),
+                    "progress_m": float(progress),
+                }
+                return
+            self.set_base_velocity(sign * speed, 0.0)
+            time.sleep(0.05)
+        if self.base_cancel_event.is_set():
+            return
+        raise TimeoutError(f"base distance timeout target={distance:.3f}m")
+
+    def _turn_relative(self, angle: float) -> None:
+        current = self._current_base_pose()
+        target = math.atan2(math.sin(current.yaw + angle), math.cos(current.yaw + angle))
+        self._turn_to_yaw(target)
+
+    def _turn_to_yaw(self, target_yaw: float) -> None:
+        tolerance = math.radians(float(self.get_parameter("base_yaw_tolerance_deg").value))
+        speed = abs(float(self.get_parameter("base_replay_angular_speed").value))
+        initial_error = abs(_angle_diff(target_yaw, self._current_base_pose().yaw))
+        deadline = time.monotonic() + max(12.0, initial_error / max(speed, 1e-3) + 8.0)
+        while rclpy.ok() and not self.base_cancel_event.is_set() and time.monotonic() < deadline:
+            current = self._current_base_pose(timeout=0.1)
+            error = _angle_diff(target_yaw, current.yaw)
+            if abs(error) <= tolerance:
+                self.base_latest_result = {
+                    "type": "angular",
+                    "target_yaw_rad": float(target_yaw),
+                    "error_rad": float(error),
+                }
+                return
+            self.set_base_velocity(0.0, math.copysign(speed, error))
+            time.sleep(0.05)
+        if self.base_cancel_event.is_set():
+            return
+        raise TimeoutError(f"base yaw timeout target={math.degrees(target_yaw):.2f}deg")
+
+    def _replay_base_motion(self, segments: list[dict[str, Any]], label: str) -> None:
+        max_duration = float(self.get_parameter("base_motion_max_segment_sec").value)
+        for index, segment in enumerate(segments, start=1):
+            if self.base_cancel_event.is_set():
+                break
+            normalized = self._normalize_base_motion_segment(segment)
+            motion_type = normalized.get("type")
+            self._set_base_state(
+                "running",
+                f"base segment {index}/{len(segments)} for {label}: {motion_type}",
+            )
+            if motion_type == "linear":
+                distance = float(normalized.get("signed_distance_m", 0.0))
+                speed = abs(float(normalized.get("linear_x", 0.0)))
+                self._drive_distance(distance, speed_override=speed if speed > 0.0 else None)
+            elif motion_type == "angular":
+                self._turn_relative(float(normalized.get("signed_angle_rad", 0.0)))
+            else:
+                duration = max(0.0, min(float(normalized.get("duration_sec", 0.0)), max_duration))
+                linear_x = float(normalized.get("linear_x", 0.0))
+                angular_z = float(normalized.get("angular_z", 0.0))
+                self._run_timed_base_motion(linear_x, angular_z, duration)
+            self._publish_base_stop()
+            time.sleep(0.1)
+
+    def _normalize_base_motion_segment(self, segment: dict[str, Any]) -> dict[str, Any]:
+        if segment.get("type") == "linear":
+            normalized = dict(segment)
+            if "signed_distance_m" not in normalized:
+                action = str(normalized.get("action", "forward"))
+                distance = abs(float(normalized.get("distance_m", 0.0)))
+                normalized["signed_distance_m"] = -distance if action == "back" else distance
+            normalized["distance_m"] = abs(float(normalized.get("signed_distance_m", 0.0)))
+            normalized["action"] = (
+                "forward" if float(normalized.get("signed_distance_m", 0.0)) >= 0.0 else "back"
+            )
+            return normalized
+        if segment.get("type") == "angular":
+            normalized = dict(segment)
+            if "signed_angle_rad" not in normalized:
+                action = str(normalized.get("action", "left"))
+                angle = abs(float(normalized.get("angle_rad", 0.0)))
+                normalized["signed_angle_rad"] = -angle if action == "right" else angle
+            normalized["angle_rad"] = abs(float(normalized.get("signed_angle_rad", 0.0)))
+            normalized["action"] = (
+                "left" if float(normalized.get("signed_angle_rad", 0.0)) >= 0.0 else "right"
+            )
+            return normalized
+        if segment.get("type") == "timed":
+            return dict(segment)
+
+        command = str(segment.get("command", ""))
+        active = {
+            "command": command,
+            "linear_x": float(segment.get("linear_x", 0.0)),
+            "angular_z": float(segment.get("angular_z", 0.0)),
+            "_start_pose": segment.get("start_pose", []),
+            "start_stamp": segment.get("start_stamp", ""),
+        }
+        return self._make_relative_base_segment(
+            active,
+            segment.get("end_pose", []),
+            float(segment.get("duration_sec", 0.0)),
+        )
+
+    def _current_base_pose(self, timeout: float | None = None) -> Pose2D:
+        if timeout is None:
+            timeout = float(self.get_parameter("base_pose_timeout_sec").value)
+        deadline = time.monotonic() + max(float(timeout), 0.0)
+        while rclpy.ok() and not self.base_cancel_event.is_set() and time.monotonic() <= deadline:
+            with self.lock:
+                item = self.latest.get("odom")
+            if item is not None and isinstance(item[1], Odometry):
+                msg = item[1]
+                pose = msg.pose.pose
+                return Pose2D(pose.position.x, pose.position.y, _yaw_from_odom(msg))
+            time.sleep(0.02)
+        raise TimeoutError("missing /odom")
+
+    def _set_base_state(self, state: str, message: str) -> None:
+        with self.lock:
+            self.base_state = state
+            self.base_message = message
+            if state in ("idle", "succeeded", "failed", "canceled"):
+                self.base_finished_at = datetime.now().isoformat(timespec="seconds")
+        self._event("base_state", {"state": state, "message": message})
+        self._publish_base_state()
+
+    def _base_message_snapshot(self) -> str:
+        with self.lock:
+            return self.base_message
+
+    def _base_snapshot_dict(self) -> dict[str, Any]:
+        with self.lock:
+            pose_values = self._base_pose_values_locked()
+            active_command = dict(self.base_active_command)
+            result = dict(self.base_latest_result)
+            segments = [dict(item) for item in self.base_motion_segments]
+            worker_busy = self.base_worker is not None and self.base_worker.is_alive()
+            manual = self.manual_base_velocity
+            return {
+                "state": self.base_state,
+                "message": self.base_message,
+                "started_at": self.base_started_at,
+                "finished_at": self.base_finished_at,
+                "worker_busy": worker_busy,
+                "manual_velocity": list(manual) if manual is not None else [],
+                "active_command": active_command,
+                "latest_result": result,
+                "recorded_segments": segments,
+                "pose": pose_values,
+            }
+
+    def _base_snapshot_json(self) -> str:
+        return json.dumps(self._base_snapshot_dict(), ensure_ascii=False, sort_keys=True)
+
+    def _publish_base_state(self) -> None:
+        msg = String()
+        msg.data = self._base_snapshot_json()
+        self.base_state_pub.publish(msg)
 
     def _run_task(self) -> None:
         task_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
@@ -610,6 +1206,7 @@ class GraspTaskServer(Node):
                 returncode=self.returncode,
                 grasp_preview_log_dir=self.grasp_preview_log_dir,
                 preflight=list(self.preflight_checks),
+                base=self._base_snapshot_dict(),
             )
 
     def _snapshot_json(self) -> str:
@@ -636,6 +1233,8 @@ def main() -> None:
         rclpy.spin(node)
     except KeyboardInterrupt:
         node.cancel_event.set()
+        node.base_cancel_event.set()
+        node._publish_base_stop()
         node._terminate_process("shutdown")
     finally:
         node.destroy_node()
