@@ -35,8 +35,12 @@ DEFAULT_REAL_ARM_JOINTS = (
     "wrist3_joint",
 )
 
-DEFAULT_ARM_HOME_JOINTS_DEG = "-88.28,3.40,116.60,103.48,88.33,-0.13"
+DEFAULT_ARM_HOME_JOINTS_DEG = "-90.00,11.55,95.09,27.80,96.07,43.79"
 DEFAULT_ARM_INSTALL_JOINTS_DEG = DEFAULT_ARM_HOME_JOINTS_DEG
+DEFAULT_AUBO_PAYLOAD_MASS_KG = 0.818
+DEFAULT_AUBO_PAYLOAD_COG = "0.039927,0.045067,0.143233"
+DEFAULT_AUBO_PAYLOAD_AOM = "0,0,0"
+DEFAULT_AUBO_PAYLOAD_INERTIA = "0,0,0,0,0,0"
 DEFAULT_ARM_BASE_XYZ = "0.22,0.0,0.155"
 DEFAULT_ARM_BASE_RPY = "0.0,0.0,1.57079632679"
 DEFAULT_REAR_RACK_KEEPOUT_MIN_XYZ = "-0.41,-0.22,0.04"
@@ -86,15 +90,19 @@ def _parse_names(text: str) -> list[str]:
     return [item.strip() for item in text.split(",") if item.strip()]
 
 
-def _parse_vector3(text: str) -> np.ndarray:
+def _parse_vector(text: str, *, expected: int, label: str = "vector") -> list[float]:
     values = [
         float(item.strip())
         for item in str(text).replace(";", ",").replace(" ", ",").split(",")
         if item.strip()
     ]
-    if len(values) != 3:
-        raise ValueError(f"expected 3 values, got {len(values)}")
-    return np.array(values, dtype=float)
+    if len(values) != expected:
+        raise ValueError(f"{label} must contain {expected} values, got {len(values)}")
+    return values
+
+
+def _parse_vector3(text: str) -> np.ndarray:
+    return np.array(_parse_vector(text, expected=3), dtype=float)
 
 
 def _parse_joint_degrees(text: str, *, label: str) -> list[float]:
@@ -196,6 +204,10 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_waypoint_duration_sec", 3.75)
         self.declare_parameter("arm_home_joints_deg", DEFAULT_ARM_HOME_JOINTS_DEG)
         self.declare_parameter("arm_install_joints_deg", DEFAULT_ARM_INSTALL_JOINTS_DEG)
+        self.declare_parameter("aubo_payload_mass_kg", DEFAULT_AUBO_PAYLOAD_MASS_KG)
+        self.declare_parameter("aubo_payload_cog", DEFAULT_AUBO_PAYLOAD_COG)
+        self.declare_parameter("aubo_payload_aom", DEFAULT_AUBO_PAYLOAD_AOM)
+        self.declare_parameter("aubo_payload_inertia", DEFAULT_AUBO_PAYLOAD_INERTIA)
         self.declare_parameter("arm_goal_tolerance", 0.04)
         self.declare_parameter("arm_position_tolerance", 0.006)
         self.declare_parameter("arm_jog_position_tolerance", 0.0008)
@@ -438,6 +450,12 @@ class TeachPanelNode(Node):
                 "home_joints_deg": str(self.get_parameter("arm_home_joints_deg").value),
                 "install_joints_deg": str(self.get_parameter("arm_install_joints_deg").value),
             },
+            "payload": {
+                "mass_kg": float(self.get_parameter("aubo_payload_mass_kg").value),
+                "cog_m": str(self.get_parameter("aubo_payload_cog").value),
+                "aom": str(self.get_parameter("aubo_payload_aom").value),
+                "inertia": str(self.get_parameter("aubo_payload_inertia").value),
+            },
             "safety": {
                 "arm_keepout_enabled": bool(self.get_parameter("arm_keepout_enabled").value),
                 "rear_rack_keepout_min_xyz": str(
@@ -458,6 +476,7 @@ class TeachPanelNode(Node):
     def apply_teach_config(self, payload: dict) -> None:
         motion = payload.get("motion", {})
         poses = payload.get("poses", {})
+        payload_defaults = payload.get("payload", {})
         safety = payload.get("safety", {})
 
         home_values = _parse_joint_degrees(
@@ -479,8 +498,35 @@ class TeachPanelNode(Node):
             "rear_rack_keepout_max_xyz",
             self.get_parameter("rear_rack_keepout_max_xyz").value,
         )
+        payload_mass = float(
+            payload_defaults.get(
+                "mass_kg",
+                self.get_parameter("aubo_payload_mass_kg").value,
+            )
+        )
+        payload_cog = str(
+            payload_defaults.get(
+                "cog_m",
+                self.get_parameter("aubo_payload_cog").value,
+            )
+        )
+        payload_aom = str(
+            payload_defaults.get(
+                "aom",
+                self.get_parameter("aubo_payload_aom").value,
+            )
+        )
+        payload_inertia = str(
+            payload_defaults.get(
+                "inertia",
+                self.get_parameter("aubo_payload_inertia").value,
+            )
+        )
         _parse_vector3(str(keepout_min))
         _parse_vector3(str(keepout_max))
+        _parse_vector(payload_cog, expected=3, label="payload cog")
+        _parse_vector(payload_aom, expected=3, label="payload aom")
+        _parse_vector(payload_inertia, expected=6, label="payload inertia")
 
         self.set_parameters(
             [
@@ -556,6 +602,26 @@ class TeachPanelNode(Node):
                     "arm_install_joints_deg",
                     Parameter.Type.STRING,
                     _format_joint_degrees(install_values),
+                ),
+                Parameter(
+                    "aubo_payload_mass_kg",
+                    Parameter.Type.DOUBLE,
+                    payload_mass,
+                ),
+                Parameter(
+                    "aubo_payload_cog",
+                    Parameter.Type.STRING,
+                    payload_cog,
+                ),
+                Parameter(
+                    "aubo_payload_aom",
+                    Parameter.Type.STRING,
+                    payload_aom,
+                ),
+                Parameter(
+                    "aubo_payload_inertia",
+                    Parameter.Type.STRING,
+                    payload_inertia,
                 ),
                 Parameter(
                     "arm_keepout_enabled",
@@ -2331,7 +2397,22 @@ class TeachPanelApp:
         ttk.Label(payload, text="Startup payload is configured by scripts/hardware/real_full_teach.sh.").grid(
             row=0, column=0, sticky="w", padx=6, pady=4
         )
-        ttk.Label(payload, text="Measured payload: 0.818kg, CoG 39.927/45.067/143.233 mm.").grid(
+        payload_mass = float(self.node.get_parameter("aubo_payload_mass_kg").value)
+        payload_cog_mm = [
+            value * 1000.0
+            for value in _parse_vector(
+                str(self.node.get_parameter("aubo_payload_cog").value),
+                expected=3,
+                label="payload cog",
+            )
+        ]
+        ttk.Label(
+            payload,
+            text=(
+                f"Reusable default payload: {payload_mass:.3f}kg, "
+                f"CoG {payload_cog_mm[0]:.3f}/{payload_cog_mm[1]:.3f}/{payload_cog_mm[2]:.3f} mm."
+            ),
+        ).grid(
             row=1, column=0, sticky="w", padx=6, pady=4
         )
 

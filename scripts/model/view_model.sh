@@ -33,6 +33,8 @@ LIDAR_XYZ="${LIDAR_XYZ:-0.0 0.035 0.6223}"
 LIDAR_RPY="${LIDAR_RPY:-0.0 0.0 0.0}"
 EE_CAMERA_XYZ="${EE_CAMERA_XYZ:-0.0 0.0 0.0}"
 EE_CAMERA_RPY="${EE_CAMERA_RPY:-0.0 0.0 0.0}"
+TOOL_ADAPTER_XYZ="${TOOL_ADAPTER_XYZ:-0.0 0.0 0.0}"
+TOOL_ADAPTER_RPY="${TOOL_ADAPTER_RPY:-0.0 0.0 0.785398163397}"
 
 python3 - <<'PY'
 import os
@@ -122,6 +124,8 @@ exec ros2 launch arachne_description display.launch.py \
   with_ee_camera:="${WITH_EE_CAMERA}" \
   with_rear_rack:="${WITH_REAR_RACK}" \
   with_front_basket:="${WITH_FRONT_BASKET}" \
+  tool_adapter_xyz:="${TOOL_ADAPTER_XYZ}" \
+  tool_adapter_rpy:="${TOOL_ADAPTER_RPY}" \
   front_basket_xyz:="${FRONT_BASKET_XYZ}" \
   front_basket_rpy:="${FRONT_BASKET_RPY}" \
   rear_rack_xyz:="${REAR_RACK_XYZ}" \

@@ -172,6 +172,20 @@ source scripts/env/arachne_env.sh
 ./scripts/vision/grasp_preview.sh
 ```
 
+如果真机 Aubo 已经连上，先同步真实 6 轴姿态再启动同一套预览：
+
+```bash
+./scripts/vision/grasp_preview_real_sync.sh
+```
+
+只验证能否读到真机姿态，不启动相机/RViz/MoveIt：
+
+```bash
+./scripts/vision/grasp_preview_real_sync.sh --sync-only
+```
+
+这个 wrapper 会先清理旧的预览 display 节点，优先从真实 `/joint_states` 读取 Aubo 6 轴；如果 ROS driver 还没发布关节状态，则尝试通过 Aubo `30004` JSON-RPC 只读接口读取 `RobotState.getJointPositions`。读取成功后会把结果作为 `ARACHNE_GRASP_ARM_JOINTS` 传给 `grasp_preview.sh`，只同步 RViz/MoveIt 预览模型，不会向真机发送运动命令。
+
 这个脚本会默认启动：
 
 - Arachne 模型 TF，不控制真机。
@@ -180,22 +194,28 @@ source scripts/env/arachne_env.sh
 - RViz 抓取预览界面。
 - YOLO bottle 检测、ROI 点云、深度测量和抓取入篮路径预览节点。
 
-抓取预览依赖 `base_link -> ee_camera_link` 的 TF。真机没电或没有 Aubo driver 时，RViz 里的机械臂不会自动同步到真机末端姿态，相机坐标会随模型关节角偏掉。当前离线模型默认姿态已固定为最后一次有效示教记录：
+抓取预览依赖 `base_link -> ee_camera_link` 的 TF。真机没电或没有 Aubo driver 时，RViz 里的机械臂不会自动同步到真机末端姿态，相机坐标会随模型关节角偏掉。当前模型默认 Home 已固定为 2026-06-05 从真机读取的位姿：
 
 ```text
-source: recordings/teach/demo_real_1.json
-waypoint: wp_20, 2026-05-31T16:02:52
-joints: -1.5408120029719,0.0593612532330225,2.03497187013844,1.97166718909566,1.54149915004866,-0.00236931686049663
+source: Aubo RPC RobotState.getJointPositions
+robot: rob1, mode=Running, safety=Normal
+joints: -1.5707963267949,0.201570428261868,1.65970467002488,0.485178041391533,1.67675136677345,0.76432946885334
+```
+
+真机在线时建议使用同步封装脚本，它会先读取当前 `/joint_states` 或 Aubo RPC，再启动预览：
+
+```bash
+./scripts/vision/grasp_preview_real_sync.sh
 ```
 
 如果需要手动指定机械臂当前姿态：
 
 ```bash
-ARACHNE_GRASP_ARM_JOINTS="-1.5408120029719,0.0593612532330225,2.03497187013844,1.97166718909566,1.54149915004866,-0.00236931686049663" \
+ARACHNE_GRASP_ARM_JOINTS="-1.5707963267949,0.201570428261868,1.65970467002488,0.485178041391533,1.67675136677345,0.76432946885334" \
   ./scripts/vision/grasp_preview.sh
 ```
 
-后续真机在线时应直接使用 Aubo driver 的实时 `/joint_states` 同步模型，不再依赖离线示教姿态。
+这些默认值记录在 `src/arachne_description/config/real_hardware_defaults.yaml` 和 `scripts/env/arachne_real_defaults.sh`。
 
 RViz 中重点看：
 
@@ -380,7 +400,7 @@ source scripts/env/arachne_env.sh
 默认 Home 和 Install 位姿：
 
 ```text
-J1=-88.28, J2=3.40, J3=116.60, J4=103.48, J5=88.33, J6=-0.13 deg
+J1=-90.00, J2=11.55, J3=95.09, J4=27.80, J5=96.07, J6=43.79 deg
 ```
 
 Home / Install 是 6 个关节角，单位为 degree。使用方式：
@@ -496,7 +516,13 @@ mass = 0.818 kg
 cog  = 0.039927,0.045067,0.143233 m
 ```
 
-`real_full_teach.sh` 和 `real_full_acceptance.sh` 会在启动流程中写入该 payload。若更换充电枪、相机或夹具，需要调整：
+这些值同时记录在：
+
+- `src/arachne_description/config/real_hardware_defaults.yaml`
+- `scripts/env/arachne_real_defaults.sh`
+- `recordings/teach/teach_panel_config.json`
+
+`real_full_teach.sh` 和 `real_full_acceptance.sh` 会先读取共享 defaults，再在启动流程中写入该 payload。若更换充电枪、相机或夹具，需要调整：
 
 ```bash
 cd /home/jetson/zhaoyang/Arachne

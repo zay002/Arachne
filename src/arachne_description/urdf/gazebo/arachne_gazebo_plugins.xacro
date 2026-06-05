@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:property name="demo_aubo_shoulder" value="-1.5407387550371199"/>
-  <xacro:property name="demo_aubo_upperArm" value="0.05937252214606485"/>
-  <xacro:property name="demo_aubo_foreArm" value="2.0350620214427786"/>
-  <xacro:property name="demo_aubo_wrist1" value="1.9717090402766757"/>
-  <xacro:property name="demo_aubo_wrist2" value="1.5416031029821449"/>
-  <xacro:property name="demo_aubo_wrist3" value="-0.002335565908067907"/>
+  <xacro:property name="demo_aubo_shoulder" value="-1.5707963267949"/>
+  <xacro:property name="demo_aubo_upperArm" value="0.201570428261868"/>
+  <xacro:property name="demo_aubo_foreArm" value="1.65970467002488"/>
+  <xacro:property name="demo_aubo_wrist1" value="0.485178041391533"/>
+  <xacro:property name="demo_aubo_wrist2" value="1.67675136677345"/>
+  <xacro:property name="demo_aubo_wrist3" value="0.76432946885334"/>
 
   <xacro:macro name="arachne_gazebo_surface" params="link mu1:=0.9 mu2:=0.9">
     <gazebo reference="${link}">

@@ -9,8 +9,26 @@ mounts:
     parent: tool0
     child: gripper_adapter_link
     xyz: [0.0, 0.0, 0.0]
-    rpy: [0.0, 0.0, 0.0]
-    status: approximate_visualization_pose_not_measured
+    rpy: [0.0, 0.0, 0.785398163397]
+    status: field_adjusted_flange_counterclockwise_45deg
+aubo_i5:
+  default_home_pose:
+    source: real_hardware_defaults.yaml
+    joint_names:
+      - aubo_shoulder_joint
+      - aubo_upperArm_joint
+      - aubo_foreArm_joint
+      - aubo_wrist1_joint
+      - aubo_wrist2_joint
+      - aubo_wrist3_joint
+    positions_rad: [-1.5707963267949, 0.201570428261868, 1.65970467002488, 0.485178041391533, 1.67675136677345, 0.76432946885334]
+    positions_deg: [-90.00, 11.55, 95.09, 27.80, 96.07, 43.79]
+  default_payload:
+    source: real_hardware_defaults.yaml
+    mass_kg: 0.818
+    cog_m: [0.039927, 0.045067, 0.143233]
+    aom: [0.0, 0.0, 0.0]
+    inertia: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 model_notes:
   scout: AgileX Scout v2 mesh and dimensions adapted from scout_ros2
   aubo_i5: AuboRobot aubo_i5 URDF and meshes adapted into a mobile-manipulator tree

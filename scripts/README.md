@@ -8,6 +8,7 @@ source scripts/env/arachne_env.sh
 ./scripts/hardware/real_full_teach.sh --yes
 ./scripts/vision/gemini_yolo_live.sh
 ./scripts/vision/grasp_preview.sh
+./scripts/vision/grasp_preview_real_sync.sh --sync-only
 ```
 
 | Directory | Purpose |

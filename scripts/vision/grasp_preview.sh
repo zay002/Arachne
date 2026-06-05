@@ -2,10 +2,21 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-set +u
-# shellcheck disable=SC1091
-source "${ROOT_DIR}/scripts/env/arachne_env.sh"
-set -u
+
+refresh_arachne_environment() {
+  export ARACHNE_ENV_NO_WORKSPACE=0
+  set +u
+  # shellcheck disable=SC1091
+  source "${ROOT_DIR}/scripts/env/arachne_env.sh"
+  if [[ -f "${ROOT_DIR}/install/setup.bash" ]]; then
+    # shellcheck disable=SC1091
+    source "${ROOT_DIR}/install/setup.bash"
+  fi
+  set -u
+  hash -r
+}
+
+refresh_arachne_environment
 
 MODEL="${ARACHNE_GRASP_YOLO_MODEL:-${ROOT_DIR}/yolo_workspace/weights/yolo26n.pt}"
 VENV="${ARACHNE_GRASP_YOLO_VENV:-${ROOT_DIR}/yolo_workspace/.venv}"
@@ -15,6 +26,8 @@ IMGSZ="${ARACHNE_GRASP_IMGSZ:-640}"
 DEVICE_ID="${ARACHNE_GRASP_DEVICE_ID:-0}"
 DISPLAY_FRAME_PREFIX="${ARACHNE_GRASP_DISPLAY_FRAME_PREFIX:-grasp_preview_}"
 GRIPPER_TYPE="${ARACHNE_GRASP_GRIPPER_TYPE:-ms42dc}"
+TOOL_ADAPTER_XYZ="${ARACHNE_GRASP_TOOL_ADAPTER_XYZ:-0.0 0.0 0.0}"
+TOOL_ADAPTER_RPY="${ARACHNE_GRASP_TOOL_ADAPTER_RPY:-0.0 0.0 0.785398163397}"
 START_MODEL="${ARACHNE_GRASP_START_MODEL:-true}"
 START_MOVEIT="${ARACHNE_GRASP_START_MOVEIT:-true}"
 START_CAMERA="${ARACHNE_GRASP_START_CAMERA:-true}"
@@ -22,6 +35,19 @@ WITH_RVIZ="${ARACHNE_GRASP_WITH_RVIZ:-true}"
 ARM_JOINTS_OVERRIDE="${ARACHNE_GRASP_ARM_JOINTS:-}"
 LOG_DIR="${ROOT_DIR}/log/grasp_preview/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "${LOG_DIR}"
+
+{
+  echo "timestamp: $(date --iso-8601=seconds)"
+  echo "root_dir: ${ROOT_DIR}"
+  echo "ros_distro: ${ROS_DISTRO:-unknown}"
+  echo "workspace_setup: ${ROOT_DIR}/install/setup.bash"
+  if command -v sha256sum >/dev/null 2>&1; then
+    echo "pipeline_sha256: $(sha256sum "${ROOT_DIR}/scripts/vision/grasp_preview_pipeline.py" | awk '{print $1}')"
+    echo "script_sha256: $(sha256sum "${BASH_SOURCE[0]}" | awk '{print $1}')"
+  fi
+  echo "python: ${ARACHNE_SYSTEM_PYTHON}"
+  echo "ament_prefix_path: ${AMENT_PREFIX_PATH:-}"
+} >"${LOG_DIR}/00_environment.txt"
 
 if [[ ! -x "${VENV}/bin/python" ]]; then
   "${ROOT_DIR}/scripts/vision/setup_yolo_env.sh"
@@ -41,14 +67,19 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cleanup_stale_preview_nodes() {
+  pkill -f "[r]os2 launch arachne_description display.launch.py .*display_frame_prefix:=grasp_preview_" >/dev/null 2>&1 || true
   pkill -f "[_]_node:=arachne_display_robot_state_publisher" >/dev/null 2>&1 || true
   pkill -f "[_]_node:=arachne_display_base_link_bridge" >/dev/null 2>&1 || true
+  pkill -f "[j]oint_state_publisher .*arachne_display\\.urdf" >/dev/null 2>&1 || true
+  pkill -f "[a]rachne_gripper/lib/arachne_gripper/joint_state_mux" >/dev/null 2>&1 || true
   pkill -f "[r]os2 launch arachne_sensors gemini335.launch.py" >/dev/null 2>&1 || true
   pkill -f "[g]emini335_v4l2_node" >/dev/null 2>&1 || true
   pkill -f "[_]_node:=gemini335_color_tf" >/dev/null 2>&1 || true
   pkill -f "[_]_node:=gemini335_depth_tf" >/dev/null 2>&1 || true
   pkill -f "[r]os2 launch arachne_moveit_config moveit_planning.launch.py" >/dev/null 2>&1 || true
   pkill -f "[m]oveit_ros_move_group/move_group.*joint_states:=/arachne/display/joint_states" >/dev/null 2>&1 || true
+  pkill -f "[g]rasp_preview_pipeline.py" >/dev/null 2>&1 || true
+  pkill -f "[r]viz2 -d .*grasp_preview\\.rviz" >/dev/null 2>&1 || true
 }
 
 fail_if_camera_died() {
@@ -104,6 +135,8 @@ if [[ "${START_MODEL}" == "true" ]]; then
     with_gripper_gui:=false \
     with_gripper_sim:=false \
     "gripper_type:=${GRIPPER_TYPE}" \
+    "tool_adapter_xyz:=${TOOL_ADAPTER_XYZ}" \
+    "tool_adapter_rpy:=${TOOL_ADAPTER_RPY}" \
     use_gui:=false \
     "display_frame_prefix:=${DISPLAY_FRAME_PREFIX}" \
     "${ARM_ARGS[@]}" \
@@ -117,6 +150,8 @@ if [[ "${START_MOVEIT}" == "true" ]]; then
     launch_rviz:=false \
     with_robot_state_publisher:=false \
     "gripper_type:=${GRIPPER_TYPE}" \
+    "tool_adapter_xyz:=${TOOL_ADAPTER_XYZ}" \
+    "tool_adapter_rpy:=${TOOL_ADAPTER_RPY}" \
     joint_states_topic:=/arachne/display/joint_states \
     >"${LOG_DIR}/02_moveit.log" 2>&1 &
   PIDS+=("$!")
@@ -154,13 +189,19 @@ echo "RViz MarkerArray shows named task waypoints and a magenta playback cursor.
 echo "Restart search after PLAN_LOCKED:"
 echo "  ros2 topic pub --once /arachne/grasp_preview/restart_search std_msgs/msg/Empty '{}'"
 
-exec "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/vision/grasp_preview_pipeline.py" \
-  --model "${MODEL}" \
-  --venv "${VENV}" \
-  --classes "${CLASSES}" \
-  --conf "${CONF}" \
-  --imgsz "${IMGSZ}" \
-  --device-id "${DEVICE_ID}" \
-  --gripper-type "${GRIPPER_TYPE}" \
-  --aubo-base-frame "${DISPLAY_FRAME_PREFIX}aubo_base_link" \
-  "$@"
+run_pipeline() {
+  local device_id="$1"
+  shift
+  "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/vision/grasp_preview_pipeline.py" \
+    --model "${MODEL}" \
+    --venv "${VENV}" \
+    --classes "${CLASSES}" \
+    --conf "${CONF}" \
+    --imgsz "${IMGSZ}" \
+    --device-id "${device_id}" \
+    --gripper-type "${GRIPPER_TYPE}" \
+    --aubo-base-frame "${DISPLAY_FRAME_PREFIX}aubo_base_link" \
+    "$@"
+}
+
+run_pipeline "${DEVICE_ID}" "$@"

@@ -75,7 +75,7 @@ def generate_launch_description():
             DeclareLaunchArgument("arm_mount_xyz", default_value="0.22 0.0 0.155"),
             DeclareLaunchArgument("arm_mount_rpy", default_value="0.0 0.0 1.57079632679"),
             DeclareLaunchArgument("tool_adapter_xyz", default_value="0.0 0.0 0.0"),
-            DeclareLaunchArgument("tool_adapter_rpy", default_value="0.0 0.0 0.0"),
+            DeclareLaunchArgument("tool_adapter_rpy", default_value="0.0 0.0 0.785398163397"),
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
             DeclareLaunchArgument("with_lidar", default_value="true"),
             DeclareLaunchArgument("with_ee_camera", default_value="true"),

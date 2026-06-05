@@ -377,7 +377,7 @@ class Gemini335V4L2Node(Node):
         z = sampled[mask] * self.depth_scale
         u = uu[mask].astype(np.float32)
         v = vv[mask].astype(np.float32)
-        x = (u - cx) * z / fx
+        x = (cx - u) * z / fx
         y = (v - cy) * z / fy
         return zip(x.astype(float), y.astype(float), z.astype(float))
 

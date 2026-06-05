@@ -20,6 +20,12 @@ DEFAULT_VISUALIZATION_JOINTS = {
     "front_left_wheel": 0.0,
     "rear_left_wheel": 0.0,
     "rear_right_wheel": 0.0,
+    "aubo_shoulder_joint": -1.5707963267949,
+    "aubo_upperArm_joint": 0.201570428261868,
+    "aubo_foreArm_joint": 1.65970467002488,
+    "aubo_wrist1_joint": 0.485178041391533,
+    "aubo_wrist2_joint": 1.67675136677345,
+    "aubo_wrist3_joint": 0.76432946885334,
     "ms42dc_left_finger_joint": 0.0,
 }
 
@@ -36,12 +42,15 @@ class TeachVisualizationJointStates(Node):
         self.publisher = self.create_publisher(JointState, output_topic, 10)
         self.create_subscription(JointState, input_topic, self._on_joint_state, 10)
         self.alias_notice_logged = False
+        self.last_input_time = 0.0
+        self.create_timer(0.2, self._publish_default_if_idle)
 
         self.get_logger().info(
             f"Teach visualization joint state adapter ready: {input_topic} -> {output_topic}"
         )
 
     def _on_joint_state(self, msg: JointState) -> None:
+        self.last_input_time = self.get_clock().now().nanoseconds * 1e-9
         out = JointState()
         out.header = msg.header
 
@@ -100,6 +109,16 @@ class TeachVisualizationJointStates(Node):
                 "Aubo joint names were adapted for the Arachne visualization URDF."
             )
             self.alias_notice_logged = True
+
+    def _publish_default_if_idle(self) -> None:
+        now = self.get_clock().now().nanoseconds * 1e-9
+        if self.last_input_time and now - self.last_input_time < 0.5:
+            return
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = list(DEFAULT_VISUALIZATION_JOINTS)
+        msg.position = [DEFAULT_VISUALIZATION_JOINTS[name] for name in msg.name]
+        self.publisher.publish(msg)
 
 
 def main(args: list[str] | None = None) -> None:

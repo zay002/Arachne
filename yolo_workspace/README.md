@@ -65,3 +65,9 @@ Preview a bottle detect-depth-grasp-to-basket path in RViz:
 ```bash
 ./scripts/vision/grasp_preview.sh
 ```
+
+Preview with the RViz model seeded from the real Aubo pose:
+
+```bash
+./scripts/vision/grasp_preview_real_sync.sh
+```

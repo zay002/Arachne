@@ -23,6 +23,8 @@ def generate_launch_description():
             "gripper_type": LaunchConfiguration("visualization_gripper_type"),
             "with_lidar": LaunchConfiguration("visualization_with_lidar"),
             "with_ee_camera": LaunchConfiguration("visualization_with_ee_camera"),
+            "tool_adapter_xyz": LaunchConfiguration("visualization_tool_adapter_xyz"),
+            "tool_adapter_rpy": LaunchConfiguration("visualization_tool_adapter_rpy"),
         }.items(),
         condition=IfCondition(LaunchConfiguration("with_visualization")),
     )
@@ -182,6 +184,12 @@ def generate_launch_description():
                 ),
                 "arm_home_joints_deg": LaunchConfiguration("arm_home_joints_deg"),
                 "arm_install_joints_deg": LaunchConfiguration("arm_install_joints_deg"),
+                "aubo_payload_mass_kg": ParameterValue(
+                    LaunchConfiguration("aubo_payload_mass_kg"), value_type=float
+                ),
+                "aubo_payload_cog": LaunchConfiguration("aubo_payload_cog"),
+                "aubo_payload_aom": LaunchConfiguration("aubo_payload_aom"),
+                "aubo_payload_inertia": LaunchConfiguration("aubo_payload_inertia"),
                 "arm_goal_tolerance": ParameterValue(
                     LaunchConfiguration("arm_goal_tolerance"), value_type=float
                 ),
@@ -204,6 +212,11 @@ def generate_launch_description():
             DeclareLaunchArgument("visualization_gripper_type", default_value="ms42dc"),
             DeclareLaunchArgument("visualization_with_lidar", default_value="true"),
             DeclareLaunchArgument("visualization_with_ee_camera", default_value="true"),
+            DeclareLaunchArgument("visualization_tool_adapter_xyz", default_value="0.0 0.0 0.0"),
+            DeclareLaunchArgument(
+                "visualization_tool_adapter_rpy",
+                default_value="0.0 0.0 0.785398163397",
+            ),
             DeclareLaunchArgument("with_camera", default_value="false"),
             DeclareLaunchArgument("camera_color_device", default_value="/dev/video6"),
             DeclareLaunchArgument("camera_depth_device", default_value="/dev/video0"),
@@ -285,12 +298,16 @@ def generate_launch_description():
             DeclareLaunchArgument("arm_keepout_joint_step_rad", default_value="0.06"),
             DeclareLaunchArgument(
                 "arm_home_joints_deg",
-                default_value="-88.28,3.40,116.60,103.48,88.33,-0.13",
+                default_value="-90.00,11.55,95.09,27.80,96.07,43.79",
             ),
             DeclareLaunchArgument(
                 "arm_install_joints_deg",
-                default_value="-88.28,3.40,116.60,103.48,88.33,-0.13",
+                default_value="-90.00,11.55,95.09,27.80,96.07,43.79",
             ),
+            DeclareLaunchArgument("aubo_payload_mass_kg", default_value="0.818"),
+            DeclareLaunchArgument("aubo_payload_cog", default_value="0.039927,0.045067,0.143233"),
+            DeclareLaunchArgument("aubo_payload_aom", default_value="0,0,0"),
+            DeclareLaunchArgument("aubo_payload_inertia", default_value="0,0,0,0,0,0"),
             DeclareLaunchArgument("arm_goal_tolerance", default_value="0.04"),
             DeclareLaunchArgument("aubo_teach_exit_wait_sec", default_value="8.0"),
             DeclareLaunchArgument("recording_dir", default_value="recordings/teach"),

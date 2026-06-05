@@ -12,12 +12,12 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 DISPLAY_ARM_ZEROS = {
-    "aubo_shoulder_joint": -1.540812002971895,
-    "aubo_upperArm_joint": 0.05936125323302253,
-    "aubo_foreArm_joint": 2.03497187013844,
-    "aubo_wrist1_joint": 1.971667189095664,
-    "aubo_wrist2_joint": 1.5414991500486643,
-    "aubo_wrist3_joint": -0.002369316860496634,
+    "aubo_shoulder_joint": -1.5707963267949,
+    "aubo_upperArm_joint": 0.201570428261868,
+    "aubo_foreArm_joint": 1.65970467002488,
+    "aubo_wrist1_joint": 0.485178041391533,
+    "aubo_wrist2_joint": 1.67675136677345,
+    "aubo_wrist3_joint": 0.76432946885334,
 }
 
 
@@ -233,7 +233,7 @@ def generate_launch_description():
             DeclareLaunchArgument("arm_mount_xyz", default_value="0.22 0.0 0.155"),
             DeclareLaunchArgument("arm_mount_rpy", default_value="0.0 0.0 1.57079632679"),
             DeclareLaunchArgument("tool_adapter_xyz", default_value="0.0 0.0 0.0"),
-            DeclareLaunchArgument("tool_adapter_rpy", default_value="0.0 0.0 0.0"),
+            DeclareLaunchArgument("tool_adapter_rpy", default_value="0.0 0.0 0.785398163397"),
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
             DeclareLaunchArgument("with_base_sim", default_value="true"),
             DeclareLaunchArgument("with_base_gui", default_value="false"),

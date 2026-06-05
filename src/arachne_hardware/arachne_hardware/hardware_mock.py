@@ -32,12 +32,12 @@ ARM_JOINT_ALIASES = {
 }
 
 HOME = {
-    "aubo_shoulder_joint": -1.5407387550371199,
-    "aubo_upperArm_joint": 0.05937252214606485,
-    "aubo_foreArm_joint": 2.0350620214427786,
-    "aubo_wrist1_joint": 1.9717090402766757,
-    "aubo_wrist2_joint": 1.5416031029821449,
-    "aubo_wrist3_joint": -0.002335565908067907,
+    "aubo_shoulder_joint": -1.5707963267949,
+    "aubo_upperArm_joint": 0.201570428261868,
+    "aubo_foreArm_joint": 1.65970467002488,
+    "aubo_wrist1_joint": 0.485178041391533,
+    "aubo_wrist2_joint": 1.67675136677345,
+    "aubo_wrist3_joint": 0.76432946885334,
 }
 
 

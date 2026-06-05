@@ -10,12 +10,12 @@
   </group>
 
   <group_state name="home" group="aubo_arm">
-    <joint name="aubo_shoulder_joint" value="-1.5407387550371199"/>
-    <joint name="aubo_upperArm_joint" value="0.05937252214606485"/>
-    <joint name="aubo_foreArm_joint" value="2.0350620214427786"/>
-    <joint name="aubo_wrist1_joint" value="1.9717090402766757"/>
-    <joint name="aubo_wrist2_joint" value="1.5416031029821449"/>
-    <joint name="aubo_wrist3_joint" value="-0.002335565908067907"/>
+    <joint name="aubo_shoulder_joint" value="-1.5707963267949"/>
+    <joint name="aubo_upperArm_joint" value="0.201570428261868"/>
+    <joint name="aubo_foreArm_joint" value="1.65970467002488"/>
+    <joint name="aubo_wrist1_joint" value="0.485178041391533"/>
+    <joint name="aubo_wrist2_joint" value="1.67675136677345"/>
+    <joint name="aubo_wrist3_joint" value="0.76432946885334"/>
   </group_state>
   <group_state name="ready" group="aubo_arm">
     <joint name="aubo_shoulder_joint" value="1.50"/>

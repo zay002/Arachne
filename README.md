@@ -73,6 +73,7 @@ source install/setup.bash
 | Godot 展示前端 | `./scripts/godot/godot_showcase.sh` |
 | Gemini335 YOLO 实时标注 | `./scripts/vision/gemini_yolo_live.sh` |
 | Bottle 抓取入篮路径预览 | `./scripts/vision/grasp_preview.sh` |
+| 真机姿态同步抓取预览 | `./scripts/vision/grasp_preview_real_sync.sh` |
 | 真机环境检查 | `./scripts/hardware/check_real_hardware_env.sh` |
 | 真机一键 bringup | `./scripts/hardware/real_bringup.sh` |
 | 真机示教演示 | `./scripts/hardware/real_teach_demo.sh` |
