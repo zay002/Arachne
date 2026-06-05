@@ -21,6 +21,7 @@ RPC_TIMEOUT="${ARACHNE_GRASP_REAL_RPC_TIMEOUT:-2.0}"
 CLEAN_STALE="${ARACHNE_GRASP_REAL_SYNC_CLEAN_STALE:-true}"
 ALLOW_POWERED_OFF_RPC_POSE="${ARACHNE_GRASP_ALLOW_POWERED_OFF_RPC_POSE:-false}"
 SYNC_ONLY=false
+EXECUTE_REAL=false
 PREVIEW_ARGS=()
 
 usage() {
@@ -28,11 +29,12 @@ usage() {
 Usage: ./scripts/vision/grasp_preview_real_sync.sh [options] [-- grasp_preview_args...]
 
 Synchronize the RViz grasp preview model from the real Aubo pose, then start
-scripts/vision/grasp_preview.sh. This script reads robot state only; it does
-not command the arm, base, or gripper.
+scripts/vision/grasp_preview.sh. By default this script reads robot state only;
+--execute-real additionally arms the guarded real arm/gripper execution path.
 
 Options:
   --sync-only       Print the synchronized pose and exit.
+  --execute-real    Send the planned grasp trajectory to the real arm after planning.
   --no-clean        Do not clean stale preview-only display nodes first.
   -h, --help        Show this help.
 
@@ -43,10 +45,12 @@ Environment:
   ARACHNE_GRASP_REAL_SYNC_TIMEOUT=3.0
   ARACHNE_GRASP_REAL_RPC_TIMEOUT=2.0
   ARACHNE_GRASP_ALLOW_POWERED_OFF_RPC_POSE=false
+  ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES  # required with --execute-real
 
 Examples:
   ./scripts/vision/grasp_preview_real_sync.sh --sync-only
   ./scripts/vision/grasp_preview_real_sync.sh
+  ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real
   ./scripts/vision/grasp_preview_real_sync.sh -- --moveit-planning-time 3.0
 EOF
 }
@@ -55,6 +59,9 @@ while (($#)); do
   case "$1" in
     --sync-only)
       SYNC_ONLY=true
+      ;;
+    --execute-real)
+      EXECUTE_REAL=true
       ;;
     --no-clean)
       CLEAN_STALE=false
@@ -323,5 +330,8 @@ if [[ "${SYNC_ONLY}" == "true" ]]; then
   exit 0
 fi
 
+if [[ "${EXECUTE_REAL}" == "true" ]]; then
+  export ARACHNE_GRASP_EXECUTE_REAL=true
+fi
 export ARACHNE_GRASP_ARM_JOINTS="${JOINTS_CSV}"
 exec "${ROOT_DIR}/scripts/vision/grasp_preview.sh" "${PREVIEW_ARGS[@]}"

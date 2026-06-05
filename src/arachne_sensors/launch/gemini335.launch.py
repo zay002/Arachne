@@ -63,6 +63,12 @@ def generate_launch_description():
                 ),
                 "camera_fx": ParameterValue(LaunchConfiguration("camera_fx"), value_type=float),
                 "camera_fy": ParameterValue(LaunchConfiguration("camera_fy"), value_type=float),
+                "projection_flip_x": ParameterValue(
+                    LaunchConfiguration("projection_flip_x"), value_type=bool
+                ),
+                "projection_flip_y": ParameterValue(
+                    LaunchConfiguration("projection_flip_y"), value_type=bool
+                ),
             }
         ],
     )
@@ -162,6 +168,8 @@ def generate_launch_description():
             DeclareLaunchArgument("pointcloud_rate", default_value="5.0"),
             DeclareLaunchArgument("camera_fx", default_value="0.0"),
             DeclareLaunchArgument("camera_fy", default_value="0.0"),
+            DeclareLaunchArgument("projection_flip_x", default_value="true"),
+            DeclareLaunchArgument("projection_flip_y", default_value="true"),
             DeclareLaunchArgument("camera_parent_frame", default_value="ee_camera_link"),
             DeclareLaunchArgument("camera_optical_x", default_value="0.0201"),
             DeclareLaunchArgument("camera_optical_y", default_value="0.0"),

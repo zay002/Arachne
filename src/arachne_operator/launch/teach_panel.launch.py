@@ -42,6 +42,8 @@ def generate_launch_description():
             "with_depth_view": LaunchConfiguration("camera_with_depth_view"),
             "publish_pointcloud": LaunchConfiguration("camera_publish_pointcloud"),
             "camera_parent_frame": LaunchConfiguration("camera_parent_frame"),
+            "projection_flip_x": LaunchConfiguration("camera_projection_flip_x"),
+            "projection_flip_y": LaunchConfiguration("camera_projection_flip_y"),
         }.items(),
         condition=IfCondition(LaunchConfiguration("with_camera")),
     )
@@ -224,6 +226,8 @@ def generate_launch_description():
             DeclareLaunchArgument("camera_with_depth_view", default_value="false"),
             DeclareLaunchArgument("camera_publish_pointcloud", default_value="false"),
             DeclareLaunchArgument("camera_parent_frame", default_value="ee_camera_link"),
+            DeclareLaunchArgument("camera_projection_flip_x", default_value="true"),
+            DeclareLaunchArgument("camera_projection_flip_y", default_value="true"),
             DeclareLaunchArgument(
                 "arm_follow_joint_trajectory_action",
                 default_value="/joint_trajectory_controller/follow_joint_trajectory",

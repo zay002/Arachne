@@ -186,6 +186,15 @@ source scripts/env/arachne_env.sh
 
 这个 wrapper 会先清理旧的预览 display 节点，优先从真实 `/joint_states` 读取 Aubo 6 轴；如果 ROS driver 还没发布关节状态，则尝试通过 Aubo `30004` JSON-RPC 只读接口读取 `RobotState.getJointPositions`。读取成功后会把结果作为 `ARACHNE_GRASP_ARM_JOINTS` 传给 `grasp_preview.sh`，只同步 RViz/MoveIt 预览模型，不会向真机发送运动命令。
 
+确认真机工作空间清空、急停可触达、Aubo driver 和夹具驱动已启动后，才允许让同一套预览规划自动下发到真机：
+
+```bash
+ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES \
+  ./scripts/vision/grasp_preview_real_sync.sh --execute-real
+```
+
+真机执行仍会先同步真实 6 轴姿态，再规划。轨迹下发前会检查真实 `/joint_states` 与规划第一帧是否接近；partial 轨迹默认拒绝执行。机械臂走 `/joint_trajectory_controller/follow_joint_trajectory`，夹具命令走 `/arachne/gripper/command`。普通 `grasp_preview.sh` 和不带 `--execute-real` 的 `grasp_preview_real_sync.sh` 仍然只做 RViz 预览。
+
 这个脚本会默认启动：
 
 - Arachne 模型 TF，不控制真机。
@@ -293,6 +302,7 @@ RViz 中会同时显示：
 - `/arachne/grasp_preview/markers` 里的 `task_waypoints`：上述关键点和文字标签。
 - `/arachne/grasp_preview/markers` 里的 `path_playback`：洋红色播放游标，会按已生成的受限关节轨迹进度移动，表示执行顺序；默认播放到末端后保持，不自动回初始位。
 - RViz 的 RobotModel：机械臂会按默认 80 Hz 播放 MoveIt 返回并重新限速后的 joint trajectory frame。每帧包含关节位置、速度和加速度，位置/速度发布到 `/arachne/grasp_preview/joint_states`；默认播放一次并保持末端姿态，经过模型用的 joint_state_mux 进入 RViz，不控制真机。
+- 真机执行模式：只有显式设置 `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES` 并使用 `--execute-real` 时才会下发轨迹；执行前会拒绝起始关节误差过大的轨迹。
 
 Grasp preview 的模型可视化使用专用 `/arachne/display/joint_states` 和 `/arachne/display/robot_description`，并把预览机器人 link/TF frame 加上 `grasp_preview_` 前缀；全局 `base_link` 只通过一条静态 TF 接到 `grasp_preview_base_link`。这样全局 `/joint_states`、真机/mock 的 `robot_state_publisher`、以及预览 RobotModel 使用的 TF 树彼此隔离。启动脚本会清理旧的预览专用 display RSP/static bridge，避免残留预览 TF 与新预览 TF 冲突。
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 import threading
 import time
@@ -14,10 +15,12 @@ from typing import Iterable
 import cv2
 import numpy as np
 import rclpy
+from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
 from moveit_msgs.msg import Constraints, JointConstraint, OrientationConstraint, PositionConstraint
 from moveit_msgs.srv import GetMotionPlan
 from nav_msgs.msg import Path as PathMsg
+from rclpy.action import ActionClient
 from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
@@ -26,7 +29,8 @@ from sensor_msgs.msg import CameraInfo, Image, PointCloud2
 from sensor_msgs.msg import JointState
 from sensor_msgs_py import point_cloud2
 from shape_msgs.msg import SolidPrimitive
-from std_msgs.msg import ColorRGBA, Empty, Header
+from std_msgs.msg import ColorRGBA, Empty, Header, String
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -40,6 +44,14 @@ except ModuleNotFoundError:
 END_EFFECTOR_FRAME = "grasp_frame"
 PATH_PLAYBACK_PERIOD = 8.0
 ARM_JOINT_NAMES = tuple(joint.name for joint in AuboI5Kinematics.JOINTS)
+REAL_ARM_JOINT_NAMES = (
+    "shoulder_joint",
+    "upperArm_joint",
+    "foreArm_joint",
+    "wrist1_joint",
+    "wrist2_joint",
+    "wrist3_joint",
+)
 BASE_JOINT_DEFAULTS = (
     ("front_left_wheel", 0.0),
     ("rear_left_wheel", 0.0),
@@ -207,6 +219,32 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--depth-band", type=float, default=0.08, help=hidden)
     parser.add_argument("--roi-shrink", type=float, default=0.65, help=hidden)
     parser.add_argument("--roi-decimation", type=int, default=3, help=hidden)
+    parser.add_argument(
+        "--depth-projection-flip-x",
+        dest="depth_projection_flip_x",
+        action="store_true",
+        default=True,
+        help=hidden,
+    )
+    parser.add_argument(
+        "--no-depth-projection-flip-x",
+        dest="depth_projection_flip_x",
+        action="store_false",
+        help=hidden,
+    )
+    parser.add_argument(
+        "--depth-projection-flip-y",
+        dest="depth_projection_flip_y",
+        action="store_true",
+        default=True,
+        help=hidden,
+    )
+    parser.add_argument(
+        "--no-depth-projection-flip-y",
+        dest="depth_projection_flip_y",
+        action="store_false",
+        help=hidden,
+    )
     parser.add_argument("--approach-distance", type=float, default=0.18, help=hidden)
     parser.add_argument("--grasp-standoff", type=float, default=0.035, help=hidden)
     parser.add_argument("--grasp-tcp-offset-m", type=float, default=0.12, help=hidden)
@@ -262,6 +300,43 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--gripper-close-progress-end", type=float, default=0.42, help=hidden)
     parser.add_argument("--gripper-open-progress-start", type=float, default=0.84, help=hidden)
     parser.add_argument("--gripper-open-progress-end", type=float, default=0.94, help=hidden)
+    parser.add_argument("--execute-real", action="store_true", help=hidden)
+    parser.add_argument(
+        "--execute-real-confirm",
+        default=os.environ.get("ARACHNE_CONFIRM_GRASP_EXECUTE_REAL", ""),
+        help=hidden,
+    )
+    parser.add_argument(
+        "--real-follow-action",
+        default="/joint_trajectory_controller/follow_joint_trajectory",
+        help=hidden,
+    )
+    parser.add_argument("--real-joint-states-topic", default="/joint_states", help=hidden)
+    parser.add_argument(
+        "--real-arm-joint-names",
+        default=",".join(REAL_ARM_JOINT_NAMES),
+        help=hidden,
+    )
+    parser.add_argument("--real-start-tolerance-rad", type=float, default=0.08, help=hidden)
+    parser.add_argument("--real-start-state-timeout", type=float, default=3.0, help=hidden)
+    parser.add_argument("--real-goal-time-margin", type=float, default=2.0, help=hidden)
+    parser.add_argument("--real-action-timeout-padding", type=float, default=8.0, help=hidden)
+    parser.add_argument("--real-trajectory-point-stride", type=int, default=4, help=hidden)
+    parser.add_argument("--real-allow-partial", action="store_true", help=hidden)
+    parser.add_argument(
+        "--real-execute-gripper",
+        action="store_true",
+        default=True,
+        help=hidden,
+    )
+    parser.add_argument(
+        "--no-real-execute-gripper",
+        dest="real_execute_gripper",
+        action="store_false",
+        help=hidden,
+    )
+    parser.add_argument("--real-gripper-command-topic", default="/arachne/gripper/command", help=hidden)
+    parser.add_argument("--real-gripper-settle-sec", type=float, default=0.35, help=hidden)
     parser.add_argument("--tool-orientation-limit-deg", type=float, default=30.0, help=hidden)
     parser.add_argument("--moveit-use-orientation-path-constraint", action="store_true", help=hidden)
     parser.add_argument("--moveit-max-tool0-reach", type=float, default=1.03, help=hidden)
@@ -409,6 +484,10 @@ class GraspPreviewNode(Node):
         self.depth_info: CameraInfo | None = None
         self.current_arm_joints = np.asarray(DEFAULT_ARM_JOINTS, dtype=float)
         self.current_joint_positions: dict[str, float] = {}
+        self.real_joint_positions: dict[str, float] = {}
+        self.real_joint_state_time = 0.0
+        self.real_execution_started = False
+        self.real_execution_lock = threading.Lock()
         self.preview_ik_joints = np.asarray(DEFAULT_ARM_JOINTS, dtype=float)
         self.preview_ik_velocity = np.zeros(6, dtype=float)
         self.preview_ik_accel = np.zeros(6, dtype=float)
@@ -446,9 +525,26 @@ class GraspPreviewNode(Node):
         self.create_subscription(CameraInfo, args.depth_info_topic, self._depth_info_cb, 10)
         self.create_subscription(Empty, args.restart_search_topic, self._restart_search_cb, 10)
         self.create_subscription(JointState, args.joint_states_topic, self._joint_state_cb, 10)
+        if bool(args.execute_real):
+            self.create_subscription(
+                JointState,
+                args.real_joint_states_topic,
+                self._real_joint_state_cb,
+                qos_profile_sensor_data,
+            )
         self.moveit_plan_client = (
             self.create_client(GetMotionPlan, str(args.moveit_plan_service))
             if str(args.planner_backend) == "moveit"
+            else None
+        )
+        self.real_arm_action_client = (
+            ActionClient(self, FollowJointTrajectory, str(args.real_follow_action))
+            if bool(args.execute_real)
+            else None
+        )
+        self.real_gripper_pub = (
+            self.create_publisher(String, str(args.real_gripper_command_topic), 10)
+            if bool(args.execute_real)
             else None
         )
 
@@ -475,6 +571,10 @@ class GraspPreviewNode(Node):
             "roi_cloud=/arachne/grasp_preview/roi_cloud "
             f"restart_topic={args.restart_search_topic}"
         )
+        if bool(args.execute_real):
+            self.get_logger().warn(
+                "real execution armed; trajectory will be sent only after confirmation and start-state checks"
+            )
 
     def _clamp_basket_points_above_keepout(self) -> None:
         top = (
@@ -541,6 +641,12 @@ class GraspPreviewNode(Node):
         if len(values) == 6:
             self.current_arm_joints = np.asarray(values, dtype=float)
 
+    def _real_joint_state_cb(self, msg: JointState) -> None:
+        for index, name in enumerate(msg.name):
+            if index < len(msg.position):
+                self.real_joint_positions[name] = float(msg.position[index])
+        self.real_joint_state_time = time.monotonic()
+
     def _moveit_start_state_joint_values(self, q_start: np.ndarray) -> tuple[list[str], list[float]]:
         joint_values: dict[str, float] = {
             name: float(value) for name, value in zip(ARM_JOINT_NAMES, q_start)
@@ -598,6 +704,8 @@ class GraspPreviewNode(Node):
         self.depth_wait_header = None
         self.depth_wait_last_publish = 0.0
         self.planning_generation += 1
+        with self.real_execution_lock:
+            self.real_execution_started = False
         self._reset_preview_stream("waiting for plan")
         self.snapshot_detection = None
         self.snapshot_header = None
@@ -874,11 +982,13 @@ class GraspPreviewNode(Node):
                 f"duration={arm_frames[-1].time_from_start:.2f}s "
                 f"planning_wall={elapsed:.2f}s {ik_message}"
             )
+            self._maybe_execute_real_trajectory(planned)
         elif arm_frames:
             self.get_logger().warn(
                 f"arm trajectory partial after {elapsed:.2f}s: frames={len(arm_frames)} "
                 f"duration={arm_frames[-1].time_from_start:.2f}s {ik_message}"
             )
+            self._maybe_execute_real_trajectory(planned)
         else:
             self.get_logger().warn(f"arm trajectory unavailable after {elapsed:.2f}s: {ik_message}")
 
@@ -889,6 +999,185 @@ class GraspPreviewNode(Node):
             thread = self.planning_thread
         if thread is not None and thread.is_alive():
             thread.join(timeout=0.3)
+
+    def _maybe_execute_real_trajectory(self, preview: GraspPreview) -> None:
+        if not bool(self.args.execute_real):
+            return
+        with self.real_execution_lock:
+            if self.real_execution_started:
+                return
+            self.real_execution_started = True
+
+        try:
+            self._execute_real_trajectory(preview)
+        except Exception as exc:
+            self.get_logger().error(f"real execution blocked: {exc}")
+
+    def _execute_real_trajectory(self, preview: GraspPreview) -> None:
+        if self.real_arm_action_client is None:
+            raise RuntimeError("real FollowJointTrajectory action client is not configured")
+        if not preview.arm_trajectory_frames:
+            raise RuntimeError("planned trajectory is empty")
+        if "partial" in preview.ik_message and not bool(self.args.real_allow_partial):
+            raise RuntimeError(f"refusing partial trajectory: {preview.ik_message}")
+        if str(self.args.execute_real_confirm).strip().upper() != "YES":
+            raise RuntimeError(
+                "set ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES or pass --execute-real-confirm YES"
+            )
+        if not self._real_start_state_matches(preview.arm_trajectory_frames[0]):
+            return
+        action_name = str(self.args.real_follow_action)
+        if not self.real_arm_action_client.wait_for_server(timeout_sec=2.0):
+            raise TimeoutError(f"real arm action server unavailable: {action_name}")
+
+        trajectory = self._real_joint_trajectory_msg(preview.arm_trajectory_frames)
+        duration = float(preview.arm_trajectory_frames[-1].time_from_start)
+        self.get_logger().warn(
+            f"sending REAL arm trajectory: points={len(trajectory.points)} "
+            f"duration={duration:.2f}s action={action_name}"
+        )
+        if bool(self.args.real_execute_gripper):
+            self._publish_real_gripper("open")
+            settle = max(float(self.args.real_gripper_settle_sec), 0.0)
+            if settle > 0.0:
+                time.sleep(settle)
+
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory = trajectory
+        margin = max(float(self.args.real_goal_time_margin), 0.0)
+        goal.goal_time_tolerance.sec = int(margin)
+        goal.goal_time_tolerance.nanosec = int((margin % 1.0) * 1e9)
+
+        goal_future = self.real_arm_action_client.send_goal_async(goal)
+        if not self._wait_future(goal_future, 3.0):
+            raise TimeoutError("real arm action goal response timed out")
+        goal_handle = goal_future.result()
+        if goal_handle is None or not goal_handle.accepted:
+            raise RuntimeError("real arm action goal rejected")
+
+        result_future = goal_handle.get_result_async()
+        start = time.monotonic()
+        closed = False
+        opened = False
+        timeout = duration + max(float(self.args.real_action_timeout_padding), 0.0)
+        while rclpy.ok() and not self.stopping and not result_future.done():
+            elapsed = time.monotonic() - start
+            progress = min(max(elapsed / max(duration, 1e-6), 0.0), 1.0)
+            if bool(self.args.real_execute_gripper) and not closed:
+                if progress >= min(max(float(self.args.gripper_close_progress_start), 0.0), 1.0):
+                    self._publish_real_gripper("close")
+                    closed = True
+            if bool(self.args.real_execute_gripper) and not opened:
+                if progress >= min(max(float(self.args.gripper_open_progress_start), 0.0), 1.0):
+                    self._publish_real_gripper("open")
+                    opened = True
+            if elapsed > timeout:
+                cancel_future = goal_handle.cancel_goal_async()
+                self._wait_future(cancel_future, 1.0)
+                raise TimeoutError(f"real arm action result timed out after {elapsed:.2f}s")
+            time.sleep(0.02)
+
+        if self.stopping or not rclpy.ok():
+            return
+        result_response = result_future.result()
+        result = result_response.result if result_response is not None else None
+        if result is None:
+            raise RuntimeError("real arm action returned empty result")
+        if result.error_code != FollowJointTrajectory.Result.SUCCESSFUL:
+            raise RuntimeError(
+                f"real arm action failed: code={result.error_code} {result.error_string}"
+            )
+        self.get_logger().warn("REAL arm trajectory complete")
+
+    def _wait_future(self, future, timeout_sec: float) -> bool:
+        deadline = time.monotonic() + max(float(timeout_sec), 0.0)
+        while rclpy.ok() and not self.stopping and not future.done() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return bool(future.done())
+
+    def _real_arm_joint_names(self) -> list[str]:
+        names = [
+            token.strip()
+            for token in str(self.args.real_arm_joint_names).replace(";", ",").split(",")
+            if token.strip()
+        ]
+        if len(names) != 6:
+            raise ValueError("--real-arm-joint-names must contain 6 joint names")
+        return names
+
+    def _real_joint_value(self, name: str) -> float | None:
+        if name in self.real_joint_positions:
+            return float(self.real_joint_positions[name])
+        alias = f"aubo_{name}" if not name.startswith("aubo_") else name.removeprefix("aubo_")
+        if alias in self.real_joint_positions:
+            return float(self.real_joint_positions[alias])
+        return None
+
+    def _real_start_state_matches(self, frame: JointTrajectoryFrame) -> bool:
+        names = self._real_arm_joint_names()
+        timeout = max(float(self.args.real_start_state_timeout), 0.0)
+        deadline = time.monotonic() + timeout
+        values: list[float | None] = []
+        while rclpy.ok() and not self.stopping and time.monotonic() <= deadline:
+            values = [self._real_joint_value(name) for name in names]
+            if all(value is not None for value in values):
+                break
+            time.sleep(0.05)
+        if not values or any(value is None for value in values):
+            missing = (
+                [name for name, value in zip(names, values) if value is None]
+                if values
+                else list(names)
+            )
+            self.get_logger().error(
+                "real execution blocked: missing real joint states "
+                f"on {self.args.real_joint_states_topic}: {missing}"
+            )
+            return False
+        planned = np.asarray(frame.positions, dtype=float)
+        actual = np.asarray([float(value) for value in values], dtype=float)
+        deltas = np.abs([self._wrap_angle(float(p - a)) for p, a in zip(planned, actual)])
+        max_delta = float(np.max(deltas))
+        tolerance = max(float(self.args.real_start_tolerance_rad), 0.0)
+        if max_delta > tolerance:
+            detail = ", ".join(
+                f"{name}={delta:.3f}" for name, delta in zip(names, deltas)
+            )
+            self.get_logger().error(
+                "real execution blocked: real arm is not at planned start "
+                f"max_delta={max_delta:.3f}rad tolerance={tolerance:.3f}rad deltas=[{detail}]"
+            )
+            return False
+        return True
+
+    def _real_joint_trajectory_msg(
+        self, frames: list[JointTrajectoryFrame]
+    ) -> JointTrajectory:
+        stride = max(int(self.args.real_trajectory_point_stride), 1)
+        selected = list(frames[::stride])
+        if selected[-1] is not frames[-1]:
+            selected.append(frames[-1])
+
+        trajectory = JointTrajectory()
+        trajectory.header.stamp = self.get_clock().now().to_msg()
+        trajectory.joint_names = self._real_arm_joint_names()
+        for frame in selected:
+            point = JointTrajectoryPoint()
+            point.positions = [float(value) for value in frame.positions]
+            point.velocities = [float(value) for value in frame.velocities]
+            point.accelerations = [float(value) for value in frame.accelerations]
+            point.time_from_start.sec = int(frame.time_from_start)
+            point.time_from_start.nanosec = int((frame.time_from_start % 1.0) * 1e9)
+            trajectory.points.append(point)
+        return trajectory
+
+    def _publish_real_gripper(self, command: str) -> None:
+        if self.real_gripper_pub is None:
+            return
+        msg = String()
+        msg.data = command
+        self.real_gripper_pub.publish(msg)
+        self.get_logger().warn(f"REAL gripper command: {command}")
 
     def _draw_locked_detection(self, image: np.ndarray, preview: GraspPreview) -> None:
         self._draw_detection_overlay(image, preview.detection, "LOCKED")
@@ -1077,8 +1366,10 @@ class GraspPreviewNode(Node):
         fy = float(info.k[4]) if info.k[4] else fx
         cx = float(info.k[2]) if info.k[2] else (float(info.width) - 1.0) * 0.5
         cy = float(info.k[5]) if info.k[5] else (float(info.height) - 1.0) * 0.5
-        x = (cx - float(u)) * float(z) / fx
-        y = (float(v) - cy) * float(z) / fy
+        pixel_x = cx - float(u) if bool(self.args.depth_projection_flip_x) else float(u) - cx
+        pixel_y = cy - float(v) if bool(self.args.depth_projection_flip_y) else float(v) - cy
+        x = pixel_x * float(z) / fx
+        y = pixel_y * float(z) / fy
         return (float(x), float(y), float(z))
 
     def _publish_preview(self, preview: GraspPreview, source_header: Header) -> None:
@@ -2790,6 +3081,10 @@ class GraspPreviewNode(Node):
                 preview.lift_xyz,
                 preview.retreat_xyz,
             ],
+            "depth_projection": {
+                "flip_x": bool(self.args.depth_projection_flip_x),
+                "flip_y": bool(self.args.depth_projection_flip_y),
+            },
             "planned_grasp_path_base_xyz": preview.base_path_xyz,
             "planned_grasp_path_source": (
                 "fk_from_arm_trajectory_frames" if preview.arm_trajectory_frames else "pending"
@@ -2859,6 +3154,19 @@ class GraspPreviewNode(Node):
                     float(self.args.gripper_open_progress_start),
                     float(self.args.gripper_open_progress_end),
                 ],
+            },
+            "real_execution": {
+                "enabled": bool(self.args.execute_real),
+                "confirmed": str(self.args.execute_real_confirm).strip().upper() == "YES",
+                "action": str(self.args.real_follow_action),
+                "joint_states_topic": str(self.args.real_joint_states_topic),
+                "arm_joint_names": self._real_arm_joint_names()
+                if bool(self.args.execute_real)
+                else list(REAL_ARM_JOINT_NAMES),
+                "allow_partial": bool(self.args.real_allow_partial),
+                "trajectory_point_stride": max(int(self.args.real_trajectory_point_stride), 1),
+                "execute_gripper": bool(self.args.real_execute_gripper),
+                "gripper_command_topic": str(self.args.real_gripper_command_topic),
             },
             "arm_trajectory_frame_count": len(preview.arm_trajectory_frames),
             "arm_trajectory_joint_angle_convention": "continuous_unwrapped",

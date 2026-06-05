@@ -94,6 +94,8 @@ class Gemini335V4L2Node(Node):
         self.declare_parameter("pointcloud_rate", 5.0)
         self.declare_parameter("camera_fx", 0.0)
         self.declare_parameter("camera_fy", 0.0)
+        self.declare_parameter("projection_flip_x", True)
+        self.declare_parameter("projection_flip_y", True)
 
         self.publish_color = _bool_param(self.get_parameter("publish_color").value)
         self.publish_depth = _bool_param(self.get_parameter("publish_depth").value)
@@ -120,6 +122,8 @@ class Gemini335V4L2Node(Node):
         self.pointcloud_period = 1.0 / max(float(self.get_parameter("pointcloud_rate").value), 0.1)
         self.camera_fx = float(self.get_parameter("camera_fx").value)
         self.camera_fy = float(self.get_parameter("camera_fy").value)
+        self.projection_flip_x = _bool_param(self.get_parameter("projection_flip_x").value)
+        self.projection_flip_y = _bool_param(self.get_parameter("projection_flip_y").value)
 
         self.color_info = _camera_info(
             self.color_width, self.color_height, self.color_frame_id, self.camera_fx, self.camera_fy
@@ -377,8 +381,10 @@ class Gemini335V4L2Node(Node):
         z = sampled[mask] * self.depth_scale
         u = uu[mask].astype(np.float32)
         v = vv[mask].astype(np.float32)
-        x = (cx - u) * z / fx
-        y = (v - cy) * z / fy
+        pixel_x = cx - u if self.projection_flip_x else u - cx
+        pixel_y = cy - v if self.projection_flip_y else v - cy
+        x = pixel_x * z / fx
+        y = pixel_y * z / fy
         return zip(x.astype(float), y.astype(float), z.astype(float))
 
 

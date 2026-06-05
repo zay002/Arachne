@@ -16,6 +16,8 @@ TEACH_WITH_CAMERA="${ARACHNE_TEACH_WITH_CAMERA:-true}"
 TEACH_CAMERA_COLOR_VIEW="${ARACHNE_TEACH_CAMERA_COLOR_VIEW:-true}"
 TEACH_CAMERA_DEPTH_VIEW="${ARACHNE_TEACH_CAMERA_DEPTH_VIEW:-false}"
 TEACH_CAMERA_POINTCLOUD="${ARACHNE_TEACH_CAMERA_POINTCLOUD:-false}"
+TEACH_CAMERA_PROJECTION_FLIP_X="${ARACHNE_TEACH_CAMERA_PROJECTION_FLIP_X:-true}"
+TEACH_CAMERA_PROJECTION_FLIP_Y="${ARACHNE_TEACH_CAMERA_PROJECTION_FLIP_Y:-true}"
 AUBO_ARM_VELOCITY_COMMAND_TOPIC="${ARACHNE_AUBO_ARM_VELOCITY_COMMAND_TOPIC:-/arachne/aubo/joint_velocity_command}"
 RUN_ENV_CHECK=true
 KEEP_RUNNING=false
@@ -56,6 +58,8 @@ Environment:
   ARACHNE_TEACH_CAMERA_COLOR_VIEW=${TEACH_CAMERA_COLOR_VIEW}
   ARACHNE_TEACH_CAMERA_DEPTH_VIEW=${TEACH_CAMERA_DEPTH_VIEW}
   ARACHNE_TEACH_CAMERA_POINTCLOUD=${TEACH_CAMERA_POINTCLOUD}
+  ARACHNE_TEACH_CAMERA_PROJECTION_FLIP_X=${TEACH_CAMERA_PROJECTION_FLIP_X}
+  ARACHNE_TEACH_CAMERA_PROJECTION_FLIP_Y=${TEACH_CAMERA_PROJECTION_FLIP_Y}
   ARACHNE_AUBO_ARM_VELOCITY_COMMAND_TOPIC=${AUBO_ARM_VELOCITY_COMMAND_TOPIC}
 
 Examples:
@@ -266,7 +270,7 @@ echo "Arachne full real teach startup"
 echo "  workspace: ${ROOT_DIR}"
 echo "  Aubo IP/model: ${AUBO_ROBOT_IP} / ${AUBO_TYPE}"
 echo "  Aubo payload: mass=${AUBO_PAYLOAD_MASS}kg cog=${AUBO_PAYLOAD_COG}"
-echo "  camera: enabled=${TEACH_WITH_CAMERA} color_view=${TEACH_CAMERA_COLOR_VIEW} depth_view=${TEACH_CAMERA_DEPTH_VIEW} pointcloud=${TEACH_CAMERA_POINTCLOUD}"
+echo "  camera: enabled=${TEACH_WITH_CAMERA} color_view=${TEACH_CAMERA_COLOR_VIEW} depth_view=${TEACH_CAMERA_DEPTH_VIEW} pointcloud=${TEACH_CAMERA_POINTCLOUD} projection_flip_x=${TEACH_CAMERA_PROJECTION_FLIP_X} projection_flip_y=${TEACH_CAMERA_PROJECTION_FLIP_Y}"
 echo "  recording dir: ${RECORDING_DIR}"
 echo "  logs: ${LOG_DIR}"
 
@@ -331,6 +335,8 @@ if [[ "${has_recording_dir}" == "true" ]]; then
       camera_with_color_view:="${TEACH_CAMERA_COLOR_VIEW}" \
       camera_with_depth_view:="${TEACH_CAMERA_DEPTH_VIEW}" \
       camera_publish_pointcloud:="${TEACH_CAMERA_POINTCLOUD}" \
+      camera_projection_flip_x:="${TEACH_CAMERA_PROJECTION_FLIP_X}" \
+      camera_projection_flip_y:="${TEACH_CAMERA_PROJECTION_FLIP_Y}" \
       arm_velocity_command_topic:="${AUBO_ARM_VELOCITY_COMMAND_TOPIC}" \
       "${PANEL_ARGS[@]}"
 else
@@ -341,6 +347,8 @@ else
       camera_with_color_view:="${TEACH_CAMERA_COLOR_VIEW}" \
       camera_with_depth_view:="${TEACH_CAMERA_DEPTH_VIEW}" \
       camera_publish_pointcloud:="${TEACH_CAMERA_POINTCLOUD}" \
+      camera_projection_flip_x:="${TEACH_CAMERA_PROJECTION_FLIP_X}" \
+      camera_projection_flip_y:="${TEACH_CAMERA_PROJECTION_FLIP_Y}" \
       arm_velocity_command_topic:="${AUBO_ARM_VELOCITY_COMMAND_TOPIC}" \
       recording_dir:="${RECORDING_DIR}" "${PANEL_ARGS[@]}"
 fi

@@ -28,6 +28,10 @@ DISPLAY_FRAME_PREFIX="${ARACHNE_GRASP_DISPLAY_FRAME_PREFIX:-grasp_preview_}"
 GRIPPER_TYPE="${ARACHNE_GRASP_GRIPPER_TYPE:-ms42dc}"
 TOOL_ADAPTER_XYZ="${ARACHNE_GRASP_TOOL_ADAPTER_XYZ:-0.0 0.0 0.0}"
 TOOL_ADAPTER_RPY="${ARACHNE_GRASP_TOOL_ADAPTER_RPY:-0.0 0.0 0.785398163397}"
+DEPTH_PROJECTION_FLIP_X="${ARACHNE_GRASP_DEPTH_PROJECTION_FLIP_X:-true}"
+DEPTH_PROJECTION_FLIP_Y="${ARACHNE_GRASP_DEPTH_PROJECTION_FLIP_Y:-true}"
+EXECUTE_REAL="${ARACHNE_GRASP_EXECUTE_REAL:-false}"
+EXECUTE_REAL_CONFIRM="${ARACHNE_CONFIRM_GRASP_EXECUTE_REAL:-}"
 START_MODEL="${ARACHNE_GRASP_START_MODEL:-true}"
 START_MOVEIT="${ARACHNE_GRASP_START_MOVEIT:-true}"
 START_CAMERA="${ARACHNE_GRASP_START_CAMERA:-true}"
@@ -47,7 +51,23 @@ mkdir -p "${LOG_DIR}"
   fi
   echo "python: ${ARACHNE_SYSTEM_PYTHON}"
   echo "ament_prefix_path: ${AMENT_PREFIX_PATH:-}"
+  echo "depth_projection_flip_x: ${DEPTH_PROJECTION_FLIP_X}"
+  echo "depth_projection_flip_y: ${DEPTH_PROJECTION_FLIP_Y}"
+  echo "execute_real: ${EXECUTE_REAL}"
+  echo "execute_real_confirmed: $([[ "${EXECUTE_REAL_CONFIRM}" == "YES" ]] && echo true || echo false)"
 } >"${LOG_DIR}/00_environment.txt"
+
+if [[ "${EXECUTE_REAL}" == "true" && "${EXECUTE_REAL_CONFIRM}" != "YES" ]]; then
+  cat >&2 <<'EOF'
+Refusing real grasp execution without confirmation.
+
+Set both variables after confirming the workspace is clear and E-stop is within reach:
+
+  ARACHNE_GRASP_EXECUTE_REAL=true
+  ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES
+EOF
+  exit 2
+fi
 
 if [[ ! -x "${VENV}/bin/python" ]]; then
   "${ROOT_DIR}/scripts/vision/setup_yolo_env.sh"
@@ -165,6 +185,8 @@ if [[ "${START_CAMERA}" == "true" ]]; then
     with_color_view:=false \
     with_depth_view:=false \
     with_tf:=true \
+    "projection_flip_x:=${DEPTH_PROJECTION_FLIP_X}" \
+    "projection_flip_y:=${DEPTH_PROJECTION_FLIP_Y}" \
     "camera_parent_frame:=${DISPLAY_FRAME_PREFIX}ee_camera_link" \
     >"${CAMERA_LOG}" 2>&1 &
   PIDS+=("$!")
@@ -186,12 +208,32 @@ echo "  /arachne/grasp_preview/path"
 echo "  /arachne/grasp_preview/annotated_image"
 echo "Planner backend: MoveIt 2 + OMPL via /plan_kinematic_path"
 echo "RViz MarkerArray shows named task waypoints and a magenta playback cursor."
+if [[ "${EXECUTE_REAL}" == "true" ]]; then
+  echo "REAL execution is armed: trajectory will be sent to /joint_trajectory_controller/follow_joint_trajectory after planning."
+else
+  echo "REAL execution is disabled; this run only previews in RViz."
+fi
 echo "Restart search after PLAN_LOCKED:"
 echo "  ros2 topic pub --once /arachne/grasp_preview/restart_search std_msgs/msg/Empty '{}'"
 
 run_pipeline() {
   local device_id="$1"
   shift
+  local projection_args=()
+  if [[ "${DEPTH_PROJECTION_FLIP_X}" == "true" ]]; then
+    projection_args+=(--depth-projection-flip-x)
+  else
+    projection_args+=(--no-depth-projection-flip-x)
+  fi
+  if [[ "${DEPTH_PROJECTION_FLIP_Y}" == "true" ]]; then
+    projection_args+=(--depth-projection-flip-y)
+  else
+    projection_args+=(--no-depth-projection-flip-y)
+  fi
+  local execute_args=()
+  if [[ "${EXECUTE_REAL}" == "true" ]]; then
+    execute_args+=(--execute-real --execute-real-confirm "${EXECUTE_REAL_CONFIRM}")
+  fi
   "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/vision/grasp_preview_pipeline.py" \
     --model "${MODEL}" \
     --venv "${VENV}" \
@@ -201,6 +243,8 @@ run_pipeline() {
     --device-id "${device_id}" \
     --gripper-type "${GRIPPER_TYPE}" \
     --aubo-base-frame "${DISPLAY_FRAME_PREFIX}aubo_base_link" \
+    "${projection_args[@]}" \
+    "${execute_args[@]}" \
     "$@"
 }
 
