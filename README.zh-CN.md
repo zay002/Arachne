@@ -185,6 +185,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 - [硬件](docs/hardware.zh-CN.md)
 - [标定](docs/calibration.zh-CN.md)
 - [抓取任务服务器](docs/grasp_task_server.zh-CN.md)
+- [任务路线：垃圾拾取与充电枪拔插](docs/task_tracks.zh-CN.md)
 - [参考资料](docs/references.zh-CN.md)
 
 英文版本位于同名文档，例如 [docs/hardware.md](docs/hardware.md)。
