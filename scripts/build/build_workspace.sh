@@ -43,7 +43,7 @@ fi
 PACKAGES=(
   aubo_description scout_description dh_ag95_description \
   arachne_sim arachne_gripper arachne_hardware arachne_control arachne_moveit_config \
-  arachne_nav arachne_operator arachne_description
+  arachne_nav arachne_operator arachne_sensors arachne_description
 )
 
 has_cmake_package() {

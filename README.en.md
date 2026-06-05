@@ -75,6 +75,7 @@ Without that environment, RViz may fail to resolve `package://...` mesh paths, c
 | Bottle grasp-to-basket path preview | `./scripts/vision/grasp_preview.sh` |
 | Real-pose synchronized grasp preview | `./scripts/vision/grasp_preview_real_sync.sh` |
 | Real-pose synchronized grasp execution | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
+| Grasp task server | `./scripts/vision/grasp_task_server.sh` |
 | Real-hardware environment check | `./scripts/hardware/check_real_hardware_env.sh` |
 | Real one-command bringup | `./scripts/hardware/real_bringup.sh` |
 | Real teach demo | `./scripts/hardware/real_teach_demo.sh` |
@@ -170,7 +171,7 @@ It starts real bringup, waits for `/odom`, `/joint_states`, the Aubo trajectory 
 | `src/arachne_control` | ros2_control names, mock controllers, hardware profiles |
 | `src/arachne_moveit_config` | MoveIt2 starter config for Aubo i5 with MS42DC or AG95 |
 | `src/arachne_nav` | Nav2 starter config for Scout |
-| `src/arachne_operator` | Operator panel, sequence executor, VLA/WAM action-chunk translator |
+| `src/arachne_operator` | Operator panel, grasp task server, sequence executor, VLA/WAM action-chunk translator |
 | `scripts/env` / `scripts/build` | ROS environment and colcon build entrypoints |
 | `scripts/hardware` / `scripts/operator` | Real bringup, acceptance, Aubo helpers, and teach-panel entrypoints |
 | `scripts/vision` | Gemini335, YOLO26, TensorRT, INT8 calibration, and live detection entrypoints |
@@ -187,6 +188,7 @@ The `scripts/` root no longer carries old top-level script entrypoints. Use the 
 - [Control](docs/control.md)
 - [Hardware](docs/hardware.md)
 - [Calibration](docs/calibration.md)
+- [Grasp Task Server](docs/grasp_task_server.md)
 - [References](docs/references.md)
 
 Chinese versions are available as matching `*.zh-CN.md` files.
@@ -194,7 +196,7 @@ Chinese versions are available as matching `*.zh-CN.md` files.
 ## Roadmap
 
 - Real-hardware reliability: stabilize one-command bringup, remote startup, payload setup, streaming velocity control, and safe stop for Scout, Aubo, MS42DC, Gemini335, and Leishen Intelligence C16.
-- Perception and data: collect Gemini335 RGB-D and C16 lidar data, tune YOLO26 detection for trash, workpieces, and charging guns, and build INT8 TensorRT, depth ROI localization, and local dataset loops.
+- Perception and tasks: collect Gemini335 RGB-D and C16 lidar data, tune YOLO26 detection for trash, workpieces, and charging guns, and build INT8 TensorRT, depth ROI localization, the grasp task server, and local dataset loops.
 - Static manipulation: with the base parked, advance two task tracks in parallel: recognize trash, pick it, and place it into the front basket; recognize the charging gun, precisely align, remove it, and insert it. Then extend to workpiece detection, measurement-point localization, and simple assembly pose generation.
 - Mobile manipulation: combine base localization, arm reachability, vehicle pose, visual observations, and C16 environment sensing for move-stop-observe-pick, charging-gun insertion/removal, and measurement workflows.
 - Deep RL joint control: train base-arm-gripper policies from simulation and real teach data, starting with precision alignment, charging-gun insertion/removal, assembly, and measurement before transferring to the real robot.

@@ -75,6 +75,7 @@ source install/setup.bash
 | Bottle 抓取入篮路径预览 | `./scripts/vision/grasp_preview.sh` |
 | 真机姿态同步抓取预览 | `./scripts/vision/grasp_preview_real_sync.sh` |
 | 真机同步并执行抓取 | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
+| 抓取任务服务器 | `./scripts/vision/grasp_task_server.sh` |
 | 真机环境检查 | `./scripts/hardware/check_real_hardware_env.sh` |
 | 真机一键 bringup | `./scripts/hardware/real_bringup.sh` |
 | 真机示教演示 | `./scripts/hardware/real_teach_demo.sh` |
@@ -170,7 +171,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 | `src/arachne_control` | ros2_control 控制器命名、mock 控制器和硬件 profile |
 | `src/arachne_moveit_config` | Aubo i5 + MS42DC/AG95 的 MoveIt2 起步配置 |
 | `src/arachne_nav` | Scout Nav2 起步配置 |
-| `src/arachne_operator` | 操作员面板、sequence executor、VLA/WAM action chunk translator |
+| `src/arachne_operator` | 操作员面板、grasp task server、sequence executor、VLA/WAM action chunk translator |
 | `scripts/env` / `scripts/build` | ROS 环境和 colcon 构建入口 |
 | `scripts/hardware` / `scripts/operator` | 真机 bringup、验收、Aubo 辅助脚本和示教入口 |
 | `scripts/vision` | Gemini335、YOLO26、TensorRT、INT8 校准和实时检测入口 |
@@ -187,6 +188,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 - [控制](docs/control.zh-CN.md)
 - [硬件](docs/hardware.zh-CN.md)
 - [标定](docs/calibration.zh-CN.md)
+- [抓取任务服务器](docs/grasp_task_server.zh-CN.md)
 - [参考资料](docs/references.zh-CN.md)
 
 英文版本位于同名文档，例如 [docs/hardware.md](docs/hardware.md)。
@@ -194,7 +196,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 ## Roadmap
 
 - **真机可靠性层**：继续稳定 Scout、Aubo、MS42DC、Gemini335 和镭神智能 C16 的一键 bringup、远程上电、载荷配置、流式速度控制和安全停止。
-- **感知与数据层**：采集 Gemini335 RGB-D 与 C16 雷达数据，微调 YOLO26 垃圾/工件/充电枪检测模型，建立 INT8 TensorRT 推理、深度 ROI 定位和本地数据集闭环。
+- **感知与任务层**：采集 Gemini335 RGB-D 与 C16 雷达数据，微调 YOLO26 垃圾/工件/充电枪检测模型，建立 INT8 TensorRT、深度 ROI 定位、抓取任务服务器和本地数据集闭环。
 - **静态操作任务**：在底盘静止时并行推进两条任务线：垃圾识别、抓取、放入车头吊篮；充电枪识别、精密对准、拔出和插入。随后扩展到工件识别、测量点定位和简单装配位姿生成。
 - **移动操作任务**：将底盘定位、机械臂可达性、车体姿态、视觉观测和 C16 环境信息统一到任务状态，做移动后停车、观察、抓取、充电枪拔插和测量的闭环流程。
 - **深度强化学习联合控制**：在仿真和真实示教数据上训练底盘-机械臂-夹具联合策略，优先覆盖精密对位、充电枪拔插、装配和测量任务，再逐步迁移到真机。

@@ -26,13 +26,14 @@ echo "== Python syntax =="
   src/arachne_gripper/arachne_gripper/*.py \
   src/arachne_hardware/arachne_hardware/*.py \
   src/arachne_operator/arachne_operator/*.py \
+  src/arachne_sensors/arachne_sensors/*.py \
   src/arachne_sim/arachne_sim/*.py
 
 echo "== Build local packages =="
 colcon build "${COLCON_ARGS[@]}" --base-paths src --packages-select \
   aubo_description scout_description dh_ag95_description \
   arachne_description arachne_sim arachne_gripper arachne_hardware \
-  arachne_control arachne_moveit_config arachne_nav arachne_operator \
+  arachne_control arachne_moveit_config arachne_nav arachne_operator arachne_sensors \
   --cmake-args -DPython3_EXECUTABLE="${ARACHNE_SYSTEM_PYTHON}"
 
 set +u

@@ -1,0 +1,86 @@
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
+
+
+def generate_launch_description():
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument("execute_real", default_value="false"),
+            DeclareLaunchArgument("confirm_execute_real", default_value="false"),
+            DeclareLaunchArgument("with_rviz", default_value="false"),
+            DeclareLaunchArgument("classes", default_value="bottle"),
+            DeclareLaunchArgument("confidence", default_value="0.25"),
+            DeclareLaunchArgument("device_id", default_value="0"),
+            DeclareLaunchArgument("real_execute_backend", default_value="sdk_move_joint"),
+            DeclareLaunchArgument("real_return_home", default_value="true"),
+            DeclareLaunchArgument("real_sdk_move_speed", default_value="0.25"),
+            DeclareLaunchArgument("real_sdk_move_accel", default_value="0.45"),
+            DeclareLaunchArgument("grasp_base_offset", default_value="0.06,0.09,-0.10"),
+            DeclareLaunchArgument("extra_args", default_value=""),
+            DeclareLaunchArgument("log_root", default_value="log/grasp_tasks"),
+            DeclareLaunchArgument("require_safety_state_machine", default_value="false"),
+            DeclareLaunchArgument("require_odom", default_value="false"),
+            DeclareLaunchArgument("require_camera_topics", default_value="false"),
+            DeclareLaunchArgument("set_safety_autonomous_on_start", default_value="true"),
+            DeclareLaunchArgument("set_safety_manual_on_finish", default_value="true"),
+            Node(
+                package="arachne_operator",
+                executable="grasp_task_server",
+                name="arachne_grasp_task_server",
+                output="screen",
+                parameters=[
+                    {
+                        "execute_real": ParameterValue(
+                            LaunchConfiguration("execute_real"), value_type=bool
+                        ),
+                        "confirm_execute_real": ParameterValue(
+                            LaunchConfiguration("confirm_execute_real"), value_type=bool
+                        ),
+                        "with_rviz": ParameterValue(
+                            LaunchConfiguration("with_rviz"), value_type=bool
+                        ),
+                        "classes": LaunchConfiguration("classes"),
+                        "confidence": ParameterValue(
+                            LaunchConfiguration("confidence"), value_type=float
+                        ),
+                        "device_id": ParameterValue(
+                            LaunchConfiguration("device_id"), value_type=int
+                        ),
+                        "real_execute_backend": LaunchConfiguration("real_execute_backend"),
+                        "real_return_home": ParameterValue(
+                            LaunchConfiguration("real_return_home"), value_type=bool
+                        ),
+                        "real_sdk_move_speed": ParameterValue(
+                            LaunchConfiguration("real_sdk_move_speed"), value_type=float
+                        ),
+                        "real_sdk_move_accel": ParameterValue(
+                            LaunchConfiguration("real_sdk_move_accel"), value_type=float
+                        ),
+                        "grasp_base_offset": LaunchConfiguration("grasp_base_offset"),
+                        "extra_args": LaunchConfiguration("extra_args"),
+                        "log_root": LaunchConfiguration("log_root"),
+                        "require_safety_state_machine": ParameterValue(
+                            LaunchConfiguration("require_safety_state_machine"), value_type=bool
+                        ),
+                        "require_odom": ParameterValue(
+                            LaunchConfiguration("require_odom"), value_type=bool
+                        ),
+                        "require_camera_topics": ParameterValue(
+                            LaunchConfiguration("require_camera_topics"), value_type=bool
+                        ),
+                        "set_safety_autonomous_on_start": ParameterValue(
+                            LaunchConfiguration("set_safety_autonomous_on_start"),
+                            value_type=bool,
+                        ),
+                        "set_safety_manual_on_finish": ParameterValue(
+                            LaunchConfiguration("set_safety_manual_on_finish"),
+                            value_type=bool,
+                        ),
+                    }
+                ],
+            ),
+        ]
+    )
