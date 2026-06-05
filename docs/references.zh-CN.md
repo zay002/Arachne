@@ -25,6 +25,6 @@
 - `third_party/dh_ag95_gripper_ros2`：来自 `ian-chuang/dh_ag95_gripper_ros2`，固定到 `fc4f80fdfb3acae5626df4359aec1401cb71a9a3`；`dh_ag95_description/package.xml` 声明 Apache-2.0。
 - `third_party/MS42DC.step`：当前易爪机器人 MS42DC 二指柔性伺服电机夹爪模型的本地 CAD 来源。
 - `third_party/MS42DC_SPLIT/*.stl`：由项目作者手动拆分的 MS42DC 可动运行时零件，并复制到 `src/arachne_description/meshes/gripper/ms42dc/split/`。
-- `third_party/ms42dc_step_motor_ros2`：易爪机器人 MS42DC 厂家 ROS2 示例源码，提供 `serial`、`step_motor` 和演示键盘包；也可由 `scripts/prepare_ms42dc_ros2.sh` 从厂家 ROS2.zip 重新解压刷新。
+- `third_party/ms42dc_step_motor_ros2`：易爪机器人 MS42DC 厂家 ROS2 示例源码，提供 `serial`、`step_motor` 和演示键盘包；也可由 `scripts/hardware/prepare_ms42dc_ros2.sh` 从厂家 ROS2.zip 重新解压刷新。
 
 `src/arachne_description/urdf/` 中的 Arachne 包装文件会把这些模型组合成一棵移动机械臂 URDF 树。`arachne_hardware` 使用官方/厂家 ROS 包作为运行时依赖，而不是复制底层硬件协议。

@@ -110,6 +110,13 @@ def generate_launch_description():
             "launch_rviz", default_value="false", description="Launch RViz?"
         )
     )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "aubo_control_prefix",
+            default_value="",
+            description="Optional command prefix for the Aubo ros2_control node, e.g. taskset -c 3.",
+        )
+    )
 
     # Initialize Arguments
     runtime_config_package = LaunchConfiguration("runtime_config_package")
@@ -124,6 +131,7 @@ def generate_launch_description():
     aubo_type = LaunchConfiguration("aubo_type")
     initial_joint_controller = LaunchConfiguration("initial_joint_controller")
     launch_rviz = LaunchConfiguration("launch_rviz")
+    aubo_control_prefix = LaunchConfiguration("aubo_control_prefix")
 
     robot_description_content = Command(
         [
@@ -167,6 +175,7 @@ def generate_launch_description():
         executable="aubo_ros2_control_node",
         parameters=[robot_description, robot_controllers],
         output="both",
+        prefix=aubo_control_prefix,
     )
     robot_state_publisher_node = Node(
         package="robot_state_publisher",

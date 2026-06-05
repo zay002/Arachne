@@ -16,8 +16,8 @@ def _package_launch(package_name: str, *relative: str) -> PythonLaunchDescriptio
         package_share = Path(get_package_share_directory(package_name))
     except PackageNotFoundError as exc:
         raise RuntimeError(
-            f"Missing ROS2 package `{package_name}`. Run scripts/fetch_third_party.sh "
-            "and scripts/prepare_ms42dc_ros2.sh, then rebuild the workspace."
+            f"Missing ROS2 package `{package_name}`. Run scripts/hardware/fetch_third_party.sh "
+            "and scripts/hardware/prepare_ms42dc_ros2.sh, then rebuild the workspace."
         ) from exc
     return PythonLaunchDescriptionSource(str(package_share.joinpath(*relative)))
 
@@ -183,9 +183,17 @@ def _launch_setup(context, *args, **kwargs):
             IncludeLaunchDescription(
                 _package_launch("aubo_ros2_driver", "launch", "aubo_control.launch.py"),
                 launch_arguments={
-                    "aubo_type": "aubo_i5",
+                    "aubo_type": LaunchConfiguration("aubo_type"),
                     "robot_ip": LaunchConfiguration("aubo_robot_ip"),
                     "use_fake_hardware": "false",
+                    "runtime_config_package": LaunchConfiguration(
+                        "aubo_runtime_config_package"
+                    ),
+                    "controllers_file": LaunchConfiguration("aubo_controllers_file"),
+                    "initial_joint_controller": LaunchConfiguration(
+                        "aubo_initial_joint_controller"
+                    ),
+                    "aubo_control_prefix": LaunchConfiguration("aubo_control_prefix"),
                 }.items(),
             )
         )
@@ -230,6 +238,60 @@ def _launch_setup(context, *args, **kwargs):
             )
         )
 
+        actions.append(
+            Node(
+                package="arachne_hardware",
+                executable="aubo_sdk_velocity_bridge",
+                name="aubo_sdk_velocity_bridge",
+                parameters=[
+                    {
+                        "command_topic": LaunchConfiguration("aubo_sdk_velocity_command_topic"),
+                        "robot_ip": LaunchConfiguration("aubo_robot_ip"),
+                        "rpc_port": ParameterValue(
+                            LaunchConfiguration("aubo_rpc_port"), value_type=int
+                        ),
+                        "rpc_timeout_sec": ParameterValue(
+                            LaunchConfiguration("aubo_rpc_timeout_sec"), value_type=float
+                        ),
+                        "teach_flag_path": LaunchConfiguration("aubo_teach_flag_path"),
+                        "command_watchdog_sec": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_velocity_watchdog_sec"),
+                            value_type=float,
+                        ),
+                        "send_period_sec": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_velocity_send_period_sec"),
+                            value_type=float,
+                        ),
+                        "command_start_delay_sec": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_velocity_start_delay_sec"),
+                            value_type=float,
+                        ),
+                        "velocity_change_epsilon_rad_sec": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_velocity_change_epsilon_rad_sec"),
+                            value_type=float,
+                        ),
+                        "speed_joint_accel_rad_sec2": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_speed_joint_accel_rad_sec2"),
+                            value_type=float,
+                        ),
+                        "speed_joint_time_sec": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_speed_joint_time_sec"),
+                            value_type=float,
+                        ),
+                        "stop_joint_accel_rad_sec2": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_stop_joint_accel_rad_sec2"),
+                            value_type=float,
+                        ),
+                        "busy_retry_delay_sec": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_busy_retry_delay_sec"),
+                            value_type=float,
+                        ),
+                    }
+                ],
+                output="screen",
+            )
+        )
+
     return actions
 
 
@@ -257,12 +319,32 @@ def generate_launch_description():
             DeclareLaunchArgument("ms42dc_close_angle_tenths", default_value="18720"),
             DeclareLaunchArgument("ms42dc_speed_tenths", default_value="150"),
             DeclareLaunchArgument("aubo_robot_ip", default_value="192.168.127.128"),
-            DeclareLaunchArgument("aubo_port", default_value="80"),
+            DeclareLaunchArgument("aubo_type", default_value="aubo_i5"),
+            DeclareLaunchArgument("aubo_runtime_config_package", default_value="arachne_hardware"),
+            DeclareLaunchArgument("aubo_controllers_file", default_value="aubo_smooth_controllers.yaml"),
+            DeclareLaunchArgument(
+                "aubo_initial_joint_controller",
+                default_value="forward_command_controller_velocity",
+            ),
+            DeclareLaunchArgument("aubo_port", default_value="30004"),
             DeclareLaunchArgument("aubo_teach_command_topic", default_value="/arachne/aubo/teach_command"),
+            DeclareLaunchArgument(
+                "aubo_sdk_velocity_command_topic",
+                default_value="/arachne/aubo/joint_velocity_command",
+            ),
             DeclareLaunchArgument("aubo_rpc_port", default_value="30004"),
             DeclareLaunchArgument("aubo_rpc_timeout_sec", default_value="2.0"),
             DeclareLaunchArgument("aubo_teach_method", default_value="freedrive"),
             DeclareLaunchArgument("aubo_teach_flag_path", default_value="/tmp/arachne_aubo_teach_mode"),
+            DeclareLaunchArgument("aubo_sdk_velocity_watchdog_sec", default_value="0.75"),
+            DeclareLaunchArgument("aubo_sdk_velocity_send_period_sec", default_value="0.20"),
+            DeclareLaunchArgument("aubo_sdk_velocity_start_delay_sec", default_value="0.04"),
+            DeclareLaunchArgument("aubo_sdk_velocity_change_epsilon_rad_sec", default_value="0.30"),
+            DeclareLaunchArgument("aubo_sdk_speed_joint_accel_rad_sec2", default_value="2.0"),
+            DeclareLaunchArgument("aubo_sdk_speed_joint_time_sec", default_value="100.0"),
+            DeclareLaunchArgument("aubo_sdk_stop_joint_accel_rad_sec2", default_value="8.0"),
+            DeclareLaunchArgument("aubo_sdk_busy_retry_delay_sec", default_value="0.04"),
+            DeclareLaunchArgument("aubo_control_prefix", default_value=""),
             OpaqueFunction(function=_launch_setup),
         ]
     )

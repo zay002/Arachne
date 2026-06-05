@@ -27,12 +27,12 @@ ARM_JOINTS = (
 
 ARM_PRESETS = {
     "home": (
-        -1.5407387550371199,
-        0.05937252214606485,
-        2.0350620214427786,
-        1.9717090402766757,
-        1.5416031029821449,
-        -0.002335565908067907,
+        -1.5707963267949,
+        0.201570428261868,
+        1.65970467002488,
+        0.485178041391533,
+        1.67675136677345,
+        0.76432946885334,
     ),
     "ready": (1.50, -0.30, -1.10, 0.40, -1.55, 0.0),
     "reach": (1.35, -0.65, -0.85, 0.55, -1.35, 0.0),
@@ -348,6 +348,8 @@ class SequenceExecutor(Node):
 
         point = JointTrajectoryPoint()
         point.positions = list(ARM_PRESETS[preset])
+        point.velocities = [0.0 for _ in point.positions]
+        point.accelerations = [0.0 for _ in point.positions]
         point.time_from_start.sec = int(self.arm_motion_time)
         point.time_from_start.nanosec = int((self.arm_motion_time % 1.0) * 1e9)
         trajectory.points = [point]

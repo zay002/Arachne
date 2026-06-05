@@ -43,7 +43,16 @@ class RevoluteJoint:
 
 
 class AuboI5Kinematics:
-    """Position-only FK/IK for the Aubo i5 chain from aubo_base_link to tool0."""
+    """FK/IK for the Aubo i5 chain from aubo_base_link to tool0."""
+
+    LINK_NAMES = (
+        "aubo_shoulder_Link",
+        "aubo_upperArm_Link",
+        "aubo_foreArm_Link",
+        "aubo_wrist1_Link",
+        "aubo_wrist2_Link",
+        "aubo_wrist3_Link",
+    )
 
     JOINTS = (
         RevoluteJoint(
@@ -93,6 +102,21 @@ class AuboI5Kinematics:
             transform = transform @ self._axis_rotation(joint.axis, float(angle))
         return transform @ self._origin((0.0, 0.0, 0.0), self.TOOL0_FIXED_RPY)
 
+    def link_transforms(self, q: np.ndarray) -> list[tuple[str, np.ndarray]]:
+        transform = np.eye(4)
+        transforms: list[tuple[str, np.ndarray]] = [("aubo_base_link", np.array(transform))]
+        for joint, link_name, angle in zip(self.JOINTS, self.LINK_NAMES, q):
+            transform = transform @ self._origin(joint.xyz, joint.rpy)
+            transform = transform @ self._axis_rotation(joint.axis, float(angle))
+            transforms.append((link_name, np.array(transform)))
+        transforms.append(
+            (
+                "tool0",
+                np.array(transform @ self._origin((0.0, 0.0, 0.0), self.TOOL0_FIXED_RPY)),
+            )
+        )
+        return transforms
+
     def solve_position(
         self,
         q_start: np.ndarray,
@@ -125,6 +149,49 @@ class AuboI5Kinematics:
 
         return False, best_q, best_error, max_iterations
 
+    def solve_pose(
+        self,
+        q_start: np.ndarray,
+        target_transform: np.ndarray,
+        *,
+        position_tolerance: float,
+        orientation_tolerance: float,
+        damping: float,
+        max_iterations: int,
+        max_step: float,
+        orientation_weight: float = 0.5,
+    ) -> tuple[bool, np.ndarray, float, float, int]:
+        q = np.array(q_start, dtype=float)
+        best_q = np.array(q_start, dtype=float)
+        best_position_error, best_orientation_error = self._pose_error_norms(q, target_transform)
+        best_error = best_position_error + orientation_weight * best_orientation_error
+
+        for iteration in range(max_iterations):
+            current_transform = self.fk(q)
+            position_error = target_transform[:3, 3] - current_transform[:3, 3]
+            orientation_error = self._rotation_vector(
+                target_transform[:3, :3] @ current_transform[:3, :3].T
+            )
+            position_norm = float(np.linalg.norm(position_error))
+            orientation_norm = float(np.linalg.norm(orientation_error))
+            combined_norm = position_norm + orientation_weight * orientation_norm
+            if combined_norm < best_error:
+                best_q = np.array(q, dtype=float)
+                best_position_error = position_norm
+                best_orientation_error = orientation_norm
+                best_error = combined_norm
+            if position_norm <= position_tolerance and orientation_norm <= orientation_tolerance:
+                return True, q, position_norm, orientation_norm, iteration
+
+            error = np.concatenate((position_error, orientation_weight * orientation_error))
+            jacobian = self._numeric_pose_jacobian(q, orientation_weight)
+            lhs = jacobian @ jacobian.T + (damping**2) * np.eye(6)
+            step = jacobian.T @ np.linalg.solve(lhs, error)
+            step = np.clip(step, -max_step, max_step)
+            q = self._wrap(q + step)
+
+        return False, best_q, best_position_error, best_orientation_error, max_iterations
+
     def _numeric_position_jacobian(self, q: np.ndarray) -> np.ndarray:
         eps = 1e-5
         base = self.fk(q)[:3, 3]
@@ -134,6 +201,53 @@ class AuboI5Kinematics:
             q_eps[index] += eps
             jacobian[:, index] = (self.fk(q_eps)[:3, 3] - base) / eps
         return jacobian
+
+    def _numeric_pose_jacobian(self, q: np.ndarray, orientation_weight: float) -> np.ndarray:
+        eps = 1e-5
+        base_transform = self.fk(q)
+        base_position = base_transform[:3, 3]
+        base_rotation = base_transform[:3, :3]
+        jacobian = np.zeros((6, len(q)))
+        for index in range(len(q)):
+            q_eps = np.array(q, dtype=float)
+            q_eps[index] += eps
+            next_transform = self.fk(q_eps)
+            jacobian[:3, index] = (next_transform[:3, 3] - base_position) / eps
+            jacobian[3:, index] = (
+                orientation_weight
+                * self._rotation_vector(next_transform[:3, :3] @ base_rotation.T)
+                / eps
+            )
+        return jacobian
+
+    def _pose_error_norms(
+        self, q: np.ndarray, target_transform: np.ndarray
+    ) -> tuple[float, float]:
+        current_transform = self.fk(q)
+        position_error = float(
+            np.linalg.norm(target_transform[:3, 3] - current_transform[:3, 3])
+        )
+        orientation_error = float(
+            np.linalg.norm(
+                self._rotation_vector(target_transform[:3, :3] @ current_transform[:3, :3].T)
+            )
+        )
+        return position_error, orientation_error
+
+    def _rotation_vector(self, rotation: np.ndarray) -> np.ndarray:
+        cos_angle = max(min((float(np.trace(rotation)) - 1.0) * 0.5, 1.0), -1.0)
+        angle = math.acos(cos_angle)
+        vector = np.array(
+            [
+                rotation[2, 1] - rotation[1, 2],
+                rotation[0, 2] - rotation[2, 0],
+                rotation[1, 0] - rotation[0, 1],
+            ],
+            dtype=float,
+        )
+        if angle < 1e-8:
+            return 0.5 * vector
+        return angle / (2.0 * math.sin(angle)) * vector
 
     def _origin(
         self, xyz: tuple[float, float, float], rpy: tuple[float, float, float]
@@ -313,7 +427,12 @@ class RealHardwareAcceptanceTest(Node):
         sequence_mode = str(self.get_parameter("sequence_mode").value).strip().lower()
         steps: list[str] = []
         if bool(self.get_parameter("run_base_test").value):
-            steps.append("base +0.2m/-0.2m, left 30deg/return, right 30deg/return")
+            distance = float(self.get_parameter("base_distance_m").value)
+            yaw_deg = float(self.get_parameter("base_yaw_deg").value)
+            steps.append(
+                f"base +{distance:.3f}m/-{distance:.3f}m, "
+                f"left {yaw_deg:.1f}deg/return, right {yaw_deg:.1f}deg/return"
+            )
         if bool(self.get_parameter("run_arm_test").value):
             if sequence_mode == "parallel":
                 axis = self._arm_circle_axis()
@@ -625,15 +744,27 @@ class RealHardwareAcceptanceTest(Node):
         trajectory.header.stamp = self.get_clock().now().to_msg()
         trajectory.joint_names = list(self.arm_command_joint_names)
         count = max(len(positions), 1)
+        point_times = [max(duration * index / count, 0.2) for index in range(1, count + 1)]
         trajectory.points = []
-        for index, joint_positions in enumerate(positions, start=1):
+        for index, joint_positions in enumerate(positions):
             point = JointTrajectoryPoint()
             point.positions = [float(value) for value in joint_positions]
-            point_time = max(duration * index / count, 0.2)
+            point.velocities = self._trajectory_point_velocities(positions, point_times, index)
+            point.accelerations = [0.0 for _ in point.positions]
+            point_time = point_times[index]
             point.time_from_start.sec = int(point_time)
             point.time_from_start.nanosec = int((point_time % 1.0) * 1e9)
             trajectory.points.append(point)
         return trajectory
+
+    def _trajectory_point_velocities(
+        self, positions: list[np.ndarray], point_times: list[float], index: int
+    ) -> list[float]:
+        if len(positions) <= 1 or index <= 0 or index >= len(positions) - 1:
+            return [0.0 for _ in positions[index]]
+        dt = max(point_times[index + 1] - point_times[index - 1], 1e-6)
+        velocity = (positions[index + 1] - positions[index - 1]) / dt
+        return [float(value) for value in velocity]
 
     def _command_arm(self, positions: np.ndarray, label: str) -> None:
         trajectory = self._make_arm_trajectory(positions)

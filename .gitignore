@@ -1,7 +1,10 @@
 # ROS/colcon generated files
 build/
+!scripts/build/
+!scripts/build/**
 install/
 log/
+logs/
 .colcon/
 .ros/
 .vscode

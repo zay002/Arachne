@@ -1,0 +1,44 @@
+aubo_i5:
+  home_pose:
+    captured_at: "2026-06-05T09:59:59+08:00"
+    source: "Aubo RPC RobotState.getJointPositions, robot=rob1, mode=Running, safety=Normal"
+    joint_names:
+      - aubo_shoulder_joint
+      - aubo_upperArm_joint
+      - aubo_foreArm_joint
+      - aubo_wrist1_joint
+      - aubo_wrist2_joint
+      - aubo_wrist3_joint
+    positions_rad:
+      - -1.5707963267949
+      - 0.201570428261868
+      - 1.65970467002488
+      - 0.485178041391533
+      - 1.67675136677345
+      - 0.76432946885334
+    positions_deg:
+      - -90.00
+      - 11.55
+      - 95.09
+      - 27.80
+      - 96.07
+      - 43.79
+  payload:
+    captured_at: "2026-06-05T09:59:59+08:00"
+    source: "Aubo RPC RobotConfig.getPayload"
+    mass_kg: 0.818
+    cog_m:
+      - 0.039927
+      - 0.045067
+      - 0.143233
+    aom:
+      - 0.0
+      - 0.0
+      - 0.0
+    inertia:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 
 import rclpy
 from geometry_msgs.msg import TransformStamped, Twist
@@ -21,13 +22,22 @@ ARM_JOINTS = (
     "aubo_wrist3_joint",
 )
 
+ARM_JOINT_ALIASES = {
+    "shoulder_joint": "aubo_shoulder_joint",
+    "upperArm_joint": "aubo_upperArm_joint",
+    "foreArm_joint": "aubo_foreArm_joint",
+    "wrist1_joint": "aubo_wrist1_joint",
+    "wrist2_joint": "aubo_wrist2_joint",
+    "wrist3_joint": "aubo_wrist3_joint",
+}
+
 HOME = {
-    "aubo_shoulder_joint": -1.5407387550371199,
-    "aubo_upperArm_joint": 0.05937252214606485,
-    "aubo_foreArm_joint": 2.0350620214427786,
-    "aubo_wrist1_joint": 1.9717090402766757,
-    "aubo_wrist2_joint": 1.5416031029821449,
-    "aubo_wrist3_joint": -0.002335565908067907,
+    "aubo_shoulder_joint": -1.5707963267949,
+    "aubo_upperArm_joint": 0.201570428261868,
+    "aubo_foreArm_joint": 1.65970467002488,
+    "aubo_wrist1_joint": 0.485178041391533,
+    "aubo_wrist2_joint": 1.67675136677345,
+    "aubo_wrist3_joint": 0.76432946885334,
 }
 
 
@@ -49,6 +59,10 @@ class ArachneHardwareMock(Node):
         self.left_wheel = 0.0
         self.right_wheel = 0.0
         self.arm_positions = dict(HOME)
+        self.arm_start_positions = dict(HOME)
+        self.arm_target_positions = dict(HOME)
+        self.arm_motion_start = 0.0
+        self.arm_motion_duration = 0.0
         self.gripper_position = 0.0
         self.aubo_teach_mode = False
 
@@ -81,9 +95,16 @@ class ArachneHardwareMock(Node):
         if not msg.points:
             return
         point = msg.points[-1]
+        now = time.monotonic()
+        self.arm_start_positions = dict(self.arm_positions)
+        self.arm_target_positions = dict(self.arm_positions)
         for index, name in enumerate(msg.joint_names):
-            if name in self.arm_positions and index < len(point.positions):
-                self.arm_positions[name] = float(point.positions[index])
+            target_name = ARM_JOINT_ALIASES.get(name, name)
+            if target_name in self.arm_positions and index < len(point.positions):
+                self.arm_target_positions[target_name] = float(point.positions[index])
+        duration = float(point.time_from_start.sec) + float(point.time_from_start.nanosec) * 1e-9
+        self.arm_motion_start = now
+        self.arm_motion_duration = max(duration, self.period)
 
     def _on_gripper(self, msg: String) -> None:
         command = msg.data.strip().lower()
@@ -100,6 +121,7 @@ class ArachneHardwareMock(Node):
             self.aubo_teach_mode = False
 
     def _tick(self) -> None:
+        self._integrate_arm_motion()
         self.x += self.vx * math.cos(self.yaw) * self.period
         self.y += self.vx * math.sin(self.yaw) * self.period
         self.yaw = math.atan2(
@@ -115,6 +137,19 @@ class ArachneHardwareMock(Node):
         self._publish_odom(now)
         self._publish_joint_states(now)
         self._publish_status()
+
+    def _integrate_arm_motion(self) -> None:
+        if self.arm_motion_duration <= 0.0:
+            return
+        progress = (time.monotonic() - self.arm_motion_start) / self.arm_motion_duration
+        alpha = min(max(progress, 0.0), 1.0)
+        alpha = alpha * alpha * (3.0 - 2.0 * alpha)
+        for name in ARM_JOINTS:
+            start = self.arm_start_positions.get(name, self.arm_positions[name])
+            target = self.arm_target_positions.get(name, start)
+            self.arm_positions[name] = start + (target - start) * alpha
+        if progress >= 1.0:
+            self.arm_motion_duration = 0.0
 
     def _publish_odom(self, now) -> None:
         msg = Odometry()

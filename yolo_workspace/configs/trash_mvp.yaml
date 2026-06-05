@@ -1,0 +1,11 @@
+path: /home/jetson/zhaoyang/Arachne/yolo_workspace/datasets/trash_mvp
+train: images/train
+val: images/val
+
+names:
+  0: bottle
+  1: can
+  2: cup
+  3: carton
+  4: paper
+  5: other_trash

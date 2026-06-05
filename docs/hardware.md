@@ -46,15 +46,15 @@ The real-hardware ROS layer is designed to run on both native Linux and WSL2, bu
 Run the environment checker before motion tests:
 
 ```bash
-./scripts/check_real_hardware_env.sh
-./scripts/real_aubo_probe.sh
+./scripts/hardware/check_real_hardware_env.sh
+./scripts/hardware/real_aubo_probe.sh
 ```
 
 Use fixed scripts for isolated Aubo testing. `real_aubo_bringup.sh` starts the official ROS2 driver; because this is a real-hardware control mode, it requires explicit confirmation:
 
 ```bash
-./scripts/real_aubo_prepare.sh
-ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/real_aubo_bringup.sh
+./scripts/hardware/real_aubo_prepare.sh
+ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/hardware/real_aubo_bringup.sh
 ```
 
 Prefer completing connect -> power on -> start from the teach pendant/control cabinet, then use `real_aubo_prepare.sh` as a read-only state check: `SafetyMode` must be `Normal` or `ReducedMode`, and `RobotMode` must be `Running`.
@@ -67,17 +67,17 @@ Remote startup uses two terminals:
 
 ```bash
 # Terminal 1
-ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/real_aubo_bringup.sh
+ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/hardware/real_aubo_bringup.sh
 
 # Terminal 2
-ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/real_aubo_remote_start.sh
+ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/hardware/real_aubo_remote_start.sh
 ```
 
 Run the small Z test in another terminal. It is dry-run by default; real motion requires confirmation:
 
 ```bash
-./scripts/real_aubo_z_test.sh
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_aubo_z_test.sh
+./scripts/hardware/real_aubo_z_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_aubo_z_test.sh
 ```
 
 ## Real-Hardware Acceptance Test
@@ -100,21 +100,21 @@ The default arm move is vertical in `aubo_base_link` coordinates. To move along 
 First run the host check:
 
 ```bash
-./scripts/check_real_hardware_env.sh --strict
+./scripts/hardware/check_real_hardware_env.sh --strict
 ```
 
 Bring up the connected hardware in one terminal. For daily use, prefer the automatic entry; it selects the lab-default serial ports and checks Aubo state:
 
 ```bash
-./scripts/real_bringup.sh
+./scripts/hardware/real_bringup.sh
 ```
 
-If WSL2 restarts and serial devices disappear, the script first tries to auto-attach the CH9102/CH340 devices through `hurry`; if Windows has not shared them yet, follow the printed `hurry scan` / `hurry attach <BUSID>` hint. For native SocketCAN adapters, use `SCOUT_DRIVER=official SCOUT_PORT=can0 ./scripts/real_bringup.sh`.
+If WSL2 restarts and serial devices disappear, the script first tries to auto-attach the CH9102/CH340 devices through `hurry`; if Windows has not shared them yet, follow the printed `hurry scan` / `hurry attach <BUSID>` hint. For native SocketCAN adapters, use `SCOUT_DRIVER=official SCOUT_PORT=can0 ./scripts/hardware/real_bringup.sh`.
 
 For teach demonstrations, use:
 
 ```bash
-./scripts/real_teach_demo.sh
+./scripts/hardware/real_teach_demo.sh
 ```
 
 This starts bringup, waits for the core topics and Aubo action, then opens the teach/replay panel; closing the panel stops the background bringup. Teach JSON files are saved locally under `recordings/teach/` by default. Base hold-to-drive operations are stored as relative forward/backward distance or left/right turn waypoints when the button is released, and replay uses slow safety defaults.
@@ -134,29 +134,29 @@ ros2 launch arachne_hardware real_bringup.launch.py \
 Dry-run the test entry in another terminal:
 
 ```bash
-./scripts/real_hardware_acceptance_test.sh
+./scripts/hardware/real_hardware_acceptance_test.sh
 ```
 
 Run real motion only when the robot is clear and an emergency stop or power cut is within reach:
 
 ```bash
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_hardware_acceptance_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test.sh
 ```
 
 Individual subsystems can be isolated:
 
 ```bash
-./scripts/real_base_test.sh
-./scripts/real_arm_test.sh
-./scripts/real_gripper_test.sh
+./scripts/hardware/real_base_test.sh
+./scripts/hardware/real_arm_test.sh
+./scripts/hardware/real_gripper_test.sh
 ```
 
 These wrappers are also dry-run by default. To move only one subsystem:
 
 ```bash
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_base_test.sh
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_arm_test.sh
-ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/real_gripper_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_base_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_arm_test.sh
+ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_gripper_test.sh
 ```
 
 ## Mock Hardware

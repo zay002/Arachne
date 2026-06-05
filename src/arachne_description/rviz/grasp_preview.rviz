@@ -1,0 +1,80 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+      Plane: XY
+      Reference Frame: base_link
+    - Class: rviz_default_plugins/RobotModel
+      Alpha: 0.65
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/display/robot_description
+      Enabled: true
+      Name: RobotModel
+      Visual Enabled: true
+      Collision Enabled: false
+    - Class: rviz_default_plugins/TF
+      Enabled: false
+      Name: TF
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: GraspPreviewMarkers
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/grasp_preview/markers
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: true
+      Name: GraspRoiCloud
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/grasp_preview/roi_cloud
+      Style: Points
+      Size (Pixels): 4
+      Color Transformer: FlatColor
+      Color: 0; 255; 80
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: GraspToBasketPath
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/grasp_preview/path
+      Line Style: Lines
+      Line Width: 0.035
+      Color: 0; 180; 255
+  Enabled: true
+  Global Options:
+    Background Color: 248; 248; 245
+    Fixed Frame: base_link
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Value: true
+Views:
+  Current:
+    Class: rviz_default_plugins/ThirdPersonFollower
+    Distance: 1.45
+    Name: Current View
+    Pitch: 0.55
+    Target Frame: base_link
+    Yaw: 0.55

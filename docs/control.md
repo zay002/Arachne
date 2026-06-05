@@ -9,7 +9,7 @@ In `display.launch.py`, default zero-state joints publish to `/arachne/default_j
 Launch the normal combined simulation:
 
 ```bash
-./scripts/view_model.sh
+./scripts/model/view_model.sh
 ```
 
 The `Arachne Base` GUI provides Forward, Back, Left, Right, and Stop. It publishes `geometry_msgs/msg/Twist` on `/cmd_vel`. Terminal control uses the same topic:
@@ -71,9 +71,9 @@ ros2 launch arachne_description display.launch.py \
 For day-to-day work, prefer the unified gripper switch entry:
 
 ```bash
-./scripts/use_gripper.sh ms42dc view
-./scripts/use_gripper.sh ag95 view
-./scripts/use_gripper.sh ms42dc prehardware launch_rviz:=false
+./scripts/model/use_gripper.sh ms42dc view
+./scripts/model/use_gripper.sh ag95 view
+./scripts/model/use_gripper.sh ms42dc prehardware launch_rviz:=false
 ```
 
 MS42DC uses user-created split finger meshes from `third_party/MS42DC_SPLIT`. The hinge axis is CAD Z with URDF axis `0 0 -1`, the right finger mimics the left with multiplier `-1.0`, and the default close target is `0.6 rad`. Gazebo disables the URDF mimic tag because the selected physics engine does not create mimic constraints; the demo instead sends explicit mirrored commands to the left and right finger position controllers.
@@ -87,7 +87,7 @@ ros2 launch arachne_description display.launch.py gripper_type:=ms42dc use_gui:=
 With the helper script, disable the simulator so the joint-state GUI controls the mimic joint directly:
 
 ```bash
-WITH_GRIPPER_SIM=false WITH_GRIPPER_GUI=false ./scripts/view_model.sh
+WITH_GRIPPER_SIM=false WITH_GRIPPER_GUI=false ./scripts/model/view_model.sh
 ```
 
 For arm sliders plus gripper services in one session:
@@ -112,13 +112,13 @@ The real-hardware layer is organized around ROS-facing device wrappers with offi
 Prepare package links:
 
 ```bash
-./scripts/prepare_real_hardware_ros.sh
+./scripts/hardware/prepare_real_hardware_ros.sh
 ```
 
 Check native Linux or WSL2 hardware visibility before motion tests:
 
 ```bash
-./scripts/check_real_hardware_env.sh
+./scripts/hardware/check_real_hardware_env.sh
 ```
 
 The check reports ROS setup, vendor package links, MS42DC serial candidates, Scout USB-CAN-A or SocketCAN status, and Aubo TCP reachability. On WSL2, USB serial and USB-CAN adapters must be passed through from Windows with `usbipd-win` before Linux can expose `/dev/ttyUSB*`, `/dev/ttyACM*`, or `/dev/ttyCH*`. [hurry-porter](https://github.com/zay002/hurry-porter) is recommended for this USB handoff and for quick `hurry waveshare-can-a` diagnostics.
@@ -126,7 +126,7 @@ The check reports ROS setup, vendor package links, MS42DC serial candidates, Sco
 Build the core bringup packages:
 
 ```bash
-source /opt/ros/jazzy/setup.bash
+source scripts/env/arachne_env.sh
 colcon build --base-paths src --packages-select \
   ugv_sdk scout_msgs scout_base serial step_motor arachne_hardware \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
@@ -135,13 +135,13 @@ colcon build --base-paths src --packages-select \
 If `python3` in the current shell comes from conda or pyenv, run:
 
 ```bash
-source scripts/arachne_env.sh
+source scripts/env/arachne_env.sh
 ```
 
 The script pins the project session to the ROS-compatible Ubuntu system Python and removes conda/pyenv Python paths from the front of the environment. To build the full workspace, use:
 
 ```bash
-./scripts/build_workspace.sh
+./scripts/build/build_workspace.sh
 ```
 
 Launch a partial or full real-hardware session:
@@ -184,7 +184,7 @@ The pre-hardware control skeleton is split into standard packages:
 Run all repository-level checks:
 
 ```bash
-./scripts/check_workspace.sh
+./scripts/build/check_workspace.sh
 ```
 
 Launch the combined pre-hardware control stack:
@@ -218,8 +218,10 @@ ros2 launch arachne_operator sequence_executor.launch.py
 Start simulation or real bringup first, then open the panel:
 
 ```bash
-./scripts/teach_panel.sh
+./scripts/operator/teach_panel.sh
 ```
+
+The teach launch now starts a safe RViz whole-robot visualization by default: it only subscribes to the current `/joint_states`, adapts real Aubo joint names to the Arachne URDF when needed, and does not publish fake `/joint_states` or control commands. Pass `with_visualization:=false` to open only the panel, or `visualization_with_rviz:=false` to keep TF/robot_state_publisher without opening RViz.
 
 The default real Aubo joint names are `shoulder_joint,upperArm_joint,foreArm_joint,wrist1_joint,wrist2_joint,wrist3_joint`. The panel also recognizes matching `aubo_`-prefixed joint states for RViz/mock flows. Override `arm_command_joint_names:=...` when the controller command names differ. Recordings are JSON files under the local `recordings/teach/` directory by default. For safety, replay remains conservative: base replay uses `0.20 m/s` and `0.24 rad/s`, and each arm waypoint uses `3.75 s` with feedback verification. Before entering Aubo freedrive/teach mode, confirm the arm is stably enabled, the workspace is clear, and a person is ready to support the arm if needed.
 
@@ -306,42 +308,42 @@ Send `stop` on the same topic or call `/arachne/vla/translator/stop` to cancel t
 Run the playable Gazebo showroom demo:
 
 ```bash
-./scripts/switch_demo.sh
+./scripts/sim/switch_demo.sh
 ```
 
 On WSL2, `switch_demo.sh` exports the Mesa D3D12 settings needed by Gazebo GUI so rendering can use the Windows GPU instead of CPU `llvmpipe`. It also defaults Gazebo to the OpenGL backend and a lighter `180 Hz` physics update rate. Tune these without editing files:
 
 ```bash
-GZ_UPDATE_RATE=120 ./scripts/switch_demo.sh
-GZ_RENDER_BACKEND=opengl ./scripts/switch_demo.sh
-MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA ./scripts/switch_demo.sh
+GZ_UPDATE_RATE=120 ./scripts/sim/switch_demo.sh
+GZ_RENDER_BACKEND=opengl ./scripts/sim/switch_demo.sh
+MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA ./scripts/sim/switch_demo.sh
 ```
 
 Input backend selection:
 
 ```bash
-INPUT_BACKEND=auto ./scripts/switch_demo.sh  # default: joy on Linux, web bridge in WSL2
-INPUT_BACKEND=joy JOY_DEV=/dev/input/js1 ./scripts/switch_demo.sh
-INPUT_BACKEND=web ./scripts/switch_demo.sh
+INPUT_BACKEND=auto ./scripts/sim/switch_demo.sh  # default: joy on Linux, web bridge in WSL2
+INPUT_BACKEND=joy JOY_DEV=/dev/input/js1 ./scripts/sim/switch_demo.sh
+INPUT_BACKEND=web ./scripts/sim/switch_demo.sh
 ```
 
 With the web backend, open `http://127.0.0.1:8787` in the browser and press any Switch Pro button. The left stick drives the Scout in its own body frame: joystick radius controls instantaneous speed, vertical direction controls forward/back, and horizontal direction controls turning. The right stick orbits the Gazebo follower camera. `B` / `A` open and close the gripper; `ZL` + D-pad up/down moves the selected Aubo joint. `+` or the browser `RESET` button resets the base, arm, gripper, and Gazebo demo pose.
 
-The Switch Pro web-bridge defaults use `forward_axis_multiplier=-1.0` and `lateral_axis_multiplier=1.0`. If another controller reports an axis in the opposite direction, run `FORWARD_AXIS_SIGN=1.0 ./scripts/switch_demo.sh` or `LATERAL_AXIS_SIGN=-1.0 ./scripts/switch_demo.sh`.
+The Switch Pro web-bridge defaults use `forward_axis_multiplier=-1.0` and `lateral_axis_multiplier=1.0`. If another controller reports an axis in the opposite direction, run `FORWARD_AXIS_SIGN=1.0 ./scripts/sim/switch_demo.sh` or `LATERAL_AXIS_SIGN=-1.0 ./scripts/sim/switch_demo.sh`.
 
-The default camera distance is `2.0 m`; tune it with `GAZEBO_CAMERA_DISTANCE=1.7 ./scripts/switch_demo.sh` if a closer or wider capture is needed.
+The default camera distance is `2.0 m`; tune it with `GAZEBO_CAMERA_DISTANCE=1.7 ./scripts/sim/switch_demo.sh` if a closer or wider capture is needed.
 
 Run the lightweight RViz-only view:
 
 ```bash
-DEMO_MODE=rviz ./scripts/switch_demo.sh
+DEMO_MODE=rviz ./scripts/sim/switch_demo.sh
 ```
 
 The current Gazebo pass focuses on promotional driving physics and real mesh visualization in a single Gazebo window. The world uses a lighter physics step, disabled shadows, a flat showroom floor, Gazebo DiffDrive, Gazebo `/gz/odom`, high-rate `/gui/track` camera messages, a demo Aubo trajectory bridge, and explicit MS42DC finger position controllers. Full arm and gripper physics control should be moved to ros2_control controllers later.
 
 ## Gazebo Autonomous Pick Validation
 
-`scripts/gazebo_autopick_demo.sh` launches a Gazebo-only autonomy check without the manual Switch teleop node. `gazebo_autopick_demo.launch.py` spawns the same Arachne robot, bridges `/cmd_vel`, `/gz/odom`, and the six direct Aubo joint-position command topics, starts the Gazebo demo arm/gripper bridge, and runs `gazebo_autopick_planner`.
+`scripts/sim/gazebo_autopick_demo.sh` launches a Gazebo-only autonomy check without the manual Switch teleop node. `gazebo_autopick_demo.launch.py` spawns the same Arachne robot, bridges `/cmd_vel`, `/gz/odom`, and the six direct Aubo joint-position command topics, starts the Gazebo demo arm/gripper bridge, and runs `gazebo_autopick_planner`.
 
 The planner uses the known SDF showroom layout as a deterministic map. It inflates table, marker, crate, and pedestal obstacles by the Scout footprint, continuously refreshes 2D A* to a ground-target approach pose, smooths the route, and tracks it with a turn-then-drive pure-pursuit controller. After arrival, it aligns the chassis toward the visible `pick_bottle` near `(3.4, -2.35)`, computes pre-grasp/grasp/lift Cartesian targets in the base frame, solves Aubo position IK online with a damped least-squares Jacobian, and sends the result through both `/arachne/gui_joint_states` and direct Gazebo joint-position topics. MS42DC open/close still goes through `/arachne/gripper/command`.
 
@@ -351,7 +353,7 @@ This is deliberately a validation layer: it proves the launch/control interfaces
 
 `godot/arachne_showcase` is a separate Godot 4.x frontend for high-FPS third-person visualization and teleoperation feel. It loads existing Scout, Aubo i5, MS42DC, AG95, and prop meshes through generated links under `assets/vendor/`, then uses a larger flat office-style initial map, collision-aware character-body movement, proportional skid-steer controls, pushable rigid-body props, pickable bottles/balls, camera damping, visual suspension, visual arm/gripper interpolation, and manual Aubo joint nudging.
 
-In WSL2, `scripts/godot_showcase.sh` forces `GALLIUM_DRIVER=d3d12` and the OpenGL compatibility renderer because the Vulkan path can fall back to CPU `llvmpipe`. It also starts `scripts/godot_gamepad_bridge.py`, a browser Gamepad API bridge for controllers paired to Windows. Native Linux can keep Forward+ and use native Godot joystick input unless the web bridge is explicitly enabled with `GODOT_GAMEPAD_BRIDGE=true`.
+In WSL2, `scripts/godot/godot_showcase.sh` forces `GALLIUM_DRIVER=d3d12` and the OpenGL compatibility renderer because the Vulkan path can fall back to CPU `llvmpipe`. It also starts `scripts/godot/godot_gamepad_bridge.py`, a browser Gamepad API bridge for controllers paired to Windows. Native Linux can keep Forward+ and use native Godot joystick input unless the web bridge is explicitly enabled with `GODOT_GAMEPAD_BRIDGE=true`.
 
 The robot visual mesh chain is kept aligned with Gazebo by reusing the same Scout/Aubo/MS42DC asset sources and the same mount/pivot constants. Godot still uses simplified collision proxies and its own office map, so it is a showcase layer rather than the authoritative contact model.
 
@@ -370,4 +372,4 @@ The bridge layer is intentionally a placeholder:
 
 The bridge defaults to standalone memory mode, and switches to UDP placeholder mode when a ROS2 environment is sourced. This keeps the showcase dependency-free while leaving a stable insertion point for a later ROS2, WebSocket, native Godot ROS2, MuJoCo, or other physics backend.
 
-Use `scripts/fetch_godot_assets.sh` to download optional CC0 office furniture props, then `scripts/test_godot_showcase.sh` to run the headless Godot self-test. The test links assets, loads the scene, drives a scripted route, checks basic movement/camera/mesh/bridge health, verifies pickable target search and auto-pick drive/IK generation, and exits nonzero on regressions.
+Use `scripts/godot/fetch_godot_assets.sh` to download optional CC0 office furniture props, then `scripts/godot/test_godot_showcase.sh` to run the headless Godot self-test. The test links assets, loads the scene, drives a scripted route, checks basic movement/camera/mesh/bridge health, verifies pickable target search and auto-pick drive/IK generation, and exits nonzero on regressions.

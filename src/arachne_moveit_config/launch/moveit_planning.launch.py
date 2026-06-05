@@ -21,11 +21,16 @@ def launch_setup(context, *args, **kwargs):
     model_path = description_share / "urdf" / "arachne.urdf.xacro"
     gripper_type = LaunchConfiguration("gripper_type").perform(context)
     srdf_path = moveit_share / "config" / f"arachne_{gripper_type}.srdf.xacro"
+    joint_states_topic = LaunchConfiguration("joint_states_topic")
+    tool_adapter_xyz = LaunchConfiguration("tool_adapter_xyz").perform(context)
+    tool_adapter_rpy = LaunchConfiguration("tool_adapter_rpy").perform(context)
 
     robot_description = xacro.process_file(
         str(model_path),
         mappings={
             "gripper_type": gripper_type,
+            "tool_adapter_xyz": tool_adapter_xyz,
+            "tool_adapter_rpy": tool_adapter_rpy,
             "with_ros2_control": "true",
             "with_mimic_joints": "false",
         },
@@ -54,6 +59,7 @@ def launch_setup(context, *args, **kwargs):
             executable="move_group",
             output="screen",
             parameters=[moveit_params],
+            remappings=[("joint_states", joint_states_topic)],
         ),
         Node(
             package="rviz2",
@@ -61,6 +67,7 @@ def launch_setup(context, *args, **kwargs):
             output="screen",
             condition=IfCondition(LaunchConfiguration("launch_rviz")),
             parameters=[moveit_params],
+            remappings=[("joint_states", joint_states_topic)],
         ),
     ]
 
@@ -71,6 +78,9 @@ def generate_launch_description():
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
             DeclareLaunchArgument("launch_rviz", default_value="true"),
             DeclareLaunchArgument("with_robot_state_publisher", default_value="true"),
+            DeclareLaunchArgument("joint_states_topic", default_value="/joint_states"),
+            DeclareLaunchArgument("tool_adapter_xyz", default_value="0.0 0.0 0.0"),
+            DeclareLaunchArgument("tool_adapter_rpy", default_value="0.0 0.0 0.785398163397"),
             OpaqueFunction(function=launch_setup),
         ]
     )

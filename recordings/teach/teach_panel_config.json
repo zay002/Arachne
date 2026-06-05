@@ -1,0 +1,30 @@
+{
+  "format": "arachne_teach_config_v1",
+  "saved_at": "2026-06-05T09:59:59+08:00",
+  "motion": {
+    "base_linear_speed": 0.08,
+    "base_angular_speed": 0.3,
+    "arm_jog_step_m": 0.008,
+    "arm_rotate_step_deg": 0.7,
+    "arm_joint_step_deg": 0.4,
+    "arm_hold_period_sec": 0.1,
+    "arm_waypoint_duration_sec": 3.75
+  },
+  "poses": {
+    "home_joints_deg": "-90.00,11.55,95.09,27.80,96.07,43.79",
+    "install_joints_deg": "-90.00,11.55,95.09,27.80,96.07,43.79"
+  },
+  "payload": {
+    "mass_kg": 0.818,
+    "cog_m": "0.039927,0.045067,0.143233",
+    "aom": "0,0,0",
+    "inertia": "0,0,0,0,0,0"
+  },
+  "safety": {
+    "arm_keepout_enabled": true,
+    "rear_rack_keepout_min_xyz": "-0.41,-0.22,0.04",
+    "rear_rack_keepout_max_xyz": "0.09,0.22,0.82",
+    "arm_keepout_sample_step_m": 0.035,
+    "arm_keepout_joint_step_rad": 0.06
+  }
+}

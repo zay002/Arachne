@@ -4,7 +4,7 @@ default:
     arm_mount_xyz: "0.22 0.0 0.155"
     arm_mount_rpy: "0.0 0.0 1.57079632679"
     tool_adapter_xyz: "0.0 0.0 0.0"
-    tool_adapter_rpy: "0.0 0.0 0.0"
+    tool_adapter_rpy: "0.0 0.0 0.785398163397"
     gripper_type: "ms42dc"
     with_lidar: "true"
     with_ee_camera: "false"

@@ -196,10 +196,13 @@ hardware_interface::return_type AuboHardwareInterface::write(
         safety_mode_ == SafetyModeType::Normal || safety_mode_ == SafetyModeType::ReducedMode;
     const bool recoverable_stop =
         safety_mode_ == SafetyModeType::ProtectiveStop || safety_mode_ == SafetyModeType::SafeguardStop;
+    const bool poweroff_prestart =
+        robot_mode_ == RobotModeType::PowerOff && safety_mode_ == SafetyModeType::Undefined;
     if (teachControlEnabled()) {
         readActualQ();
         aubo_position_commands_ = actual_q_copy_;
         aubo_velocity_commands_.fill(0.0);
+        velocity_command_active_ = false;
         if (safety_ok && servo_mode_start_ && stopServoMode() != 0) {
             RCLCPP_ERROR(rclcpp::get_logger("AuboHardwareInterface"),
                          "Failed to stop Aubo servo mode for teach control.");
@@ -218,6 +221,7 @@ hardware_interface::return_type AuboHardwareInterface::write(
             readActualQ();
             aubo_position_commands_ = actual_q_copy_;
             aubo_velocity_commands_.fill(0.0);
+            velocity_command_active_ = false;
             if (!servo_mode_recovery_warned_) {
                 RCLCPP_WARN(
                     rclcpp::get_logger("AuboHardwareInterface"),
@@ -227,6 +231,32 @@ hardware_interface::return_type AuboHardwareInterface::write(
             return hardware_interface::return_type::OK;
         }
         servo_mode_recovery_warned_ = false;
+        const bool velocity_commanded = std::any_of(
+            aubo_velocity_commands_.begin(), aubo_velocity_commands_.end(),
+            [](double velocity) { return std::abs(velocity) > 1e-5; });
+        if (velocity_commanded) {
+            if (!velocity_command_active_) {
+                readActualQ();
+                aubo_position_commands_ = actual_q_copy_;
+            }
+            constexpr double kMaxVelocityCommandRadSec = 0.45;
+            const double dt = std::clamp(period.seconds(), 0.001, 0.02);
+            for (std::size_t i = 0; i < aubo_position_commands_.size(); ++i) {
+                double velocity = aubo_velocity_commands_[i];
+                if (!std::isfinite(velocity)) {
+                    velocity = 0.0;
+                }
+                velocity = std::clamp(
+                    velocity, -kMaxVelocityCommandRadSec, kMaxVelocityCommandRadSec);
+                aubo_position_commands_[i] += velocity * dt;
+            }
+        } else if (velocity_command_active_) {
+            // Deadman release: zero velocity means hold the measured position
+            // immediately, not the last lookahead target from the jog stream.
+            readActualQ();
+            aubo_position_commands_ = actual_q_copy_;
+        }
+        velocity_command_active_ = velocity_commanded;
         try {
             if (Servoj(aubo_position_commands_) != 0) {
                 return hardware_interface::return_type::ERROR;
@@ -236,10 +266,11 @@ hardware_interface::return_type AuboHardwareInterface::write(
                                 "Servoj exception: " << e.what());
             return hardware_interface::return_type::ERROR;
         }
-    } else if (safety_ok || recoverable_stop) {
+    } else if (safety_ok || recoverable_stop || poweroff_prestart) {
         readActualQ();
         aubo_position_commands_ = actual_q_copy_;
         aubo_velocity_commands_.fill(0.0);
+        velocity_command_active_ = false;
         if (!waiting_for_running_warned_) {
             RCLCPP_WARN_STREAM(
                 rclcpp::get_logger("AuboHardwareInterface"),
@@ -385,31 +416,42 @@ int AuboHardwareInterface::Servoj(
                                << joint_position_command[5] << "]");
         first_servoj_logged_ = true;
     }
-    // 接口调用 : 获取机器人的名字
-    auto robot_name = rpc_client_->getRobotNames().front();
-
     std::vector<double> traj(6, 0);
     for (size_t i = 0; i < traj.size(); i++) {
         traj[i] = joint_position_command[i];
     }
-    
-    if(!rpc_client_->getRobotInterface(robot_name)
-                ->getMotionControl()
-                ->isServoModeEnabled()){
-                
-        rpc_client_->getRobotInterface(robot_name)
-        ->getMotionControl()
-        ->setServoMode(true);           
+
+    if (robot_name_.empty()) {
+        RCLCPP_ERROR(rclcpp::get_logger("AuboHardwareInterface"),
+                     "Aubo robot name is empty; refusing servoJoint command.");
+        return -1;
     }
-    // 接口调用: servoJoint
-    while (true) {
-        int servoJoint_num = rpc_client_->getRobotInterface(robot_name)
-                                ->getMotionControl()
-                                ->servoJoint(traj, 0.2, 0.2, 0.01, 0.1, 200);
-        if(servoJoint_num != 2){
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+    // Arachne servoJoint tuning: keep one bounded SDK call per ros2_control
+    // write cycle. Jetson's stock PREEMPT kernel is not RT; a 125 Hz loop with
+    // t=8 ms is steadier than chasing the nominal 5 ms SDK example period.
+    constexpr double kServoJointVelocity = 0.2;
+    constexpr double kServoJointAcceleration = 0.2;
+    constexpr double kServoJointPeriodSec = 0.008;
+    constexpr double kServoJointLookaheadSec = 0.12;
+    constexpr int kServoJointGain = 150;
+    const int servoJoint_num = rpc_client_->getRobotInterface(robot_name_)
+                                   ->getMotionControl()
+                                   ->servoJoint(
+                                       traj,
+                                       kServoJointVelocity,
+                                       kServoJointAcceleration,
+                                       kServoJointPeriodSec,
+                                       kServoJointLookaheadSec,
+                                       kServoJointGain);
+    if (servoJoint_num == 2 && !servo_joint_retry_warned_) {
+        RCLCPP_WARN(
+            rclcpp::get_logger("AuboHardwareInterface"),
+            "servoJoint returned retry/busy status; not blocking the write loop. "
+            "The next controller cycle will send the next command.");
+        servo_joint_retry_warned_ = true;
+    } else if (servoJoint_num != 2) {
+        servo_joint_retry_warned_ = false;
     }
 
     return 0;

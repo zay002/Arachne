@@ -26,6 +26,10 @@ setup(
             "real_hardware_acceptance_test = arachne_operator.real_hardware_acceptance_test:main",
             "sequence_executor = arachne_operator.sequence_executor:main",
             "teach_panel = arachne_operator.teach_panel:main",
+            (
+                "teach_visualization_joint_states = "
+                "arachne_operator.teach_visualization_joint_states:main"
+            ),
         ],
     },
 )
