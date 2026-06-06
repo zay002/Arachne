@@ -76,6 +76,7 @@ Without that environment, RViz may fail to resolve `package://...` mesh paths, c
 | Real-pose synchronized grasp preview | `./scripts/vision/grasp_preview_real_sync.sh` |
 | Real-pose synchronized grasp execution | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
 | Grasp task server | `./scripts/vision/grasp_task_server.sh` |
+| Agent Bridge | `./scripts/agent/agent_bridge.sh` |
 | Real-hardware environment check | `./scripts/hardware/check_real_hardware_env.sh` |
 | Real one-command bringup | `./scripts/hardware/real_bringup.sh` |
 | Real teach demo | `./scripts/hardware/real_teach_demo.sh` |
@@ -172,6 +173,7 @@ It starts real bringup, waits for `/odom`, `/joint_states`, the Aubo trajectory 
 | `src/arachne_moveit_config` | MoveIt2 starter config for Aubo i5 with MS42DC or AG95 |
 | `src/arachne_nav` | Nav2 starter config for Scout |
 | `src/arachne_operator` | Operator panel, grasp task server, sequence executor, VLA/WAM action-chunk translator |
+| `src/arachne_agent_bridge` | Safe external-agent tool whitelist, teach-style control bridge, and state snapshot |
 | `scripts/env` / `scripts/build` | ROS environment and colcon build entrypoints |
 | `scripts/hardware` / `scripts/operator` | Real bringup, acceptance, Aubo helpers, and teach-panel entrypoints |
 | `scripts/vision` | Gemini335, YOLO26, TensorRT, INT8 calibration, and live detection entrypoints |
@@ -189,6 +191,7 @@ The `scripts/` root no longer carries old top-level script entrypoints. Use the 
 - [Hardware](docs/hardware.md)
 - [Calibration](docs/calibration.md)
 - [Grasp Task Server](docs/grasp_task_server.md)
+- [Agent Bridge](docs/agent_platform.md)
 - [References](docs/references.md)
 
 Chinese versions are available as matching `*.zh-CN.md` files.

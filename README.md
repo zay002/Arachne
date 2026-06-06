@@ -76,6 +76,7 @@ source install/setup.bash
 | 真机姿态同步抓取预览 | `./scripts/vision/grasp_preview_real_sync.sh` |
 | 真机同步并执行抓取 | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
 | 抓取任务服务器 | `./scripts/vision/grasp_task_server.sh` |
+| Agent Bridge | `./scripts/agent/agent_bridge.sh` |
 | 真机环境检查 | `./scripts/hardware/check_real_hardware_env.sh` |
 | 真机一键 bringup | `./scripts/hardware/real_bringup.sh` |
 | 真机示教演示 | `./scripts/hardware/real_teach_demo.sh` |
@@ -172,6 +173,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 | `src/arachne_moveit_config` | Aubo i5 + MS42DC/AG95 的 MoveIt2 起步配置 |
 | `src/arachne_nav` | Scout Nav2 起步配置 |
 | `src/arachne_operator` | 操作员面板、grasp task server、sequence executor、VLA/WAM action chunk translator |
+| `src/arachne_agent_bridge` | 外部 Agent 的安全工具白名单、示教式控制桥和状态快照 |
 | `scripts/env` / `scripts/build` | ROS 环境和 colcon 构建入口 |
 | `scripts/hardware` / `scripts/operator` | 真机 bringup、验收、Aubo 辅助脚本和示教入口 |
 | `scripts/vision` | Gemini335、YOLO26、TensorRT、INT8 校准和实时检测入口 |
@@ -189,6 +191,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 - [硬件](docs/hardware.zh-CN.md)
 - [标定](docs/calibration.zh-CN.md)
 - [抓取任务服务器](docs/grasp_task_server.zh-CN.md)
+- [Agent Bridge](docs/agent_platform.zh-CN.md)
 - [任务路线：垃圾拾取与充电枪拔插](docs/task_tracks.zh-CN.md)
 - [参考资料](docs/references.zh-CN.md)
 

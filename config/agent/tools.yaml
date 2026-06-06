@@ -1,0 +1,35 @@
+# Tool names exposed by arachne_agent_bridge.
+# This file is documentation/configuration for external agents; the ROS node
+# publishes the same tool surface on /arachne/agent/tools.
+
+tools:
+  - name: get_robot_state
+    danger: read_only
+    description: Return cached robot and task state.
+  - name: safe_stop
+    danger: stop
+    description: Stop base, arm velocity, gripper, and base task primitive.
+  - name: base_velocity
+    danger: motion
+    description: Bounded timed /cmd_vel nudge.
+  - name: base_relative
+    danger: motion
+    description: Forward relative drive request to grasp_task_server base primitive.
+  - name: base_turn
+    danger: motion
+    description: Forward relative yaw request to grasp_task_server base primitive.
+  - name: arm_cartesian_jog
+    danger: motion
+    description: End-effector x/y/z relative jog using damped IK velocity.
+  - name: arm_joint_jog
+    danger: motion
+    description: One-joint relative jog using Aubo joint velocity stream.
+  - name: arm_stop
+    danger: stop
+    description: Publish zero Aubo joint velocity.
+  - name: gripper
+    danger: motion
+    description: Open, close, or stop the gripper.
+  - name: aubo_teach
+    danger: mode_change
+    description: Request Aubo teach/freedrive mode.

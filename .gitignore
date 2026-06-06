@@ -22,6 +22,16 @@ godot/**/assets/vendor/*
 __pycache__/
 .pytest_cache/
 
+# Local secrets and agent provider credentials.
+.env
+*.env
+!*.example.env
+secrets/
+credentials/
+*.key
+*.pem
+.streamlit/secrets.toml
+
 # Versioned teach/replay examples. Keep ad-hoc generated files local unless
 # they are curated JSON recordings under recordings/teach/.
 recordings/*

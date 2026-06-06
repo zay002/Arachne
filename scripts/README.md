@@ -10,6 +10,7 @@ source scripts/env/arachne_env.sh
 ./scripts/vision/grasp_preview.sh
 ./scripts/vision/grasp_preview_real_sync.sh --sync-only
 ./scripts/vision/grasp_task_server.sh
+./scripts/agent/agent_bridge.sh
 ```
 
 | Directory | Purpose |
@@ -18,6 +19,7 @@ source scripts/env/arachne_env.sh
 | `build/` | Colcon build, setup, and workspace checks |
 | `hardware/` | Real hardware bringup, Aubo helpers, acceptance tests, serial checks |
 | `operator/` | Teach-panel launch entry |
+| `agent/` | Safe Agent Bridge launch entry |
 | `vision/` | Gemini335, YOLO, TensorRT export, live detection, grasp preview, grasp task server |
 | `model/` | URDF, TF, gripper, and RViz model checks |
 | `sim/` | Gazebo demos and simulation validation |
