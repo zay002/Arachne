@@ -14,12 +14,9 @@ Arachne is a ROS 2 workspace for a mobile manipulation robot aimed at deep-reinf
 
 The long-term goal is a real mobile manipulator that can perform precision assembly, measurement, and mobile manipulation tasks. The base, arm, gripper, vision sensors, and lidar share a common state representation, while classical control, teach data, visual perception, and deep RL policies are fused under explicit safety constraints. The current `jetson` route focuses on real-hardware streaming control, perception capture, teach-panel workflows, digital-twin validation, and edge inference. Early task tracks include trash recognition and basket placement, plus charging-gun recognition, alignment, removal, and insertion.
 
-<table>
-  <tr>
-    <td width="50%" align="center"><img src="docs/demo/realbot_1.jpg" alt="Arachne physical robot front view" width="100%"></td>
-    <td width="50%" align="center"><img src="docs/demo/realbot_2.jpg" alt="Arachne physical robot side view" width="100%"></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/demo/realbot.PNG" alt="Arachne real hardware overview" width="900">
+</p>
 
 ## Features
 

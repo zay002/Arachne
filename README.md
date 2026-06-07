@@ -14,12 +14,9 @@ Arachne 是一个面向深度强化学习联合控制的移动操作机器人 RO
 
 项目最终目标是形成一台能在真实场景中执行精密装配、测量和移动操作任务的联合控制小车：底盘、机械臂、夹具和视觉/雷达传感器共享状态表示，在安全约束内由传统控制、示教数据、视觉感知和深度强化学习策略逐步融合。当前 `jetson` 路线优先打牢真机流式控制、感知数据采集、可视化示教、数字孪生和边缘推理链路；早期任务线包括垃圾识别拾取入篮，以及充电枪识别、对准、拔出和插入。
 
-<table>
-  <tr>
-    <td width="50%" align="center"><img src="docs/demo/realbot_1.jpg" alt="Arachne physical robot front view" width="100%"></td>
-    <td width="50%" align="center"><img src="docs/demo/realbot_2.jpg" alt="Arachne physical robot side view" width="100%"></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/demo/realbot.PNG" alt="Arachne 真机硬件介绍图" width="900">
+</p>
 
 ## 特性
 
