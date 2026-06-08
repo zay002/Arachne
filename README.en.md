@@ -69,7 +69,7 @@ Without that environment, RViz may fail to resolve `package://...` mesh paths, c
 | Gazebo autonomous pick validation | `./scripts/sim/gazebo_autopick_demo.sh` |
 | Godot showcase | `./scripts/godot/godot_showcase.sh` |
 | Gemini335 YOLO live preview | `./scripts/vision/gemini_yolo_live.sh` |
-| Bottle grasp-to-basket path preview | `./scripts/vision/grasp_preview.sh` |
+| Trash segmentation grasp-to-basket preview | `./scripts/vision/grasp_preview.sh` |
 | Real-pose synchronized grasp preview | `./scripts/vision/grasp_preview_real_sync.sh` |
 | Real-pose synchronized grasp execution | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
 | Grasp task server | `./scripts/vision/grasp_task_server.sh` |
@@ -173,7 +173,7 @@ It starts real bringup, waits for `/odom`, `/joint_states`, the Aubo trajectory 
 | `src/arachne_agent_bridge` | Safe external-agent tool whitelist, teach-style control bridge, and state snapshot |
 | `scripts/env` / `scripts/build` | ROS environment and colcon build entrypoints |
 | `scripts/hardware` / `scripts/operator` | Real bringup, acceptance, Aubo helpers, and teach-panel entrypoints |
-| `scripts/vision` | Gemini335, YOLO26, TensorRT, INT8 calibration, and live detection entrypoints |
+| `scripts/vision` | Gemini335, YOLO26 segmentation, TensorRT, INT8 calibration, and live segmentation entrypoints |
 | `scripts/model` / `scripts/sim` / `scripts/godot` | Model checks, simulation demos, and Godot showcase scripts |
 | `yolo_workspace` | YOLO venv, weights, engines, datasets, and calibration images |
 | `godot/arachne_showcase` | Godot 4.x third-person showcase frontend |
@@ -196,7 +196,7 @@ Chinese versions are available as matching `*.zh-CN.md` files.
 ## Roadmap
 
 - Real-hardware reliability: stabilize one-command bringup, remote startup, payload setup, streaming velocity control, and safe stop for Scout, Aubo, MS42DC, Gemini335, and Leishen Intelligence C16.
-- Perception and tasks: collect Gemini335 RGB-D and C16 lidar data, tune YOLO26 detection for trash, workpieces, and charging guns, and build INT8 TensorRT, depth ROI localization, the grasp task server, and local dataset loops.
+- Perception and tasks: collect Gemini335 RGB-D and C16 lidar data, tune YOLO26 segmentation for trash, workpieces, and charging guns, and build INT8 TensorRT, mask/depth ROI localization, the grasp task server, and local dataset loops.
 - Static manipulation: with the base parked, advance two task tracks in parallel: recognize trash, pick it, and place it into the front basket; recognize the charging gun, precisely align, remove it, and insert it. Then extend to workpiece detection, measurement-point localization, and simple assembly pose generation.
 - Mobile manipulation: combine base localization, arm reachability, vehicle pose, visual observations, and C16 environment sensing for move-stop-observe-pick, charging-gun insertion/removal, and measurement workflows.
 - Deep RL joint control: train base-arm-gripper policies from simulation and real teach data, starting with precision alignment, charging-gun insertion/removal, assembly, and measurement before transferring to the real robot.

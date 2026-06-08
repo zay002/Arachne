@@ -22,9 +22,21 @@ refresh_arachne_environment() {
 
 refresh_arachne_environment
 
-MODEL="${ARACHNE_GRASP_YOLO_MODEL:-${ROOT_DIR}/yolo_workspace/weights/yolo26n.pt}"
+DEFAULT_YOLO_ENGINE="${ROOT_DIR}/yolo_workspace/engines/trash_yolo26n_seg_best_fp16_640.engine"
+DEFAULT_YOLO_ONNX="${ROOT_DIR}/yolo_workspace/weights/trash_yolo26n_seg_best.onnx"
+DEFAULT_YOLO_PT="${ROOT_DIR}/yolo_workspace/weights/trash_yolo26n_seg_best.pt"
+if [[ -n "${ARACHNE_GRASP_YOLO_MODEL:-}" ]]; then
+  MODEL="${ARACHNE_GRASP_YOLO_MODEL}"
+elif [[ -f "${DEFAULT_YOLO_ENGINE}" ]]; then
+  MODEL="${DEFAULT_YOLO_ENGINE}"
+elif [[ -f "${DEFAULT_YOLO_ONNX}" ]]; then
+  MODEL="${DEFAULT_YOLO_ONNX}"
+else
+  MODEL="${DEFAULT_YOLO_PT}"
+fi
 VENV="${ARACHNE_GRASP_YOLO_VENV:-${ROOT_DIR}/yolo_workspace/.venv}"
-CLASSES="${ARACHNE_GRASP_CLASSES:-bottle}"
+YOLO_TASK="${ARACHNE_GRASP_YOLO_TASK:-segment}"
+CLASSES="${ARACHNE_GRASP_CLASSES:-trash}"
 CONF="${ARACHNE_GRASP_CONF:-0.25}"
 IMGSZ="${ARACHNE_GRASP_IMGSZ:-640}"
 DEVICE_ID="${ARACHNE_GRASP_DEVICE_ID:-0}"
@@ -63,6 +75,8 @@ mkdir -p "${LOG_DIR}"
     echo "script_sha256: $(sha256sum "${BASH_SOURCE[0]}" | awk '{print $1}')"
   fi
   echo "python: ${ARACHNE_SYSTEM_PYTHON}"
+  echo "yolo_model: ${MODEL}"
+  echo "yolo_task: ${YOLO_TASK}"
   echo "ament_prefix_path: ${AMENT_PREFIX_PATH:-}"
   echo "depth_projection_flip_x: ${DEPTH_PROJECTION_FLIP_X}"
   echo "depth_projection_flip_y: ${DEPTH_PROJECTION_FLIP_Y}"
@@ -105,6 +119,8 @@ cleanup() {
       kill "${pid}" >/dev/null 2>&1 || true
     fi
   done
+  sleep 0.3
+  cleanup_stale_preview_nodes
 }
 trap cleanup EXIT INT TERM
 
@@ -276,6 +292,7 @@ run_pipeline() {
   "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/vision/grasp_preview_pipeline.py" \
     --model "${MODEL}" \
     --venv "${VENV}" \
+    --yolo-task "${YOLO_TASK}" \
     --classes "${CLASSES}" \
     --conf "${CONF}" \
     --imgsz "${IMGSZ}" \

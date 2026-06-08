@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROJECT_DIR="${ARACHNE_YOLO_PROJECT_DIR:-${ROOT_DIR}/yolo_workspace}"
 VENV_DIR="${ARACHNE_YOLO_VENV:-${PROJECT_DIR}/.venv}"
-MODEL="${1:-yolo26n.pt}"
+MODEL="${1:-trash_yolo26n_seg_best.pt}"
 PRECISION="${2:-fp16}"
 IMGSZ="${ARACHNE_YOLO_IMGSZ:-320}"
 BATCH="${ARACHNE_YOLO_BATCH:-1}"

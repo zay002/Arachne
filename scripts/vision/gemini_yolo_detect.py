@@ -26,12 +26,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fps", type=float, default=30.0)
     parser.add_argument("--fourcc", default="YUYV")
     parser.add_argument("--model", required=True)
+    parser.add_argument("--task", default="segment")
     parser.add_argument("--imgsz", type=int, default=320)
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument(
         "--classes",
         default="",
-        help="Optional comma-separated class names or ids, e.g. bottle,cup,bowl or 39,41,45.",
+        help="Optional comma-separated class names or ids, e.g. trash or 0.",
     )
     parser.add_argument(
         "--duration",
@@ -124,7 +125,7 @@ def main() -> int:
     run_dir.mkdir(parents=True, exist_ok=True)
 
     model_path = Path(args.model)
-    model = YOLO(str(model_path))
+    model = YOLO(str(model_path), task=args.task)
     class_ids = resolve_classes(model, args.classes)
     cap = open_capture(args)
 

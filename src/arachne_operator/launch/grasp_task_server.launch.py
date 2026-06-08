@@ -11,7 +11,7 @@ def generate_launch_description():
             DeclareLaunchArgument("execute_real", default_value="false"),
             DeclareLaunchArgument("confirm_execute_real", default_value="false"),
             DeclareLaunchArgument("with_rviz", default_value="false"),
-            DeclareLaunchArgument("classes", default_value="bottle"),
+            DeclareLaunchArgument("classes", default_value="trash"),
             DeclareLaunchArgument("confidence", default_value="0.25"),
             DeclareLaunchArgument("device_id", default_value="0"),
             DeclareLaunchArgument("real_execute_backend", default_value="sdk_move_joint"),

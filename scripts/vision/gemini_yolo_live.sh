@@ -30,7 +30,7 @@ if [[ -v ARACHNE_YOLO_CLASSES ]]; then
     CLASS_ARGS+=(--classes "${ARACHNE_YOLO_CLASSES}")
   fi
 else
-  CLASS_ARGS+=(--classes "bottle,cup,bowl")
+  CLASS_ARGS+=(--classes "trash")
 fi
 
 nohup setsid ./scripts/vision/gemini_yolo_test.sh \

@@ -118,22 +118,23 @@ cd /home/jetson/zhaoyang/Arachne
 当前默认使用：
 
 ```text
-yolo26n.pt      第一版快速通用检测，用于垃圾拾取 MVP
-yolo26n-seg.pt  后续 mask + depth ROI 的抓取定位候选
+trash_yolo26n_seg_best.pt  当前垃圾抓取默认模型，YOLO segmentation，类别为 trash
+yolo26n.pt                 通用 COCO 检测备用权重
+yolo26n-seg.pt             通用 COCO segmentation 备用权重
 ```
 
-第一版先用 YOLO26n 跑通检测和 3D 定位；如果 TensorRT 后帧率还有余量，再尝试 YOLO26s 或 YOLO26n-seg。充电枪不是通用 COCO 类别，后续需要采集本机 Gemini335 下的充电枪样本并微调专用权重。INT8 导出前需要先采集本机 Gemini335 的代表性图片作为 calibration/validation 数据，不建议用通用样例数据做最终量化。
+当前抓取链路默认使用自训 segmentation 权重 `trash_yolo26n_seg_best.pt`，先用 mask 锁定垃圾轮廓，再在 mask 内做 depth ROI 和 3D 点云；如果 mask 不可用，才退回检测框 ROI。充电枪不是通用 COCO 类别，后续需要采集本机 Gemini335 下的充电枪样本并微调专用权重。INT8 导出前需要先采集本机 Gemini335 的代表性图片作为 calibration/validation 数据，不建议用通用样例数据做最终量化。
 
 FP16 TensorRT 测试导出：
 
 ```bash
-./scripts/vision/export_yolo_engine.sh yolo26n.pt fp16
+./scripts/vision/export_yolo_engine.sh trash_yolo26n_seg_best.pt fp16
 ```
 
 INT8 导出需要先准备 `yolo_workspace/datasets/trash_mvp/images/val`：
 
 ```bash
-./scripts/vision/export_yolo_engine.sh yolo26n.pt int8
+./scripts/vision/export_yolo_engine.sh trash_yolo26n_seg_best.pt int8
 ```
 
 只用 Gemini335 做实时 YOLO 标注预览，不启动底盘和机械臂：
@@ -142,15 +143,15 @@ INT8 导出需要先准备 `yolo_workspace/datasets/trash_mvp/images/val`：
 ./scripts/vision/gemini_yolo_live.sh
 ```
 
-默认实时预览使用 `YOLO26n`、`imgsz=640`、`conf=0.25`，并只显示 `bottle,cup,bowl` 三类，避免 COCO 预训练模型把人、桌子、遥控器等低置信度误检都画出来。关闭检测窗口、按 `Esc` 或按 `q` 都会退出检测进程。
+默认实时预览使用 `trash_yolo26n_seg_best.pt`、`imgsz=640`、`conf=0.25`，并只显示 `trash` 类。关闭检测窗口、按 `Esc` 或按 `q` 都会退出检测进程。
 
 如果需要临时调整类别：
 
 ```bash
-ARACHNE_YOLO_CLASSES=bottle,cup ./scripts/vision/gemini_yolo_live.sh
+ARACHNE_YOLO_CLASSES=trash ./scripts/vision/gemini_yolo_live.sh
 ```
 
-如果需要看所有 COCO 类：
+如果需要不做类别过滤：
 
 ```bash
 ARACHNE_YOLO_CLASSES= ./scripts/vision/gemini_yolo_live.sh --classes ""
@@ -162,9 +163,9 @@ ARACHNE_YOLO_CLASSES= ./scripts/vision/gemini_yolo_live.sh --classes ""
 ./scripts/vision/stop_gemini_yolo_live.sh
 ```
 
-### Bottle 抓取入篮路径预览
+### Trash 抓取入篮路径预览
 
-如果镜头里已经放了一个 bottle，可以启动快速 MVP 链路：
+如果镜头里已经放了一个可抓取垃圾，可以启动快速 MVP 链路：
 
 ```bash
 cd /home/jetson/zhaoyang/Arachne
@@ -195,6 +196,147 @@ ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES \
 
 真机执行仍会先同步真实 6 轴姿态，再规划。当前默认抓取补偿为 `ARACHNE_GRASP_BASE_OFFSET=0.06,0.09,-0.10`。轨迹下发前会检查真实 `/joint_states` 与规划第一帧是否接近；partial 轨迹默认拒绝执行。默认机械臂执行后端为 AUBO SDK JSON-RPC `MotionControl.moveJoint(q, a, v, blend_radius, duration)`：节点会选取少量关键关节目标，写入 `/tmp/arachne_aubo_teach_mode` 暂停 ROS driver 的 `servoJoint` 保持，逐段等待到位后再进入下一段；夹具命令走 `/arachne/gripper/command`。投放开爪后默认追加一次项目 home 姿态，home 来自 `scripts/env/arachne_real_defaults.sh` 的 `ARACHNE_AUBO_HOME_JOINTS_RAD`，可用 `ARACHNE_GRASP_REAL_RETURN_HOME=false` 临时关闭，或用 `ARACHNE_GRASP_REAL_HOME_JOINTS` 覆盖。普通 `grasp_preview.sh` 和不带 `--execute-real` 的 `grasp_preview_real_sync.sh` 仍然只做 RViz 预览。
 
+### 人工操作 Grasp Task Server
+
+`grasp_task_server` 是真实抓取的常驻入口。服务启动一次后，每次调用 `/arachne/grasp_task/start` 都会执行一轮完整流程：同步真机姿态 -> YOLO trash 分割 -> depth ROI 定位 -> MoveIt 规划 -> Aubo SDK 运动和夹具开合 -> 投放 -> 回 home。重复抓取时不需要重启 server。
+
+首次同步新代码后构建一次：
+
+```bash
+cd /home/jetson/zhaoyang/Arachne
+source scripts/env/arachne_env.sh
+colcon build --packages-select arachne_operator arachne_agent_bridge --symlink-install
+source install/setup.bash
+```
+
+#### 1. 启动真机硬件
+
+Aubo 已经是 `Running / Normal` 时，直接启动整套硬件：
+
+```bash
+./scripts/hardware/real_bringup.sh
+```
+
+如果 Aubo 还在 `PowerOff` 或 `Idle`，先走远程启动。终端 1：
+
+```bash
+ARACHNE_CONFIRM_AUBO_DRIVER=YES \
+ARACHNE_AUBO_ALLOW_PRESTART=YES \
+./scripts/hardware/real_aubo_bringup.sh
+```
+
+终端 2：
+
+```bash
+ARACHNE_CONFIRM_AUBO_REMOTE_START=YES \
+./scripts/hardware/real_aubo_remote_start.sh
+```
+
+看到 `Aubo remote startup complete` 后，再启动 Scout 和 MS42DC：
+
+```bash
+./scripts/hardware/real_bringup.sh --no-aubo
+```
+
+#### 2. 启动抓取服务
+
+终端 3 启动 server，并保持这个终端不要关闭：
+
+```bash
+./scripts/vision/grasp_task_server.sh \
+  execute_real:=true \
+  confirm_execute_real:=true \
+  with_rviz:=false \
+  extra_args:="--moveit-planning-time 3.0 --moveit-service-timeout-padding 3.0 --moveit-planning-attempts 2"
+```
+
+需要 RViz 检查时把 `with_rviz:=false` 改成 `with_rviz:=true`。
+
+#### 3. 执行一次完整抓取
+
+终端 4 加载环境后操作服务：
+
+```bash
+cd /home/jetson/zhaoyang/Arachne
+source scripts/env/arachne_env.sh
+source install/setup.bash
+```
+
+先检查：
+
+```bash
+ros2 service call /arachne/grasp_task/preflight std_srvs/srv/Trigger "{}"
+```
+
+`success=True` 后开始一轮完整抓取：
+
+```bash
+ros2 service call /arachne/grasp_task/start std_srvs/srv/Trigger "{}"
+```
+
+`start` 返回 `success=True` 只表示后台任务已经启动，不表示抓取完成。
+
+查看状态：
+
+```bash
+ros2 service call /arachne/grasp_task/status std_srvs/srv/Trigger "{}"
+```
+
+`state` 含义：
+
+```text
+running    正在检测、规划或执行
+succeeded  真实抓取、投放、回 home 已完成
+failed     preflight、规划或 runner 失败
+canceled   人工取消
+```
+
+任务正在 `running` 时不要重复调用 `start`。需要中断时：
+
+```bash
+ros2 service call /arachne/grasp_task/cancel std_srvs/srv/Trigger "{}"
+```
+
+#### 4. 重复抓取
+
+等上一轮进入 `succeeded`、`failed` 或 `canceled` 后，重新摆放目标，再调用同一个 start 命令：
+
+```bash
+ros2 service call /arachne/grasp_task/start std_srvs/srv/Trigger "{}"
+```
+
+也就是说，重复流程是：
+
+```text
+preflight 一次确认硬件 -> start -> 等 terminal state -> 摆下一个目标 -> start -> ...
+```
+
+如果中途目标放错或想重新识别：
+
+```bash
+ros2 service call /arachne/grasp_task/cancel std_srvs/srv/Trigger "{}"
+ros2 service call /arachne/grasp_task/start std_srvs/srv/Trigger "{}"
+```
+
+#### 5. 日志
+
+```bash
+TASK_DIR="$(ls -td log/grasp_tasks/* | head -1)"
+tail -f "${TASK_DIR}/process.log"
+tail -f "${TASK_DIR}/events.jsonl"
+```
+
+真实动作完成时，`process.log` 里会出现：
+
+```text
+REAL moveJoint ... grasp:close
+REAL gripper command: close
+REAL moveJoint ... basket_over:open
+REAL gripper command: open
+REAL moveJoint ... home
+REAL arm SDK moveJoint sequence complete
+```
+
 坐标系参考：
 
 - `base_link`：小车车体坐标，+X 指向车头，+Y 指向小车左侧，+Z 向上。篮筐、keepout、安全区、抓取规划路径都最终落在这个坐标系下。
@@ -216,7 +358,7 @@ ARACHNE_GRASP_BASE_OFFSET=0.04,0.10,-0.06 ./scripts/vision/grasp_preview_real_sy
 - MoveIt 2 `move_group`，使用 OMPL 做 Aubo 轨迹规划。
 - Gemini335 RGB-D 相机。
 - RViz 抓取预览界面。
-- YOLO bottle 检测、ROI 点云、深度测量和抓取入篮路径预览节点。
+- YOLO trash 分割、mask ROI 点云、深度测量和抓取入篮路径预览节点。
 
 抓取预览依赖 `base_link -> ee_camera_link` 的 TF。真机没电或没有 Aubo driver 时，RViz 里的机械臂不会自动同步到真机末端姿态，相机坐标会随模型关节角偏掉。当前模型默认 Home 已固定为 2026-06-05 从真机读取的位姿：
 
@@ -245,7 +387,7 @@ RViz 中重点看：
 
 ```text
 /arachne/grasp_preview/markers    检测框、抓取点、入篮路径、篮子 keepout
-/arachne/grasp_preview/roi_cloud  检测框内用于估深的点云
+/arachne/grasp_preview/roi_cloud  mask 内用于估深的点云；无 mask 时退回检测框 ROI
 /arachne/grasp_preview/path       base_link 下的抓取到入篮路径
 ```
 
@@ -259,7 +401,7 @@ yolo_workspace/runs/grasp_preview/latest_grasp_preview.json
 当前路径只是可视化规划，不会控制机械臂。默认流程是：
 
 ```text
-SEARCH_2D: YOLO 持续寻找 bottle
+SEARCH_2D: YOLO 持续寻找 trash
 -> SNAPSHOT_3D: 目标确认后只拍一次深度 ROI / 点云
 -> PLAN_LOCKED: 锁定抓取点和入篮路径，暂停 YOLO 2D 推理
 -> 执行/调试结束后重新开始 SEARCH_2D

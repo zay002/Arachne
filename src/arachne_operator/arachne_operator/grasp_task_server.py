@@ -105,7 +105,7 @@ class GraspTaskServer(Node):
         self.declare_parameter("execute_real", False)
         self.declare_parameter("confirm_execute_real", False)
         self.declare_parameter("with_rviz", False)
-        self.declare_parameter("classes", "bottle")
+        self.declare_parameter("classes", "trash")
         self.declare_parameter("confidence", 0.25)
         self.declare_parameter("device_id", 0)
         self.declare_parameter("real_execute_backend", "sdk_move_joint")
@@ -153,6 +153,7 @@ class GraspTaskServer(Node):
         self.process: subprocess.Popen[str] | None = None
         self.worker: threading.Thread | None = None
         self.base_worker: threading.Thread | None = None
+        self.runner_success_requested = False
         self.latest: dict[str, tuple[float, Any]] = {}
         self.state = "idle"
         self.message = "ready"
@@ -651,10 +652,17 @@ class GraspTaskServer(Node):
         self.set_base_velocity(velocity[0], velocity[1])
 
     def set_base_velocity(self, linear_x: float, angular_z: float) -> None:
+        if not rclpy.ok():
+            return
         twist = Twist()
         twist.linear.x = float(linear_x)
         twist.angular.z = float(angular_z)
-        self.cmd_vel_pub.publish(twist)
+        try:
+            self.cmd_vel_pub.publish(twist)
+        except Exception as exc:
+            if "publisher's context is invalid" in str(exc):
+                return
+            raise
 
     def _publish_base_stop(self) -> None:
         self.set_base_velocity(0.0, 0.0)
@@ -868,6 +876,7 @@ class GraspTaskServer(Node):
             self.returncode = None
             self.grasp_preview_log_dir = ""
             self.preflight_checks = []
+            self.runner_success_requested = False
         self._set_state("preflight", "checking real-hardware readiness")
         self._write_json(run_dir / "task_request.json", self._task_request())
 
@@ -922,9 +931,12 @@ class GraspTaskServer(Node):
         finally:
             self.process = None
 
+        with self.lock:
+            runner_success = self.runner_success_requested
+
         if self.cancel_event.is_set():
             self._finish_task("canceled", "task canceled", returncode=returncode)
-        elif returncode == 0:
+        elif runner_success or returncode == 0:
             self._finish_task("succeeded", "grasp task complete", returncode=returncode)
         else:
             self._finish_task(
@@ -1120,8 +1132,14 @@ class GraspTaskServer(Node):
             with self.lock:
                 self.grasp_preview_log_dir = match.group(1).strip()
             self._event("grasp_preview_log_dir", {"path": match.group(1).strip()})
-        if "REAL arm SDK moveJoint sequence complete" in stripped:
+        if (
+            "REAL arm SDK moveJoint sequence complete" in stripped
+            or "REAL arm trajectory complete" in stripped
+        ):
+            with self.lock:
+                self.runner_success_requested = True
             self._event("arm_sequence_complete", {"line": stripped})
+            self._terminate_process("real arm sequence complete")
         elif "REAL execution is armed" in stripped:
             self._event("real_execution_armed", {"line": stripped})
         elif "grasp task failed" in stripped.lower() or "failed" in stripped.lower():
@@ -1234,7 +1252,8 @@ def main() -> None:
     except KeyboardInterrupt:
         node.cancel_event.set()
         node.base_cancel_event.set()
-        node._publish_base_stop()
+        if rclpy.ok():
+            node._publish_base_stop()
         node._terminate_process("shutdown")
     finally:
         node.destroy_node()

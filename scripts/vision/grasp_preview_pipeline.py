@@ -126,6 +126,8 @@ class Detection:
     class_id: int
     confidence: float
     xyxy: tuple[float, float, float, float]
+    mask_xy: tuple[tuple[float, float], ...] | None = None
+    mask_area_px: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -167,6 +169,7 @@ class GraspPreview:
     lift_xyz: tuple[float, float, float]
     retreat_xyz: tuple[float, float, float]
     roi_points: list[tuple[float, float, float]]
+    roi_source: str
     bbox_points: list[tuple[float, float, float]]
     base_path_xyz: list[tuple[float, float, float]]
     base_trajectory_segments: list[CartesianSegment]
@@ -189,11 +192,12 @@ def _add_venv_site_packages(venv: Path) -> None:
             sys.path.insert(0, str(candidate))
 
 
-def _load_yolo(venv: Path, model_path: Path):
+def _load_yolo(venv: Path, model_path: Path, task: str):
     _add_venv_site_packages(venv)
     from ultralytics import YOLO
 
-    return YOLO(str(model_path))
+    kwargs = {"task": task} if task else {}
+    return YOLO(str(model_path), **kwargs)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -201,9 +205,12 @@ def _parse_args() -> argparse.Namespace:
         description="Preview detect-depth-grasp path from Gemini335 RGB-D in RViz."
     )
     hidden = argparse.SUPPRESS
-    parser.add_argument("--model", default="yolo_workspace/weights/yolo26n.pt", help=hidden)
+    parser.add_argument(
+        "--model", default="yolo_workspace/weights/trash_yolo26n_seg_best.pt", help=hidden
+    )
     parser.add_argument("--venv", default="yolo_workspace/.venv", help=hidden)
-    parser.add_argument("--classes", default="bottle")
+    parser.add_argument("--yolo-task", default="segment", help=hidden)
+    parser.add_argument("--classes", default="trash")
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--imgsz", type=int, default=640, help=hidden)
     parser.add_argument("--device-id", default="0", help=hidden)
@@ -534,7 +541,7 @@ class GraspPreviewNode(Node):
         self.save_dir = Path(args.save_dir)
         self.save_dir.mkdir(parents=True, exist_ok=True)
 
-        self.model = _load_yolo(self.venv, self.model_path)
+        self.model = _load_yolo(self.venv, self.model_path, str(args.yolo_task))
         self.class_ids = _class_ids(self.model, args.classes)
         self.base_frame = str(args.base_frame)
         self.aubo_base_frame = str(args.aubo_base_frame)
@@ -958,6 +965,9 @@ class GraspPreviewNode(Node):
     ) -> None:
         x1, y1, x2, y2 = (int(round(v)) for v in detection.xyxy)
         cv2.rectangle(image, (x1, y1), (x2, y2), (0, 190, 255), 2)
+        if detection.mask_xy:
+            polygon = np.asarray(detection.mask_xy, dtype=np.int32).reshape((-1, 1, 2))
+            cv2.polylines(image, [polygon], isClosed=True, color=(0, 255, 80), thickness=2)
         cv2.putText(
             image,
             f"{prefix} {detection.label} {detection.confidence:.2f}",
@@ -1604,7 +1614,24 @@ class GraspPreviewNode(Node):
         class_id = int(boxes.cls[best_idx].item())
         confidence = float(boxes.conf[best_idx].item())
         label = str(result.names.get(class_id, class_id))
-        return Detection(label=label, class_id=class_id, confidence=confidence, xyxy=xyxy)
+        mask_xy: tuple[tuple[float, float], ...] | None = None
+        mask_area_px = 0.0
+        masks = getattr(result, "masks", None)
+        polygons = getattr(masks, "xy", None) if masks is not None else None
+        if polygons is not None and len(polygons) > best_idx:
+            points = np.asarray(polygons[best_idx], dtype=np.float32)
+            if points.ndim == 2 and points.shape[0] >= 3 and points.shape[1] >= 2:
+                points = points[:, :2]
+                mask_xy = tuple((float(x), float(y)) for x, y in points)
+                mask_area_px = float(abs(cv2.contourArea(points)))
+        return Detection(
+            label=label,
+            class_id=class_id,
+            confidence=confidence,
+            xyxy=xyxy,
+            mask_xy=mask_xy,
+            mask_area_px=mask_area_px,
+        )
 
     def _needs_depth_snapshot(
         self, detection: Detection, image_shape: tuple[int, ...]
@@ -1666,6 +1693,7 @@ class GraspPreviewNode(Node):
         sy = dh / float(ch)
         x1d, x2d = x1 * sx, x2 * sx
         y1d, y2d = y1 * sy, y2 * sy
+        mask_depth = self._detection_depth_mask(detection, dw, dh, cw, ch)
 
         cx = 0.5 * (x1d + x2d)
         cy = 0.5 * (y1d + y2d)
@@ -1677,12 +1705,22 @@ class GraspPreviewNode(Node):
         iy1 = int(np.clip(cy - half_h, 0, dh - 1))
         iy2 = int(np.clip(cy + half_h, iy1 + 1, dh))
         roi = depth[iy1:iy2, ix1:ix2].astype(np.float32) * float(self.args.depth_scale)
-        valid = roi[(roi >= self.args.min_depth) & (roi <= self.args.max_depth)]
+        valid_mask = (roi >= self.args.min_depth) & (roi <= self.args.max_depth)
+        mask_roi = None
+        if mask_depth is not None:
+            candidate = mask_depth[iy1:iy2, ix1:ix2]
+            if int(np.count_nonzero(candidate)) >= 8:
+                mask_roi = candidate
+                valid_mask &= mask_roi
+        roi_source = "mask" if mask_roi is not None else "bbox"
+        valid = roi[valid_mask]
         if valid.size < 8:
             return None
 
         depth_m = float(np.percentile(valid, float(self.args.depth_percentile)))
-        roi_points = self._roi_points(depth, ix1, iy1, ix2, iy2, depth_m)
+        roi_points = self._roi_points(
+            depth, ix1, iy1, ix2, iy2, depth_m, mask_depth if mask_roi is not None else None
+        )
         if roi_points:
             arr = np.asarray(roi_points, dtype=np.float32)
             grasp_x, grasp_y, grasp_z = np.median(arr, axis=0).astype(float)
@@ -1715,6 +1753,7 @@ class GraspPreviewNode(Node):
             lift_xyz=lift,
             retreat_xyz=retreat,
             roi_points=roi_points,
+            roi_source=roi_source,
             bbox_points=bbox_points,
             base_path_xyz=[],
             base_trajectory_segments=base_segments,
@@ -1726,14 +1765,40 @@ class GraspPreviewNode(Node):
             ik_message="planning pending",
         )
 
+    def _detection_depth_mask(
+        self, detection: Detection, depth_w: int, depth_h: int, color_w: int, color_h: int
+    ) -> np.ndarray | None:
+        if not detection.mask_xy:
+            return None
+        points = np.asarray(detection.mask_xy, dtype=np.float32)
+        if points.ndim != 2 or points.shape[0] < 3 or points.shape[1] < 2:
+            return None
+        points = points[:, :2].copy()
+        points[:, 0] *= float(depth_w) / max(float(color_w), 1.0)
+        points[:, 1] *= float(depth_h) / max(float(color_h), 1.0)
+        points[:, 0] = np.clip(points[:, 0], 0, max(depth_w - 1, 0))
+        points[:, 1] = np.clip(points[:, 1], 0, max(depth_h - 1, 0))
+        mask = np.zeros((depth_h, depth_w), dtype=np.uint8)
+        cv2.fillPoly(mask, [np.rint(points).astype(np.int32)], 1)
+        return mask.astype(bool)
+
     def _roi_points(
-        self, depth: np.ndarray, x1: int, y1: int, x2: int, y2: int, depth_m: float
+        self,
+        depth: np.ndarray,
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
+        depth_m: float,
+        mask: np.ndarray | None = None,
     ) -> list[tuple[float, float, float]]:
         step = max(int(self.args.roi_decimation), 1)
         points: list[tuple[float, float, float]] = []
         band = max(float(self.args.depth_band), 0.01)
         for y in range(y1, y2, step):
             for x in range(x1, x2, step):
+                if mask is not None and not bool(mask[y, x]):
+                    continue
                 z = float(depth[y, x]) * float(self.args.depth_scale)
                 if z < self.args.min_depth or z > self.args.max_depth:
                     continue
@@ -1772,7 +1837,7 @@ class GraspPreviewNode(Node):
                 f"{preview.detection.label} conf={preview.detection.confidence:.2f} "
                 f"depth={preview.depth_m:.3f}m grasp_camera=({gx:.3f},{gy:.3f},{gz:.3f}) "
                 f"base_offset=({self.grasp_base_offset[0]:.3f},{self.grasp_base_offset[1]:.3f},{self.grasp_base_offset[2]:.3f}) "
-                f"roi_points={len(preview.roi_points)} snapshot={preview.snapshot_reason} "
+                f"roi={preview.roi_source} roi_points={len(preview.roi_points)} snapshot={preview.snapshot_reason} "
                 f"planned_path_points={len(preview.base_path_xyz)} "
                 f"stream_rate={max(float(self.args.playback_rate), 1.0):.1f}Hz "
                 f"trajectory={preview.ik_message} "
@@ -3497,6 +3562,9 @@ class GraspPreviewNode(Node):
             "class_id": preview.detection.class_id,
             "confidence": preview.detection.confidence,
             "bbox_xyxy": preview.detection.xyxy,
+            "has_mask": preview.detection.mask_xy is not None,
+            "mask_area_px": preview.detection.mask_area_px,
+            "roi_source": preview.roi_source,
             "depth_m": preview.depth_m,
             "grasp_camera_xyz": preview.grasp_xyz,
             "path_camera_xyz": [
