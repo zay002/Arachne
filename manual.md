@@ -356,6 +356,17 @@ ARACHNE_GRASP_BASE_OFFSET=0.04,0.10,-0.06 ./scripts/vision/grasp_preview_real_sy
 
 抓取姿态可以在 RX/RY/RZ 上搜索多个候选，但默认按“娃娃机”方式从上往下接近。`--grasp-topdown-max-tilt-deg` 限制夹具 z 轴偏离向下方向的最大角度，`--ground-min-z-base`、`--ground-clearance` 和 `--tool-ground-clearance` 会拒绝任何机械臂连杆、tool0 到 grasp TCP 的夹具线段低于地面安全线的候选。
 
+只调矿泉水瓶这类目标的抓取点/方向时，可以只启动相机和感知，不做 IK/MoveIt/真机执行：
+
+```bash
+ARACHNE_GRASP_START_MOVEIT=false \
+ARACHNE_GRASP_WITH_RVIZ=false \
+ARACHNE_GRASP_EXECUTE_REAL=false \
+./scripts/vision/grasp_preview.sh --planner-backend none
+```
+
+检测锁定后看 `yolo_workspace/runs/grasp_preview/latest_grasp_preview.json` 里的 `pointcloud_grasp_shape`。其中 `axis_confidence` 来自 ROI 点云 3D PCA，`visual_axis_confidence` 来自 YOLO mask 的 2D PCA；矿泉水瓶点云只看到上半部分时，系统会用可见高度做小幅向下补偿，并优先用 2D+3D 方向作为 top-down 抓取候选。
+
 这个脚本会默认启动：
 
 - Arachne 模型 TF，不控制真机。

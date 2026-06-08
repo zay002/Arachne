@@ -253,6 +253,21 @@ class CollisionBox:
     size: tuple[float, float, float]
 
 
+@dataclass(frozen=True)
+class PointCloudGraspShape:
+    center_base: tuple[float, float, float]
+    major_axis_base: tuple[float, float, float]
+    minor_axis_base: tuple[float, float, float]
+    visual_axis_base: tuple[float, float, float] | None
+    extent_major_m: float
+    extent_minor_m: float
+    extent_z_m: float
+    axis_confidence: float
+    visual_axis_confidence: float
+    point_count: int
+    z_bias_m: float
+
+
 @dataclass
 class GraspPreview:
     detection: Detection
@@ -270,6 +285,7 @@ class GraspPreview:
     arm_trajectory_frames: list[JointTrajectoryFrame]
     basket_safe: bool
     base_grasp_xyz: tuple[float, float, float] | None
+    pointcloud_shape: PointCloudGraspShape | None
     snapshot_reason: str
     ik_message: str
 
@@ -364,6 +380,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--grasp-standoff", type=float, default=0.035, help=hidden)
     parser.add_argument("--grasp-tcp-offset-m", type=float, default=0.12, help=hidden)
     parser.add_argument("--grasp-base-offset", default="0.04,0.06,0", help=hidden)
+    parser.add_argument("--disable-pointcloud-grasp-shape", action="store_true", help=hidden)
+    parser.add_argument("--pointcloud-grasp-min-points", type=int, default=24, help=hidden)
+    parser.add_argument("--pointcloud-axis-confidence-threshold", type=float, default=0.10, help=hidden)
+    parser.add_argument("--visual-axis-confidence-threshold", type=float, default=0.12, help=hidden)
+    parser.add_argument("--pointcloud-visible-upper-half-z-bias-ratio", type=float, default=0.25, help=hidden)
+    parser.add_argument("--pointcloud-visible-upper-half-z-bias-max", type=float, default=0.025, help=hidden)
     parser.add_argument("--lift-distance", type=float, default=0.10, help=hidden)
     parser.add_argument("--base-frame", default="base_link", help=hidden)
     parser.add_argument("--aubo-base-frame", default="grasp_preview_aubo_base_link", help=hidden)
@@ -392,7 +414,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--trajectory-joint-tolerance", type=float, default=0.004, help=hidden)
     parser.add_argument("--trajectory-max-duration", type=float, default=90.0, help=hidden)
     parser.add_argument("--planning-key-waypoints", default="approach,grasp,safe_mid,basket_over", help=hidden)
-    parser.add_argument("--planner-backend", choices=("moveit", "local"), default="moveit", help=hidden)
+    parser.add_argument("--planner-backend", choices=("moveit", "local", "none"), default="moveit", help=hidden)
     parser.add_argument("--moveit-plan-service", default="/plan_kinematic_path", help=hidden)
     parser.add_argument(
         "--moveit-planners",
@@ -1151,6 +1173,18 @@ class GraspPreviewNode(Node):
         self.image_pub.publish(_image_from_bgr(annotated, header))
 
     def _start_arm_planning(self, preview: GraspPreview, preview_header: Header) -> None:
+        if str(self.args.planner_backend) == "none":
+            perception = replace(
+                preview,
+                base_path_xyz=self._sample_trajectory_for_display(preview.base_trajectory_segments),
+                ik_message="perception_only: shape target ready; planning skipped",
+            )
+            self.last_preview = perception
+            self.preview_ik_message = perception.ik_message
+            self.plan_lock_time = time.monotonic()
+            self._publish_preview(perception, preview_header)
+            self.get_logger().info("3D snapshot published; arm planning skipped")
+            return
         with self.planning_lock:
             if self.planning_thread is not None and self.planning_thread.is_alive():
                 return
@@ -1895,6 +1929,9 @@ class GraspPreviewNode(Node):
         roi_points = self._roi_points(
             depth, ix1, iy1, ix2, iy2, depth_m, mask_depth if mask_roi is not None else None
         )
+        visual_axis_camera, visual_axis_confidence = self._detection_visual_axis_camera(
+            detection, depth_m, dw, dh, cw, ch
+        )
         if roi_points:
             arr = np.asarray(roi_points, dtype=np.float32)
             grasp_x, grasp_y, grasp_z = np.median(arr, axis=0).astype(float)
@@ -1916,8 +1953,17 @@ class GraspPreviewNode(Node):
             self._pixel_to_xyz(x2d, y2d, depth_m),
             self._pixel_to_xyz(x1d, y2d, depth_m),
         ]
-        _base_path, base_segments, base_waypoints, base_grasp = self._make_base_path(
-            [pregrasp, grasp, lift, retreat]
+        (
+            _base_path,
+            base_segments,
+            base_waypoints,
+            base_grasp,
+            pointcloud_shape,
+        ) = self._make_base_path(
+            [pregrasp, grasp, lift, retreat],
+            roi_points,
+            visual_axis_camera,
+            visual_axis_confidence,
         )
         return GraspPreview(
             detection=detection,
@@ -1929,12 +1975,13 @@ class GraspPreviewNode(Node):
             roi_points=roi_points,
             roi_source=roi_source,
             bbox_points=bbox_points,
-            base_path_xyz=[],
+            base_path_xyz=_base_path if str(self.args.planner_backend) == "none" else [],
             base_trajectory_segments=base_segments,
             base_waypoints=base_waypoints,
             arm_trajectory_frames=[],
             basket_safe=True,
             base_grasp_xyz=base_grasp,
+            pointcloud_shape=pointcloud_shape,
             snapshot_reason=snapshot_reason,
             ik_message="planning pending",
         )
@@ -1981,6 +2028,62 @@ class GraspPreviewNode(Node):
                 points.append(self._pixel_to_xyz(float(x), float(y), z))
         return points
 
+    def _detection_visual_axis_camera(
+        self,
+        detection: Detection,
+        depth_m: float,
+        depth_w: int,
+        depth_h: int,
+        color_w: int,
+        color_h: int,
+    ) -> tuple[np.ndarray | None, float]:
+        if detection.mask_xy and len(detection.mask_xy) >= 6:
+            pixels = np.asarray(detection.mask_xy, dtype=np.float64)
+            pixels[:, 0] *= float(depth_w) / max(float(color_w), 1.0)
+            pixels[:, 1] *= float(depth_h) / max(float(color_h), 1.0)
+        else:
+            x1, y1, x2, y2 = detection.xyxy
+            sx = float(depth_w) / max(float(color_w), 1.0)
+            sy = float(depth_h) / max(float(color_h), 1.0)
+            pixels = np.asarray(
+                [
+                    (x1 * sx, y1 * sy),
+                    (x2 * sx, y1 * sy),
+                    (x2 * sx, y2 * sy),
+                    (x1 * sx, y2 * sy),
+                ],
+                dtype=np.float64,
+            )
+        if pixels.ndim != 2 or pixels.shape[0] < 3:
+            return None, 0.0
+        center = np.mean(pixels[:, :2], axis=0)
+        centered = pixels[:, :2] - center
+        cov = np.cov(centered.T)
+        if not np.all(np.isfinite(cov)):
+            return None, 0.0
+        eig_values, eig_vectors = np.linalg.eigh(cov)
+        order = np.argsort(eig_values)[::-1]
+        eig_values = eig_values[order]
+        eig_vectors = eig_vectors[:, order]
+        if float(eig_values[0]) <= 1e-6:
+            return None, 0.0
+        axis_px = eig_vectors[:, 0]
+        axis_px /= max(float(np.linalg.norm(axis_px)), 1e-9)
+        if axis_px[0] < -1e-9 or (abs(axis_px[0]) < 1e-9 and axis_px[1] < 0.0):
+            axis_px *= -1.0
+        spread = np.sqrt(max(float(eig_values[0]), 1.0))
+        delta_px = float(np.clip(spread * 0.35, 6.0, 28.0))
+        p0 = center
+        p1 = center + axis_px * delta_px
+        xyz0 = np.asarray(self._pixel_to_xyz(float(p0[0]), float(p0[1]), depth_m), dtype=float)
+        xyz1 = np.asarray(self._pixel_to_xyz(float(p1[0]), float(p1[1]), depth_m), dtype=float)
+        axis_camera = xyz1 - xyz0
+        norm = float(np.linalg.norm(axis_camera))
+        if norm < 1e-6:
+            return None, 0.0
+        anisotropy = float((eig_values[0] - eig_values[1]) / max(eig_values[0] + eig_values[1], 1e-9))
+        return axis_camera / norm, float(np.clip(anisotropy, 0.0, 1.0))
+
     def _pixel_to_xyz(self, u: float, v: float, z: float) -> tuple[float, float, float]:
         info = self.depth_info
         if info is None:
@@ -2007,11 +2110,21 @@ class GraspPreviewNode(Node):
         if now - self.last_log_time > 0.75:
             self.last_log_time = now
             gx, gy, gz = preview.grasp_xyz
+            shape_msg = "shape=none"
+            if preview.pointcloud_shape is not None:
+                shape = preview.pointcloud_shape
+                shape_msg = (
+                    f"shape=pc points={shape.point_count} conf={shape.axis_confidence:.2f} "
+                    f"visual_conf={shape.visual_axis_confidence:.2f} "
+                    f"extent=({shape.extent_major_m:.3f},{shape.extent_minor_m:.3f},{shape.extent_z_m:.3f}) "
+                    f"z_bias={shape.z_bias_m:.3f}"
+                )
             self.get_logger().info(
                 f"{preview.detection.label} conf={preview.detection.confidence:.2f} "
                 f"depth={preview.depth_m:.3f}m grasp_camera=({gx:.3f},{gy:.3f},{gz:.3f}) "
                 f"base_offset=({self.grasp_base_offset[0]:.3f},{self.grasp_base_offset[1]:.3f},{self.grasp_base_offset[2]:.3f}) "
                 f"roi={preview.roi_source} roi_points={len(preview.roi_points)} snapshot={preview.snapshot_reason} "
+                f"{shape_msg} "
                 f"planned_path_points={len(preview.base_path_xyz)} "
                 f"stream_rate={max(float(self.args.playback_rate), 1.0):.1f}Hz "
                 f"trajectory={preview.ik_message} "
@@ -2277,6 +2390,8 @@ class GraspPreviewNode(Node):
     def _make_constrained_arm_trajectory(
         self, preview: GraspPreview
     ) -> tuple[list[JointTrajectoryFrame], str]:
+        if str(self.args.planner_backend) == "none":
+            return [], "perception_only: planning skipped"
         if str(self.args.planner_backend) == "moveit":
             return self._make_moveit_arm_trajectory(preview)
         return self._make_local_arm_trajectory(preview)
@@ -2324,7 +2439,7 @@ class GraspPreviewNode(Node):
         for index, (target_name, target_base, progress) in enumerate(targets):
             is_soft_waypoint = target_name not in {"grasp", "drop"}
             target_rotations_base = self._target_orientation_candidates_base(
-                target_base, progress, current_rotation_base
+                target_base, progress, current_rotation_base, preview.pointcloud_shape
             )
             response = None
             response_planner = ""
@@ -2980,6 +3095,7 @@ class GraspPreviewNode(Node):
         point_base: tuple[float, float, float],
         progress: float,
         current_rotation_base: np.ndarray,
+        pointcloud_shape: PointCloudGraspShape | None = None,
     ) -> list[np.ndarray]:
         release_tilt = math.radians(float(self.args.release_tool_tilt_deg))
         tilted_down = np.asarray(
@@ -2996,6 +3112,7 @@ class GraspPreviewNode(Node):
         grasp_down = self._rotation_from_tool_z_base(
             np.asarray([0.0, 0.0, -1.0], dtype=float), grasp_hint
         )
+        shape_hints = self._pointcloud_shape_orientation_hints(pointcloud_shape)
 
         if progress < 0.18:
             nominal = current_rotation_base
@@ -3021,6 +3138,23 @@ class GraspPreviewNode(Node):
             )
             tilt_offsets = ((0.0, 0.0),)
         candidates: list[np.ndarray] = []
+        if progress >= 0.18 and progress < 0.60:
+            for hint in shape_hints:
+                shape_nominal = self._rotation_from_tool_z_base(
+                    np.asarray([0.0, 0.0, -1.0], dtype=float), hint
+                )
+                for yaw in yaw_offsets:
+                    for roll, pitch in tilt_offsets:
+                        candidate = self._orthonormalize_rotation(
+                            shape_nominal @ self._rpy_matrix(roll, pitch, yaw)
+                        )
+                        if not self._is_topdown_grasp_orientation(candidate):
+                            continue
+                        if not any(
+                            self._rotation_distance(candidate, existing) < 1e-4
+                            for existing in candidates
+                        ):
+                            candidates.append(candidate)
         for yaw in yaw_offsets:
             for roll, pitch in tilt_offsets:
                 candidate = nominal @ self._rpy_matrix(roll, pitch, yaw)
@@ -3038,6 +3172,42 @@ class GraspPreviewNode(Node):
                 ):
                     candidates.append(candidate)
         return candidates
+
+    def _pointcloud_shape_orientation_hints(
+        self, pointcloud_shape: PointCloudGraspShape | None
+    ) -> list[np.ndarray]:
+        if pointcloud_shape is None:
+            return []
+        axes: list[np.ndarray] = []
+        if (
+            pointcloud_shape.visual_axis_base is not None
+            and pointcloud_shape.visual_axis_confidence
+            >= max(float(self.args.visual_axis_confidence_threshold), 0.0)
+        ):
+            visual_major = np.asarray(pointcloud_shape.visual_axis_base, dtype=float)
+            visual_minor = np.asarray([-visual_major[1], visual_major[0], 0.0], dtype=float)
+            axes.extend([visual_minor, -visual_minor, visual_major, -visual_major])
+        if pointcloud_shape.axis_confidence >= max(
+            float(self.args.pointcloud_axis_confidence_threshold), 0.0
+        ):
+            axes.extend(
+                [
+                    np.asarray(pointcloud_shape.minor_axis_base, dtype=float),
+                    -np.asarray(pointcloud_shape.minor_axis_base, dtype=float),
+                    np.asarray(pointcloud_shape.major_axis_base, dtype=float),
+                    -np.asarray(pointcloud_shape.major_axis_base, dtype=float),
+                ]
+            )
+        hints: list[np.ndarray] = []
+        for axis in axes:
+            axis[2] = 0.0
+            norm = float(np.linalg.norm(axis))
+            if norm < 1e-6:
+                continue
+            axis = axis / norm
+            if not any(float(np.linalg.norm(axis - existing)) < 1e-3 for existing in hints):
+                hints.append(axis)
+        return hints
 
     def _is_topdown_grasp_orientation(self, rotation_base: np.ndarray) -> bool:
         tool_z_base = np.asarray(rotation_base, dtype=float)[:3, 2]
@@ -3272,15 +3442,20 @@ class GraspPreviewNode(Node):
         )
 
     def _make_base_path(
-        self, camera_path: list[tuple[float, float, float]]
+        self,
+        camera_path: list[tuple[float, float, float]],
+        roi_points: list[tuple[float, float, float]] | None = None,
+        visual_axis_camera: np.ndarray | None = None,
+        visual_axis_confidence: float = 0.0,
     ) -> tuple[
         list[tuple[float, float, float]],
         list[CartesianSegment],
         list[tuple[str, tuple[float, float, float]]],
         tuple[float, float, float] | None,
+        PointCloudGraspShape | None,
     ]:
         if self.latest_depth is None:
-            return [], [], [], None
+            return [], [], [], None, None
         source_frame = self.latest_depth.header.frame_id
         try:
             transform = self.tf_buffer.lookup_transform(
@@ -3291,12 +3466,30 @@ class GraspPreviewNode(Node):
             )
         except TransformException as exc:
             self._throttled_log(f"waiting for TF {self.base_frame} <- {source_frame}: {exc}")
-            return [], [], [], None
+            return [], [], [], None, None
 
         base_grasp_path = [
             self._apply_grasp_base_offset(self._transform_point(transform, point))
             for point in camera_path
         ]
+        pointcloud_shape = self._estimate_pointcloud_grasp_shape_base(
+            roi_points,
+            transform,
+            visual_axis_camera,
+            visual_axis_confidence,
+        )
+        if pointcloud_shape is not None and pointcloud_shape.z_bias_m > 1e-6:
+            base_grasp_path = self._apply_visible_upper_half_bias(
+                base_grasp_path, pointcloud_shape.z_bias_m
+            )
+            pointcloud_shape = replace(
+                pointcloud_shape,
+                center_base=(
+                    pointcloud_shape.center_base[0],
+                    pointcloud_shape.center_base[1],
+                    pointcloud_shape.center_base[2] - pointcloud_shape.z_bias_m,
+                ),
+            )
         start_base = self._current_grasp_origin_base()
         if start_base is None:
             start_base = self._frame_origin_in_base(END_EFFECTOR_FRAME)
@@ -3356,7 +3549,161 @@ class GraspPreviewNode(Node):
         ]
         segments = self._time_parameterize_segments(raw_segments)
         path = self._sample_trajectory_for_display(segments)
-        return path, segments, waypoints, grasp_base
+        return path, segments, waypoints, grasp_base, pointcloud_shape
+
+    def _estimate_pointcloud_grasp_shape_base(
+        self,
+        roi_points: list[tuple[float, float, float]] | None,
+        transform,
+        visual_axis_camera: np.ndarray | None = None,
+        visual_axis_confidence: float = 0.0,
+    ) -> PointCloudGraspShape | None:
+        if bool(self.args.disable_pointcloud_grasp_shape):
+            return None
+        visual_axis_base = self._visual_axis_base(transform, visual_axis_camera)
+        if not roi_points:
+            return self._visual_only_grasp_shape(visual_axis_base, visual_axis_confidence, 0)
+        min_points = max(int(self.args.pointcloud_grasp_min_points), 6)
+        if len(roi_points) < min_points:
+            return self._visual_only_grasp_shape(
+                visual_axis_base, visual_axis_confidence, len(roi_points)
+            )
+        base_points = np.asarray(
+            [self._transform_point(transform, point) for point in roi_points],
+            dtype=np.float64,
+        )
+        finite = np.all(np.isfinite(base_points), axis=1)
+        base_points = base_points[finite]
+        if base_points.shape[0] < min_points:
+            return self._visual_only_grasp_shape(
+                visual_axis_base, visual_axis_confidence, int(base_points.shape[0])
+            )
+
+        low, high = np.percentile(base_points, [5.0, 95.0], axis=0)
+        trimmed = base_points[np.all((base_points >= low) & (base_points <= high), axis=1)]
+        if trimmed.shape[0] >= min_points:
+            base_points = trimmed
+
+        center = np.median(base_points, axis=0)
+        xy = base_points[:, :2]
+        xy_center = np.median(xy, axis=0)
+        centered_xy = xy - xy_center
+        if centered_xy.shape[0] < 3:
+            return None
+        cov = np.cov(centered_xy.T)
+        if not np.all(np.isfinite(cov)):
+            return None
+        eig_values, eig_vectors = np.linalg.eigh(cov)
+        order = np.argsort(eig_values)[::-1]
+        eig_values = eig_values[order]
+        eig_vectors = eig_vectors[:, order]
+        if float(eig_values[0]) <= 1e-10:
+            return None
+
+        major_xy = eig_vectors[:, 0].astype(np.float64)
+        major_xy /= max(float(np.linalg.norm(major_xy)), 1e-9)
+        if major_xy[0] < -1e-9 or (abs(major_xy[0]) < 1e-9 and major_xy[1] < 0.0):
+            major_xy *= -1.0
+        minor_xy = np.asarray([-major_xy[1], major_xy[0]], dtype=np.float64)
+
+        major_projection = centered_xy @ major_xy
+        minor_projection = centered_xy @ minor_xy
+        extent_major = float(np.percentile(major_projection, 90.0) - np.percentile(major_projection, 10.0))
+        extent_minor = float(np.percentile(minor_projection, 90.0) - np.percentile(minor_projection, 10.0))
+        extent_z = float(np.percentile(base_points[:, 2], 90.0) - np.percentile(base_points[:, 2], 10.0))
+        anisotropy = float((eig_values[0] - eig_values[1]) / max(eig_values[0] + eig_values[1], 1e-9))
+        density_score = min(float(base_points.shape[0]) / float(max(min_points * 2, 1)), 1.0)
+        axis_confidence = float(np.clip(anisotropy * density_score, 0.0, 1.0))
+        z_bias = min(
+            max(float(self.args.pointcloud_visible_upper_half_z_bias_ratio), 0.0)
+            * max(extent_z, 0.0),
+            max(float(self.args.pointcloud_visible_upper_half_z_bias_max), 0.0),
+        )
+        ground_limit = (
+            float(self.args.ground_min_z_base)
+            + max(float(self.args.tool_ground_clearance), 0.0)
+            + 0.01
+        )
+        z_bias = min(z_bias, max(float(center[2]) - ground_limit, 0.0))
+        shifted_center = self._apply_grasp_base_offset(
+            (float(center[0]), float(center[1]), float(center[2]))
+        )
+        return PointCloudGraspShape(
+            center_base=shifted_center,
+            major_axis_base=(float(major_xy[0]), float(major_xy[1]), 0.0),
+            minor_axis_base=(float(minor_xy[0]), float(minor_xy[1]), 0.0),
+            visual_axis_base=visual_axis_base,
+            extent_major_m=max(extent_major, 0.0),
+            extent_minor_m=max(extent_minor, 0.0),
+            extent_z_m=max(extent_z, 0.0),
+            axis_confidence=axis_confidence,
+            visual_axis_confidence=float(np.clip(visual_axis_confidence, 0.0, 1.0))
+            if visual_axis_base is not None
+            else 0.0,
+            point_count=int(base_points.shape[0]),
+            z_bias_m=max(float(z_bias), 0.0),
+        )
+
+    def _visual_only_grasp_shape(
+        self,
+        visual_axis_base: tuple[float, float, float] | None,
+        visual_axis_confidence: float,
+        point_count: int,
+    ) -> PointCloudGraspShape | None:
+        if visual_axis_base is None:
+            return None
+        return PointCloudGraspShape(
+            center_base=(0.0, 0.0, 0.0),
+            major_axis_base=visual_axis_base,
+            minor_axis_base=(-visual_axis_base[1], visual_axis_base[0], 0.0),
+            visual_axis_base=visual_axis_base,
+            extent_major_m=0.0,
+            extent_minor_m=0.0,
+            extent_z_m=0.0,
+            axis_confidence=0.0,
+            visual_axis_confidence=float(np.clip(visual_axis_confidence, 0.0, 1.0)),
+            point_count=max(int(point_count), 0),
+            z_bias_m=0.0,
+        )
+
+    def _visual_axis_base(
+        self, transform, visual_axis_camera: np.ndarray | None
+    ) -> tuple[float, float, float] | None:
+        if visual_axis_camera is None:
+            return None
+        matrix = self._matrix_from_transform(transform)
+        axis = np.asarray(matrix[:3, :3], dtype=np.float64) @ np.asarray(
+            visual_axis_camera, dtype=np.float64
+        )
+        axis[2] = 0.0
+        norm = float(np.linalg.norm(axis))
+        if norm < 1e-6:
+            return None
+        axis /= norm
+        if axis[0] < -1e-9 or (abs(axis[0]) < 1e-9 and axis[1] < 0.0):
+            axis *= -1.0
+        return (float(axis[0]), float(axis[1]), 0.0)
+
+    def _apply_visible_upper_half_bias(
+        self,
+        base_grasp_path: list[tuple[float, float, float]],
+        z_bias: float,
+    ) -> list[tuple[float, float, float]]:
+        if z_bias <= 0.0 or len(base_grasp_path) < 2:
+            return base_grasp_path
+        ground_limit = (
+            float(self.args.ground_min_z_base)
+            + max(float(self.args.tool_ground_clearance), 0.0)
+            + 0.01
+        )
+        shifted: list[tuple[float, float, float]] = []
+        for index, point in enumerate(base_grasp_path):
+            if index in {1, 2}:
+                z = max(float(point[2]) - z_bias, ground_limit)
+                shifted.append((float(point[0]), float(point[1]), z))
+            else:
+                shifted.append(point)
+        return shifted
 
     def _apply_grasp_base_offset(
         self, point_base: tuple[float, float, float]
@@ -3860,6 +4207,25 @@ class GraspPreviewNode(Node):
         )
         self.image_pub.publish(_image_from_bgr(image, header))
 
+    def _pointcloud_shape_payload(
+        self, shape: PointCloudGraspShape | None
+    ) -> dict[str, object] | None:
+        if shape is None:
+            return None
+        return {
+            "center_base": shape.center_base,
+            "major_axis_base": shape.major_axis_base,
+            "minor_axis_base": shape.minor_axis_base,
+            "visual_axis_base": shape.visual_axis_base,
+            "extent_major_m": shape.extent_major_m,
+            "extent_minor_m": shape.extent_minor_m,
+            "extent_z_m": shape.extent_z_m,
+            "axis_confidence": shape.axis_confidence,
+            "visual_axis_confidence": shape.visual_axis_confidence,
+            "point_count": shape.point_count,
+            "visible_upper_half_z_bias_m": shape.z_bias_m,
+        }
+
     def _save_latest(
         self, annotated: np.ndarray, raw: np.ndarray, preview: GraspPreview
     ) -> None:
@@ -3886,9 +4252,12 @@ class GraspPreviewNode(Node):
                 "flip_y": bool(self.args.depth_projection_flip_y),
             },
             "grasp_base_offset_xyz": self.grasp_base_offset,
+            "pointcloud_grasp_shape": self._pointcloud_shape_payload(preview.pointcloud_shape),
             "planned_grasp_path_base_xyz": preview.base_path_xyz,
             "planned_grasp_path_source": (
                 "fk_from_arm_trajectory_frames" if preview.arm_trajectory_frames else "pending"
+                if not preview.base_path_xyz
+                else "cartesian_reference"
             ),
             "trajectory_segments_base": [
                 {
