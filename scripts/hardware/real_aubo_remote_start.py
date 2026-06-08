@@ -128,12 +128,28 @@ def strip_ansi(text: str) -> str:
     return ANSI_ESCAPE_RE.sub("", text)
 
 
+def refresh_ros2_cli_daemon() -> None:
+    try:
+        subprocess.run(
+            ["ros2", "daemon", "stop"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=3.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def ensure_controllers_active(timeout: float, poll: float) -> None:
     required_names = ("joint_state_broadcaster", "forward_command_controller_velocity")
     deadline = time.monotonic() + timeout
     last_output = ""
+    refresh_ros2_cli_daemon()
     while time.monotonic() < deadline:
         try:
+            refresh_ros2_cli_daemon()
             output = strip_ansi(run_checked(["ros2", "control", "list_controllers"]))
             last_output = output.strip()
         except RuntimeError as exc:

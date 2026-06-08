@@ -21,6 +21,7 @@ from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray, String
+from std_srvs.srv import Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from arachne_operator.real_hardware_acceptance_test import AuboI5Kinematics
@@ -231,6 +232,11 @@ class TeachPanelNode(Node):
         self.declare_parameter("recording_dir", "recordings/teach")
         self.declare_parameter("teach_config_path", DEFAULT_TEACH_CONFIG_PATH)
         self.declare_parameter("teach_config_autoload", True)
+        self.declare_parameter("grasp_task_state_topic", "/arachne/grasp_task/state")
+        self.declare_parameter("grasp_task_start_service", "/arachne/grasp_task/start")
+        self.declare_parameter("grasp_task_stop_service", "/arachne/grasp_task/stop")
+        self.declare_parameter("grasp_task_restore_service", "/arachne/grasp_task/restore")
+        self.declare_parameter("grasp_task_status_service", "/arachne/grasp_task/status")
 
         self.arm_state_joint_names = _parse_names(str(self.get_parameter("arm_state_joint_names").value))
         self.arm_command_joint_names = _parse_names(
@@ -268,6 +274,20 @@ class TeachPanelNode(Node):
             FollowJointTrajectory,
             str(self.get_parameter("arm_follow_joint_trajectory_action").value),
         )
+        self.grasp_task_clients = {
+            "start": self.create_client(
+                Trigger, str(self.get_parameter("grasp_task_start_service").value)
+            ),
+            "stop": self.create_client(
+                Trigger, str(self.get_parameter("grasp_task_stop_service").value)
+            ),
+            "restore": self.create_client(
+                Trigger, str(self.get_parameter("grasp_task_restore_service").value)
+            ),
+            "status": self.create_client(
+                Trigger, str(self.get_parameter("grasp_task_status_service").value)
+            ),
+        }
 
         self.create_subscription(Odometry, odom_topic, self._odom_callback, 10)
         self.create_subscription(JointState, joint_states_topic, self._joint_state_callback, 10)
@@ -275,6 +295,12 @@ class TeachPanelNode(Node):
         self.create_subscription(String, "/arachne/hardware/aubo_status", self._status_callback("Aubo"), 10)
         self.create_subscription(
             String, "/arachne/hardware/gripper_status", self._gripper_status_callback, 10
+        )
+        self.create_subscription(
+            String,
+            str(self.get_parameter("grasp_task_state_topic").value),
+            self._grasp_task_state_callback,
+            10,
         )
 
         self.kinematics = AuboI5Kinematics()
@@ -297,7 +323,12 @@ class TeachPanelNode(Node):
         self.current_arm: dict[str, float] = {}
         self.tool_position: tuple[float, float, float] | None = None
         self.gripper_state = "open"
-        self.hardware_status = {"Base": "waiting", "Aubo": "waiting", "Gripper": "waiting"}
+        self.hardware_status = {
+            "Base": "waiting",
+            "Aubo": "waiting",
+            "Gripper": "waiting",
+            "Grasp": "waiting",
+        }
         self.aubo_teach_gate_active = False
         self.aubo_teach_ready_event = threading.Event()
         self.aubo_teach_ready_event.set()
@@ -367,6 +398,19 @@ class TeachPanelNode(Node):
             if first in ("open", "close", "stop"):
                 self.gripper_state = first
 
+    def _grasp_task_state_callback(self, msg: String) -> None:
+        data = msg.data.strip()
+        label = data
+        try:
+            payload = json.loads(data)
+            state = str(payload.get("state", "unknown"))
+            message = str(payload.get("message", "")).strip()
+            label = f"{state}: {message}" if message else state
+        except json.JSONDecodeError:
+            pass
+        with self.lock:
+            self.hardware_status["Grasp"] = label
+
     def snapshot(self) -> dict[str, str]:
         with self.lock:
             base = self.base_pose
@@ -386,6 +430,7 @@ class TeachPanelNode(Node):
                 "arm": "ready" if arm_ready else "waiting",
                 "gripper": self.gripper_state,
                 "teach": "on" if self.aubo_teach_gate_active else "off",
+                "grasp_task": self.hardware_status.get("Grasp", "waiting"),
                 "status": self.last_status,
                 **self.hardware_status,
             }
@@ -803,6 +848,73 @@ class TeachPanelNode(Node):
             status = self.hardware_status.get("Aubo", "unknown")
         self._status(f"aubo teach_off timeout before replay: {status}", warn=True)
         return False
+
+    def call_grasp_task(self, command: str) -> None:
+        command = str(command).strip().lower()
+        if command not in self.grasp_task_clients:
+            self._status(f"grasp task ignored unknown command: {command}", warn=True)
+            return
+        self._start_worker(lambda: self._call_grasp_task_worker(command))
+
+    def _call_grasp_task_worker(self, command: str) -> None:
+        client = self.grasp_task_clients.get(command)
+        if client is None:
+            self._status(f"grasp task service missing: {command}", warn=True)
+            return
+        if command == "start":
+            self.drive_base_manual("stop")
+            self.stop_arm_velocity_hold()
+            if self._aubo_teach_gate_may_be_active():
+                self._publish_aubo_teach_command("teach_off")
+                ready = self.aubo_teach_ready_event.wait(
+                    max(float(self.get_parameter("aubo_teach_exit_wait_sec").value), 0.0)
+                )
+                if not ready or self._aubo_teach_gate_may_be_active():
+                    self._status("grasp task start blocked: Aubo teach mode still active", warn=True)
+                    return
+        if command in {"stop", "restore"}:
+            self.drive_base_manual("stop")
+            self.stop_arm_velocity_hold()
+
+        service_name = getattr(client, "srv_name", command)
+        self._status(f"grasp task {command} requested")
+        if not client.wait_for_service(timeout_sec=1.5):
+            self._status(f"grasp task {command} unavailable: {service_name}", warn=True)
+            return
+        future = client.call_async(Trigger.Request())
+        if not self._wait_service_future(future, 8.0):
+            self._status(f"grasp task {command} timeout: {service_name}", warn=True)
+            return
+        response = future.result()
+        success = bool(response.success) if response is not None else False
+        message = response.message if response is not None else "empty response"
+        self._status(
+            f"grasp task {command} {'ok' if success else 'failed'}: "
+            f"{self._short_grasp_task_message(message)}",
+            warn=not success,
+        )
+
+    def _wait_service_future(self, future, timeout_sec: float) -> bool:
+        deadline = time.monotonic() + max(float(timeout_sec), 0.0)
+        while not future.done() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return future.done()
+
+    def _short_grasp_task_message(self, message: str) -> str:
+        text = str(message).strip()
+        if not text:
+            return ""
+        try:
+            payload = json.loads(text)
+            state = str(payload.get("state", "")).strip()
+            detail = str(payload.get("message", "")).strip()
+            task_id = str(payload.get("task_id", "")).strip()
+            parts = [part for part in (state, detail, task_id) if part]
+            if parts:
+                return " | ".join(parts)
+        except json.JSONDecodeError:
+            pass
+        return text[:180]
 
     def jog_arm(self, axis: str, sign: float) -> None:
         self.cancel_event.clear()
@@ -2144,11 +2256,11 @@ class TeachPanelApp:
     def _build_top_bar(self) -> None:
         top = ttk.Frame(self.root, style="Top.TFrame", padding=(12, 8))
         top.grid(row=0, column=0, sticky="ew")
-        top.columnconfigure(4, weight=1)
+        top.columnconfigure(5, weight=1)
         ttk.Label(top, text="Arachne Scope", style="TopTitle.TLabel").grid(
             row=0, column=0, rowspan=2, sticky="w", padx=(0, 18)
         )
-        for column, key in enumerate(("Aubo", "Base", "Gripper"), start=1):
+        for column, key in enumerate(("Aubo", "Base", "Gripper", "Grasp"), start=1):
             var = tk.StringVar(value="waiting")
             self.status_vars[key] = var
             ttk.Label(top, text=key, style="Top.TLabel").grid(row=0, column=column, sticky="w", padx=8)
@@ -2158,15 +2270,27 @@ class TeachPanelApp:
         status_var = tk.StringVar(value="ready")
         self.status_vars["status"] = status_var
         ttk.Label(top, textvariable=status_var, style="Top.TLabel").grid(
-            row=0, column=4, rowspan=2, sticky="ew", padx=(16, 8)
+            row=0, column=5, rowspan=2, sticky="ew", padx=(16, 8)
         )
-        self._make_preset_hold_button(top, "Home", "home").grid(row=0, column=5, rowspan=2, padx=4)
+        self._make_preset_hold_button(top, "Home", "home").grid(row=0, column=6, rowspan=2, padx=4)
         self._make_preset_hold_button(top, "Install", "install").grid(
-            row=0, column=6, rowspan=2, padx=4
+            row=0, column=7, rowspan=2, padx=4
         )
-        ttk.Button(top, text="Run", command=self._play).grid(row=0, column=7, rowspan=2, padx=4)
+        ttk.Button(top, text="Run", command=self._play).grid(row=0, column=8, rowspan=2, padx=4)
         ttk.Button(top, text="Stop", command=self.node.stop_all, style="Danger.TButton").grid(
-            row=0, column=8, rowspan=2, padx=4
+            row=0, column=9, rowspan=2, padx=4
+        )
+        ttk.Button(top, text="G Start", command=lambda: self.node.call_grasp_task("start")).grid(
+            row=0, column=10, rowspan=2, padx=4
+        )
+        ttk.Button(
+            top,
+            text="G Stop",
+            command=lambda: self.node.call_grasp_task("stop"),
+            style="Danger.TButton",
+        ).grid(row=0, column=11, rowspan=2, padx=4)
+        ttk.Button(top, text="Restore", command=lambda: self.node.call_grasp_task("restore")).grid(
+            row=0, column=12, rowspan=2, padx=4
         )
 
     def _build_home_tab(self) -> None:
@@ -2178,7 +2302,9 @@ class TeachPanelApp:
         overview = ttk.LabelFrame(tab, text="Robot Status")
         overview.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(0, 8))
         overview.columnconfigure(1, weight=1)
-        for row, key in enumerate(("base", "tool", "arm", "gripper", "teach", "program")):
+        for row, key in enumerate(
+            ("base", "tool", "arm", "gripper", "teach", "grasp_task", "program")
+        ):
             ttk.Label(overview, text=key, style="State.TLabel", width=10).grid(
                 row=row, column=0, sticky="w", padx=6, pady=4
             )
@@ -2204,6 +2330,9 @@ class TeachPanelApp:
             ("Set Install", self._set_install_from_current),
             ("Record", self._record),
             ("Replay", self._play),
+            ("Grasp Start", lambda: self.node.call_grasp_task("start")),
+            ("Grasp Stop", lambda: self.node.call_grasp_task("stop")),
+            ("Restore", lambda: self.node.call_grasp_task("restore")),
             ("Open", lambda: self.node.publish_gripper("open")),
             ("Close", lambda: self.node.publish_gripper("close")),
             ("Save Config", self._save_config),

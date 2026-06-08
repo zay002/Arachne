@@ -47,4 +47,6 @@ arachne_source_workspace_setup \
   "${ROOT_DIR}" \
   "Workspace is not built yet. Build arachne_operator and aubo_ros2_driver first."
 
+timeout 3 ros2 daemon stop >/dev/null 2>&1 || true
+
 exec "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/hardware/real_aubo_remote_start.py" --ip "${AUBO_ROBOT_IP}" "$@"

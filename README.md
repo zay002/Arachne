@@ -73,6 +73,7 @@ source install/setup.bash
 | 真机姿态同步抓取预览 | `./scripts/vision/grasp_preview_real_sync.sh` |
 | 真机同步并执行抓取 | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
 | 抓取任务服务器 | `./scripts/vision/grasp_task_server.sh` |
+| 真机抓取总控 console | `./scripts/hardware/real_grasp_console.sh --yes` |
 | Agent Bridge | `./scripts/agent/agent_bridge.sh` |
 | 真机环境检查 | `./scripts/hardware/check_real_hardware_env.sh` |
 | 真机一键 bringup | `./scripts/hardware/real_bringup.sh` |

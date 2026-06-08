@@ -200,6 +200,23 @@ ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES \
 
 `grasp_task_server` 是真实抓取的常驻入口。服务启动一次后，每次调用 `/arachne/grasp_task/start` 都会执行一轮完整流程：同步真机姿态 -> YOLO trash 分割 -> depth ROI 定位 -> MoveIt 规划 -> Aubo SDK 运动和夹具开合 -> 投放 -> 回 home。重复抓取时不需要重启 server。
 
+推荐现场入口是总控 console：
+
+```bash
+cd /home/jetson/zhaoyang/Arachne
+source scripts/env/arachne_env.sh
+./scripts/hardware/real_grasp_console.sh --yes
+```
+
+它会打开多个 terminal：Aubo driver、Aubo 远程启动、Scout/MS42DC bringup、grasp server、施教器和 2D 抓取画面。施教器顶部和 Home 页都有 `G Start` / `Grasp Start`、`G Stop` / `Grasp Stop`、`Restore` 按钮，分别对应 `/arachne/grasp_task/start`、`/arachne/grasp_task/stop`、`/arachne/grasp_task/restore`。正常抓取时优先使用这个入口；下面的分步命令主要用于调试。
+
+如果远程桌面/terminal 弹窗不稳定，使用后台日志模式：
+
+```bash
+./scripts/hardware/real_grasp_console.sh --yes --terminal background
+tail -f log/real_grasp_console/latest/*.log
+```
+
 首次同步新代码后构建一次：
 
 ```bash
@@ -247,10 +264,12 @@ ARACHNE_CONFIRM_AUBO_REMOTE_START=YES \
   execute_real:=true \
   confirm_execute_real:=true \
   with_rviz:=false \
-  extra_args:="--moveit-planning-time 3.0 --moveit-service-timeout-padding 3.0 --moveit-planning-attempts 2"
+  extra_args:="--moveit-planning-time 0.8 --moveit-service-timeout-padding 0.5 --moveit-planning-attempts 1"
 ```
 
 需要 RViz 检查时把 `with_rviz:=false` 改成 `with_rviz:=true`。
+
+总控脚本默认打开 `/camera/color/image_raw` 的 raw 2D 画面，方便持续观察末端和物体，不依赖标注图刷新。server 空闲时仍会启动纯感知预览进程并发布 `/arachne/grasp_preview/annotated_image` 供日志/调试使用；真正执行抓取时 YOLO 完成一次目标锁定后暂停重检测，但 raw 画面会继续动态刷新。
 
 示教器可以和 server 同时开着，但不能同时下发机械臂动作。示教器空闲时不占控制权；只有 `teach_on/teach_off` 或手动 jog 正在执行时，才会写入 `/tmp/arachne_aubo_control_owner`。真实抓取发 `moveJoint` 前也会独占这个 owner，并写 `/tmp/arachne_aubo_teach_mode=1` 暂停 ROS driver 的 `servoJoint` 保持。若 preflight 提示 `aubo_control_owner` 或 `aubo_teach_gate` busy，先停止手动 jog 或发送 teach off，再重新 start。
 
@@ -296,7 +315,13 @@ canceled   人工取消
 任务正在 `running` 时不要重复调用 `start`。需要中断时：
 
 ```bash
-ros2 service call /arachne/grasp_task/cancel std_srvs/srv/Trigger "{}"
+ros2 service call /arachne/grasp_task/stop std_srvs/srv/Trigger "{}"
+```
+
+如果规划恢复曾经小幅移动过底盘，需要人工恢复时：
+
+```bash
+ros2 service call /arachne/grasp_task/restore std_srvs/srv/Trigger "{}"
 ```
 
 #### 4. 重复抓取
@@ -316,7 +341,7 @@ preflight 一次确认硬件 -> start -> 等 terminal state -> 摆下一个目�
 如果中途目标放错或想重新识别：
 
 ```bash
-ros2 service call /arachne/grasp_task/cancel std_srvs/srv/Trigger "{}"
+ros2 service call /arachne/grasp_task/stop std_srvs/srv/Trigger "{}"
 ros2 service call /arachne/grasp_task/start std_srvs/srv/Trigger "{}"
 ```
 
@@ -355,6 +380,8 @@ ARACHNE_GRASP_BASE_OFFSET=0.04,0.10,-0.06 ./scripts/vision/grasp_preview_real_sy
 ```
 
 抓取姿态可以在 RX/RY/RZ 上搜索多个候选，但默认按“娃娃机”方式从上往下接近。`--grasp-topdown-max-tilt-deg` 限制夹具 z 轴偏离向下方向的最大角度，`--ground-min-z-base`、`--ground-clearance` 和 `--tool-ground-clearance` 会拒绝任何机械臂连杆、tool0 到 grasp TCP 的夹具线段低于地面安全线的候选。
+
+真实抓取时夹具事件按语义关键点触发：到达 `grasp` 后才 close，`safe_mid` 保持抓取姿态抬离目标，不在合爪/刚抬起阶段切换释放姿态；到 `basket_over` 后才 open。规划如果在真机开始运动前失败，server 会按 `planning_recovery_base_sequence` 做小幅底盘移动、重新拍摄和重新规划；默认序列是 `forward:0.04,back:0.08,turn_left:5deg,turn_right:10deg`，全部失败后会按反向动作尽量恢复原位并宣布失败。
 
 只调矿泉水瓶这类目标的抓取点/方向时，可以只启动相机和感知，不做 IK/MoveIt/真机执行：
 
@@ -575,6 +602,7 @@ source scripts/env/arachne_env.sh
 - 单关节：可长按 J1-J6 单独点动。
 - 目标移动：可输入指定关节角度或指定 TCP 的 X/Y/Z 位置。
 - Home / Install：顶部、`Home` 页和 `Move` 页面都有长按移动按钮。
+- Grasp Start / Grasp Stop / Restore：调用常驻 grasp server 执行抓取、停止任务、恢复规划恢复时的小幅底盘移动。
 - 预设配置：`Configure` 页面可设置 Home / Install 位姿，并保存/加载本地配置。
 - 录制回放：`Program` 页面录制 waypoint、wait、保存、加载、回放。
 - 窗口缩放：各页面支持滚动，小窗口或远程桌面下不会裁掉底部控件。

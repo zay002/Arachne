@@ -29,6 +29,14 @@ def generate_launch_description():
             DeclareLaunchArgument("aubo_control_owner_name", default_value="grasp_task_server"),
             DeclareLaunchArgument("grasp_base_offset", default_value="0.04,0.06,0"),
             DeclareLaunchArgument("extra_args", default_value=""),
+            DeclareLaunchArgument("preview_on_start", default_value="true"),
+            DeclareLaunchArgument("preview_extra_args", default_value="--planner-backend none"),
+            DeclareLaunchArgument("planning_recovery_base_enabled", default_value="true"),
+            DeclareLaunchArgument(
+                "planning_recovery_base_sequence",
+                default_value="forward:0.04,back:0.08,turn_left:5deg,turn_right:10deg",
+            ),
+            DeclareLaunchArgument("planning_recovery_restore_on_failure", default_value="true"),
             DeclareLaunchArgument("log_root", default_value="log/grasp_tasks"),
             DeclareLaunchArgument("require_safety_state_machine", default_value="false"),
             DeclareLaunchArgument("require_odom", default_value="false"),
@@ -87,6 +95,21 @@ def generate_launch_description():
                         "aubo_control_owner_name": LaunchConfiguration("aubo_control_owner_name"),
                         "grasp_base_offset": LaunchConfiguration("grasp_base_offset"),
                         "extra_args": LaunchConfiguration("extra_args"),
+                        "preview_on_start": ParameterValue(
+                            LaunchConfiguration("preview_on_start"), value_type=bool
+                        ),
+                        "preview_extra_args": LaunchConfiguration("preview_extra_args"),
+                        "planning_recovery_base_enabled": ParameterValue(
+                            LaunchConfiguration("planning_recovery_base_enabled"),
+                            value_type=bool,
+                        ),
+                        "planning_recovery_base_sequence": LaunchConfiguration(
+                            "planning_recovery_base_sequence"
+                        ),
+                        "planning_recovery_restore_on_failure": ParameterValue(
+                            LaunchConfiguration("planning_recovery_restore_on_failure"),
+                            value_type=bool,
+                        ),
                         "log_root": LaunchConfiguration("log_root"),
                         "require_safety_state_machine": ParameterValue(
                             LaunchConfiguration("require_safety_state_machine"), value_type=bool

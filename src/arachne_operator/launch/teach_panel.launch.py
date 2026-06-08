@@ -200,6 +200,11 @@ def generate_launch_description():
                 "teach_config_autoload": ParameterValue(
                     LaunchConfiguration("teach_config_autoload"), value_type=bool
                 ),
+                "grasp_task_state_topic": LaunchConfiguration("grasp_task_state_topic"),
+                "grasp_task_start_service": LaunchConfiguration("grasp_task_start_service"),
+                "grasp_task_stop_service": LaunchConfiguration("grasp_task_stop_service"),
+                "grasp_task_restore_service": LaunchConfiguration("grasp_task_restore_service"),
+                "grasp_task_status_service": LaunchConfiguration("grasp_task_status_service"),
             }
         ],
     )
@@ -320,6 +325,13 @@ def generate_launch_description():
                 default_value="recordings/teach/teach_panel_config.json",
             ),
             DeclareLaunchArgument("teach_config_autoload", default_value="true"),
+            DeclareLaunchArgument("grasp_task_state_topic", default_value="/arachne/grasp_task/state"),
+            DeclareLaunchArgument("grasp_task_start_service", default_value="/arachne/grasp_task/start"),
+            DeclareLaunchArgument("grasp_task_stop_service", default_value="/arachne/grasp_task/stop"),
+            DeclareLaunchArgument(
+                "grasp_task_restore_service", default_value="/arachne/grasp_task/restore"
+            ),
+            DeclareLaunchArgument("grasp_task_status_service", default_value="/arachne/grasp_task/status"),
             visualization,
             camera,
             teach_panel_node,

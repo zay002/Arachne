@@ -23,6 +23,14 @@ from sensor_msgs.msg import Image, JointState
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
+try:
+    from arachne_hardware.aubo_tcp_driver import AuboDirectJsonRpc
+except ModuleNotFoundError:
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "arachne_hardware"))
+    from arachne_hardware.aubo_tcp_driver import AuboDirectJsonRpc
+
 
 AUBO_JOINT_ALIASES = (
     ("shoulder_joint", ("shoulder_joint", "aubo_shoulder_joint")),
@@ -143,11 +151,23 @@ class GraspTaskServer(Node):
         self.declare_parameter("real_return_home", True)
         self.declare_parameter("real_sdk_move_speed", 0.25)
         self.declare_parameter("real_sdk_move_accel", 0.45)
+        self.declare_parameter("real_sdk_ip", os.environ.get("AUBO_ROBOT_IP", "192.168.127.128"))
+        self.declare_parameter("real_sdk_rpc_port", 30004)
+        self.declare_parameter("real_sdk_rpc_timeout", 2.0)
         self.declare_parameter("aubo_teach_flag_path", DEFAULT_AUBO_TEACH_FLAG_PATH)
         self.declare_parameter("aubo_control_owner_path", DEFAULT_AUBO_CONTROL_OWNER_PATH)
         self.declare_parameter("aubo_control_owner_name", "grasp_task_server")
         self.declare_parameter("grasp_base_offset", "0.04,0.06,0")
         self.declare_parameter("extra_args", "")
+        self.declare_parameter("preview_on_start", True)
+        self.declare_parameter("preview_runner_script", "scripts/vision/grasp_preview.sh")
+        self.declare_parameter("preview_extra_args", "--planner-backend none")
+        self.declare_parameter("planning_recovery_base_enabled", True)
+        self.declare_parameter(
+            "planning_recovery_base_sequence",
+            "forward:0.04,back:0.08,turn_left:5deg,turn_right:10deg",
+        )
+        self.declare_parameter("planning_recovery_restore_on_failure", True)
         self.declare_parameter("preflight_timeout_sec", 2.0)
         self.declare_parameter("status_publish_period_sec", 0.5)
         self.declare_parameter("require_safety_state_machine", False)
@@ -185,9 +205,15 @@ class GraspTaskServer(Node):
         self.cancel_event = threading.Event()
         self.base_cancel_event = threading.Event()
         self.process: subprocess.Popen[str] | None = None
+        self.idle_preview_process: subprocess.Popen[str] | None = None
+        self.idle_preview_log_file = None
+        self.idle_preview_last_start = 0.0
         self.worker: threading.Thread | None = None
         self.base_worker: threading.Thread | None = None
         self.runner_success_requested = False
+        self.runner_planning_failed = False
+        self.runner_real_execution_started = False
+        self.runner_real_execution_blocked = False
         self.latest: dict[str, tuple[float, Any]] = {}
         self.state = "idle"
         self.message = "ready"
@@ -207,6 +233,8 @@ class GraspTaskServer(Node):
         self.base_finished_at = ""
         self.base_active_command: dict[str, Any] = {}
         self.base_latest_result: dict[str, Any] = {}
+        self.last_planning_recovery_steps: list[dict[str, Any]] = []
+        self.restore_worker: threading.Thread | None = None
 
         self.state_pub = self.create_publisher(String, "/arachne/grasp_task/state", 10)
         self.event_pub = self.create_publisher(String, "/arachne/grasp_task/event", 10)
@@ -218,6 +246,8 @@ class GraspTaskServer(Node):
         )
         self.create_service(Trigger, "/arachne/grasp_task/start", self._start_cb)
         self.create_service(Trigger, "/arachne/grasp_task/cancel", self._cancel_cb)
+        self.create_service(Trigger, "/arachne/grasp_task/stop", self._cancel_cb)
+        self.create_service(Trigger, "/arachne/grasp_task/restore", self._restore_cb)
         self.create_service(Trigger, "/arachne/grasp_task/status", self._status_cb)
         self.create_service(Trigger, "/arachne/grasp_task/preflight", self._preflight_cb)
         self.create_service(Trigger, "/arachne/grasp_task/base_stop", self._base_stop_cb)
@@ -286,6 +316,7 @@ class GraspTaskServer(Node):
         period = max(float(self.get_parameter("status_publish_period_sec").value), 0.1)
         self.create_timer(period, self._publish_state)
         self.create_timer(period, self._publish_base_state)
+        self.create_timer(1.0, self._idle_preview_tick)
         base_rate = max(float(self.get_parameter("base_manual_publish_rate").value), 1.0)
         self.create_timer(1.0 / base_rate, self._publish_manual_base_velocity)
         self._event("server_ready", {"workspace_root": str(self.root)})
@@ -340,6 +371,19 @@ class GraspTaskServer(Node):
         response.message = self._snapshot_json()
         return response
 
+    def _restore_cb(self, _request, response):
+        with self.lock:
+            busy = self.restore_worker is not None and self.restore_worker.is_alive()
+            if busy:
+                response.success = False
+                response.message = self._snapshot_json()
+                return response
+            self.restore_worker = threading.Thread(target=self._restore_worker, daemon=True)
+            self.restore_worker.start()
+        response.success = True
+        response.message = self._snapshot_json()
+        return response
+
     def _status_cb(self, _request, response):
         response.success = True
         response.message = self._snapshot_json()
@@ -356,6 +400,86 @@ class GraspTaskServer(Node):
             sort_keys=True,
         )
         return response
+
+    def _idle_preview_tick(self) -> None:
+        if not bool(self.get_parameter("preview_on_start").value):
+            self._stop_idle_preview("preview disabled")
+            return
+        if self._grasp_task_active():
+            self._stop_idle_preview("grasp task active")
+            return
+        with self.lock:
+            process = self.idle_preview_process
+            last_start = self.idle_preview_last_start
+        if process is not None and process.poll() is None:
+            return
+        if time.monotonic() - last_start < 3.0:
+            return
+        self._start_idle_preview()
+
+    def _start_idle_preview(self) -> None:
+        command, env = self._idle_preview_command()
+        log_dir = self._log_root() / "idle_preview"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / (datetime.now().strftime("%Y%m%d_%H%M%S") + ".log")
+        try:
+            log_file = log_path.open("w", encoding="utf-8")
+            process = subprocess.Popen(
+                command,
+                cwd=str(self.root),
+                env=env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                text=True,
+                start_new_session=True,
+            )
+        except Exception as exc:
+            self._event("idle_preview_error", {"error": str(exc), "command": command})
+            return
+        with self.lock:
+            old_file = self.idle_preview_log_file
+            self.idle_preview_process = process
+            self.idle_preview_log_file = log_file
+            self.idle_preview_last_start = time.monotonic()
+        if old_file is not None:
+            try:
+                old_file.close()
+            except Exception:
+                pass
+        self._event("idle_preview_started", {"pid": process.pid, "log": str(log_path)})
+
+    def _idle_preview_command(self) -> tuple[list[str], dict[str, str]]:
+        runner = Path(str(self.get_parameter("preview_runner_script").value))
+        if not runner.is_absolute():
+            runner = self.root / runner
+        command = [str(runner)]
+        extra = shlex.split(str(self.get_parameter("preview_extra_args").value))
+        command.extend(extra)
+        env = os.environ.copy()
+        env["ARACHNE_GRASP_START_MOVEIT"] = "false"
+        env["ARACHNE_GRASP_WITH_RVIZ"] = "false"
+        env["ARACHNE_GRASP_EXECUTE_REAL"] = "false"
+        env["ARACHNE_GRASP_REAL_RETURN_HOME"] = "false"
+        env["ARACHNE_GRASP_CLASSES"] = str(self.get_parameter("classes").value)
+        env["ARACHNE_GRASP_CONF"] = str(self.get_parameter("confidence").value)
+        env["ARACHNE_GRASP_DEVICE_ID"] = str(self.get_parameter("device_id").value)
+        env["ARACHNE_GRASP_BASE_OFFSET"] = str(self.get_parameter("grasp_base_offset").value)
+        return command, env
+
+    def _stop_idle_preview(self, reason: str) -> None:
+        with self.lock:
+            process = self.idle_preview_process
+            log_file = self.idle_preview_log_file
+            self.idle_preview_process = None
+            self.idle_preview_log_file = None
+        if process is not None and process.poll() is None:
+            self._event("idle_preview_stop", {"reason": reason, "pid": process.pid})
+            self._terminate_process_group(process, reason, timeout=2.0)
+        if log_file is not None:
+            try:
+                log_file.close()
+            except Exception:
+                pass
 
     def _base_stop_cb(self, _request, response):
         ok, message = self._stop_base("service stop")
@@ -899,6 +1023,7 @@ class GraspTaskServer(Node):
         self.base_state_pub.publish(msg)
 
     def _run_task(self) -> None:
+        self._stop_idle_preview("grasp task starting")
         task_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
         run_dir = self._log_root() / task_id
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -925,48 +1050,83 @@ class GraspTaskServer(Node):
             return
 
         command, env = self._runner_command()
+        recovery_steps = self._planning_recovery_steps()
         self._write_json(
             run_dir / "runner.json",
             {
                 "command": command,
                 "environment_overrides": self._logged_environment(env),
+                "planning_recovery_steps": recovery_steps,
             },
         )
-        self._set_state("running", "grasp_preview pipeline started")
-        process_log = run_dir / "process.log"
-        try:
-            with process_log.open("w", encoding="utf-8") as log_file:
-                self.process = subprocess.Popen(
-                    command,
-                    cwd=str(self.root),
-                    env=env,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    start_new_session=True,
-                )
-                if self.process.stdout is not None:
-                    for line in self.process.stdout:
-                        log_file.write(line)
-                        log_file.flush()
-                        self._parse_process_line(line)
-                        if self.cancel_event.is_set():
-                            self._terminate_process("cancel requested")
-                returncode = self.process.wait()
-        except FileNotFoundError as exc:
-            self._event("runner_error", {"error": str(exc)})
-            self._finish_task("failed", f"runner missing: {exc}", returncode=None)
-            return
-        except Exception as exc:  # pragma: no cover - defensive around live process I/O.
-            self._event("runner_error", {"error": str(exc)})
-            self._finish_task("failed", f"runner error: {exc}", returncode=None)
-            return
-        finally:
-            self.process = None
+
+        returncode: int | None = None
+        executed_recovery: list[dict[str, Any]] = []
+        with self.lock:
+            self.last_planning_recovery_steps.clear()
+        max_attempts = 1 + (
+            len(recovery_steps)
+            if bool(self.get_parameter("planning_recovery_base_enabled").value)
+            else 0
+        )
+        for attempt in range(max_attempts):
+            if self.cancel_event.is_set():
+                break
+            process_log = run_dir / ("process.log" if attempt == 0 else f"process_retry_{attempt + 1}.log")
+            self._set_state(
+                "running",
+                "grasp_preview pipeline started"
+                if attempt == 0
+                else f"grasp_preview retry {attempt + 1}/{max_attempts} started",
+            )
+            try:
+                returncode = self._run_runner_process(command, env, process_log)
+            except FileNotFoundError as exc:
+                self._event("runner_error", {"error": str(exc)})
+                self._finish_task("failed", f"runner missing: {exc}", returncode=None)
+                return
+            except Exception as exc:  # pragma: no cover - defensive around live process I/O.
+                self._event("runner_error", {"error": str(exc)})
+                self._finish_task("failed", f"runner error: {exc}", returncode=None)
+                return
+
+            with self.lock:
+                runner_success = self.runner_success_requested
+                planning_failed = self.runner_planning_failed
+                real_started = self.runner_real_execution_started
+
+            if self.cancel_event.is_set() or runner_success or returncode == 0:
+                break
+            if (
+                planning_failed
+                and not real_started
+                and bool(self.get_parameter("planning_recovery_base_enabled").value)
+                and attempt < len(recovery_steps)
+            ):
+                step = recovery_steps[attempt]
+                try:
+                    self._run_planning_recovery_step(step, attempt + 1)
+                    executed_recovery.append(step)
+                    with self.lock:
+                        self.last_planning_recovery_steps.append(dict(step))
+                    continue
+                except Exception as exc:
+                    self._event("planning_recovery_failed", {"step": step, "error": str(exc)})
+                    break
+            break
 
         with self.lock:
             runner_success = self.runner_success_requested
+
+        if (
+            not self.cancel_event.is_set()
+            and not runner_success
+            and executed_recovery
+            and bool(self.get_parameter("planning_recovery_restore_on_failure").value)
+        ):
+            self._restore_planning_recovery_steps(executed_recovery)
+            with self.lock:
+                self.last_planning_recovery_steps.clear()
 
         if self.cancel_event.is_set():
             self._finish_task("canceled", "task canceled", returncode=returncode)
@@ -978,6 +1138,149 @@ class GraspTaskServer(Node):
                 f"grasp task failed with return code {returncode}",
                 returncode=returncode,
             )
+
+    def _run_runner_process(
+        self, command: list[str], env: dict[str, str], process_log: Path
+    ) -> int | None:
+        with self.lock:
+            self.runner_success_requested = False
+            self.runner_planning_failed = False
+            self.runner_real_execution_started = False
+            self.runner_real_execution_blocked = False
+        with process_log.open("w", encoding="utf-8") as log_file:
+            self.process = subprocess.Popen(
+                command,
+                cwd=str(self.root),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                start_new_session=True,
+            )
+            try:
+                if self.process.stdout is not None:
+                    for line in self.process.stdout:
+                        log_file.write(line)
+                        log_file.flush()
+                        self._parse_process_line(line)
+                        if self.cancel_event.is_set():
+                            self._terminate_process("cancel requested")
+                return self.process.wait()
+            finally:
+                self.process = None
+
+    def _restore_worker(self) -> None:
+        self.cancel_event.set()
+        self._terminate_process("restore requested")
+        self._stop_base("restore requested")
+        with self.lock:
+            steps = [dict(step) for step in self.last_planning_recovery_steps]
+        if not steps:
+            self._set_state("idle", "restore complete: no recorded recovery motion")
+            self._event("restore_complete", {"restored_steps": 0})
+            return
+        self._set_state("running", f"restoring base recovery motion: {len(steps)} step(s)")
+        try:
+            self._restore_planning_recovery_steps(steps)
+            with self.lock:
+                self.last_planning_recovery_steps.clear()
+            self._set_state("idle", "restore complete")
+            self._event("restore_complete", {"restored_steps": len(steps)})
+        except Exception as exc:
+            self._set_state("failed", f"restore failed: {exc}")
+            self._event("restore_failed", {"error": str(exc), "steps": steps})
+
+    def _planning_recovery_steps(self) -> list[dict[str, Any]]:
+        raw = str(self.get_parameter("planning_recovery_base_sequence").value).strip()
+        if not raw:
+            return []
+        steps: list[dict[str, Any]] = []
+        for token in raw.split(","):
+            token = token.strip()
+            if not token:
+                continue
+            if ":" in token:
+                action, value = token.split(":", 1)
+            else:
+                action, value = token, ""
+            action = action.strip().lower()
+            value = value.strip().lower()
+            if action in ("forward", "back", "backward", "reverse"):
+                distance = float(value.rstrip("m") or "0.04")
+                if action in ("back", "backward", "reverse"):
+                    distance = -abs(distance)
+                else:
+                    distance = abs(distance)
+                steps.append({"type": "linear", "signed_distance_m": distance})
+            elif action in ("turn_left", "left", "turn_right", "right"):
+                if value.endswith("deg"):
+                    angle = math.radians(float(value[:-3]))
+                elif value.endswith("rad"):
+                    angle = float(value[:-3])
+                else:
+                    angle = math.radians(float(value or "5"))
+                if action in ("turn_right", "right"):
+                    angle = -abs(angle)
+                else:
+                    angle = abs(angle)
+                steps.append({"type": "angular", "signed_angle_rad": angle})
+        return steps
+
+    def _run_planning_recovery_step(self, step: dict[str, Any], attempt: int) -> None:
+        self._set_state("running", f"planning recovery base move {attempt}: {step}")
+        self._event("planning_recovery_start", {"attempt": attempt, "step": step})
+        self.base_cancel_event.clear()
+        try:
+            self._execute_recovery_step(step)
+            self._event("planning_recovery_done", {"attempt": attempt, "step": step})
+        finally:
+            self._publish_base_stop()
+            time.sleep(0.25)
+
+    def _restore_planning_recovery_steps(self, steps: list[dict[str, Any]]) -> None:
+        for index, step in enumerate(reversed(steps), start=1):
+            inverse = self._inverse_recovery_step(step)
+            try:
+                self._set_state("running", f"restoring base after failed planning {index}: {inverse}")
+                self.base_cancel_event.clear()
+                self._execute_recovery_step(inverse)
+            except Exception as exc:
+                self._event("planning_recovery_restore_failed", {"step": inverse, "error": str(exc)})
+                break
+            finally:
+                self._publish_base_stop()
+                time.sleep(0.25)
+
+    def _inverse_recovery_step(self, step: dict[str, Any]) -> dict[str, Any]:
+        if step.get("type") == "linear":
+            return {
+                "type": "linear",
+                "signed_distance_m": -float(step.get("signed_distance_m", 0.0)),
+            }
+        if step.get("type") == "angular":
+            return {
+                "type": "angular",
+                "signed_angle_rad": -float(step.get("signed_angle_rad", 0.0)),
+            }
+        return dict(step)
+
+    def _execute_recovery_step(self, step: dict[str, Any]) -> None:
+        if self.cancel_event.is_set():
+            return
+        if step.get("type") == "linear":
+            distance = float(step.get("signed_distance_m", 0.0))
+            speed = abs(float(self.get_parameter("base_replay_linear_speed").value))
+            duration = abs(distance) / max(speed, 1e-3)
+            self._run_timed_base_motion(math.copysign(speed, distance), 0.0, duration)
+            return
+        if step.get("type") == "angular":
+            angle = float(step.get("signed_angle_rad", 0.0))
+            speed = abs(float(self.get_parameter("base_replay_angular_speed").value))
+            duration = abs(angle) / max(speed, 1e-3)
+            self._run_timed_base_motion(0.0, math.copysign(speed, angle), duration)
+            return
+        raise ValueError(f"unsupported recovery step: {step}")
 
     def _run_preflight(self, *, set_autonomous: bool) -> PreflightResult:
         timeout = max(float(self.get_parameter("preflight_timeout_sec").value), 0.1)
@@ -1019,6 +1322,8 @@ class GraspTaskServer(Node):
             max_age=max(timeout + 1.0, 2.0),
             validator=lambda value: "not reachable" not in str(value).lower(),
         )
+        if execute_real:
+            self._refresh_aubo_joints_from_rpc()
         self._add_cached_check(
             result,
             "aubo_joints",
@@ -1089,6 +1394,37 @@ class GraspTaskServer(Node):
         except OSError as exc:
             return False, f"inactive stale teach gate {path} could not be cleared: {exc}"
         return True, f"cleared inactive stale teach gate value={text!r}"
+
+    def _refresh_aubo_joints_from_rpc(self) -> None:
+        try:
+            ip = str(self.get_parameter("real_sdk_ip").value)
+            port = int(self.get_parameter("real_sdk_rpc_port").value)
+            timeout = max(float(self.get_parameter("real_sdk_rpc_timeout").value), 0.1)
+            with AuboDirectJsonRpc(ip, port, timeout) as rpc:
+                raw = rpc.robot_call("RobotState.getJointPositions")
+            joints = self._normalise_aubo_rpc_joints(raw)
+        except Exception as exc:
+            self._event("aubo_joints_rpc_refresh_failed", {"error": str(exc)})
+            return
+        names = [canonical for canonical, _aliases in AUBO_JOINT_ALIASES]
+        with self.lock:
+            self.latest["aubo_joints"] = (
+                time.monotonic(),
+                {name: value for name, value in zip(names, joints)},
+            )
+        self._event("aubo_joints_rpc_refresh", {"source": f"{ip}:{port}", "joints": joints})
+
+    def _normalise_aubo_rpc_joints(self, value: Any) -> list[float]:
+        if isinstance(value, dict):
+            for key in ("joint_positions", "jointPositions", "positions", "q", "data", "value"):
+                if key in value:
+                    return self._normalise_aubo_rpc_joints(value[key])
+        if isinstance(value, (list, tuple)) and len(value) >= 6:
+            joints = [float(item) for item in value[:6]]
+            if max(abs(item) for item in joints) > 10.0:
+                raise RuntimeError(f"Aubo SDK joint values do not look like radians: {joints}")
+            return joints
+        raise RuntimeError(f"cannot parse Aubo SDK joint positions from {value!r}")
 
     def _wait_for_fresh_inputs(self, timeout: float) -> None:
         deadline = time.monotonic() + timeout
@@ -1207,6 +1543,11 @@ class GraspTaskServer(Node):
             "aubo_control_owner_name",
             "grasp_base_offset",
             "extra_args",
+            "preview_on_start",
+            "preview_extra_args",
+            "planning_recovery_base_enabled",
+            "planning_recovery_base_sequence",
+            "planning_recovery_restore_on_failure",
         )
         return {name: self.get_parameter(name).value for name in names}
 
@@ -1224,6 +1565,12 @@ class GraspTaskServer(Node):
             with self.lock:
                 self.grasp_preview_log_dir = match.group(1).strip()
             self._event("grasp_preview_log_dir", {"path": match.group(1).strip()})
+        if "sending REAL arm motion" in stripped or "REAL moveJoint" in stripped:
+            with self.lock:
+                self.runner_real_execution_started = True
+        if "REAL gripper command" in stripped:
+            with self.lock:
+                self.runner_real_execution_started = True
         if (
             "REAL arm SDK moveJoint sequence complete" in stripped
             or "REAL arm trajectory complete" in stripped
@@ -1233,8 +1580,21 @@ class GraspTaskServer(Node):
             self._event("arm_sequence_complete", {"line": stripped})
             self._terminate_process("real arm sequence complete")
         elif "real execution blocked" in stripped.lower():
+            with self.lock:
+                self.runner_real_execution_blocked = True
             self._event("real_execution_blocked", {"line": stripped})
             self._terminate_process("real execution blocked")
+        elif (
+            "arm trajectory unavailable" in stripped.lower()
+            or "planning failed" in stripped.lower()
+        ):
+            with self.lock:
+                real_started = self.runner_real_execution_started
+                if not real_started:
+                    self.runner_planning_failed = True
+            self._event("planning_failed", {"line": stripped, "real_started": real_started})
+            if not real_started:
+                self._terminate_process("planning failed before real motion")
         elif "REAL execution is armed" in stripped:
             self._event("real_execution_armed", {"line": stripped})
         elif "grasp task failed" in stripped.lower() or "failed" in stripped.lower():
@@ -1257,13 +1617,18 @@ class GraspTaskServer(Node):
         if process is None or process.poll() is not None:
             return
         self._event("terminate", {"reason": reason})
+        self._terminate_process_group(process, reason, timeout=3.0)
+
+    def _terminate_process_group(
+        self, process: subprocess.Popen[str], reason: str, *, timeout: float
+    ) -> None:
         try:
             os.killpg(process.pid, signal.SIGINT)
         except ProcessLookupError:
             return
         except Exception as exc:
             self.get_logger().warning(f"SIGINT failed: {exc}")
-        deadline = time.monotonic() + 3.0
+        deadline = time.monotonic() + max(float(timeout), 0.1)
         while process.poll() is None and time.monotonic() < deadline:
             time.sleep(0.05)
         if process.poll() is None:
@@ -1350,7 +1715,9 @@ def main() -> None:
         if rclpy.ok():
             node._publish_base_stop()
         node._terminate_process("shutdown")
+        node._stop_idle_preview("shutdown")
     finally:
+        node._stop_idle_preview("shutdown")
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
