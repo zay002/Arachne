@@ -22,6 +22,8 @@ refresh_arachne_environment() {
 
 refresh_arachne_environment
 
+export YOLO_AUTOINSTALL="${YOLO_AUTOINSTALL:-false}"
+
 DEFAULT_YOLO_ENGINE="${ROOT_DIR}/yolo_workspace/engines/trash_yolo26n_seg_best_fp16_640.engine"
 DEFAULT_YOLO_ONNX="${ROOT_DIR}/yolo_workspace/weights/trash_yolo26n_seg_best.onnx"
 DEFAULT_YOLO_PT="${ROOT_DIR}/yolo_workspace/weights/trash_yolo26n_seg_best.pt"
@@ -40,13 +42,14 @@ CLASSES="${ARACHNE_GRASP_CLASSES:-trash}"
 CONF="${ARACHNE_GRASP_CONF:-0.25}"
 IMGSZ="${ARACHNE_GRASP_IMGSZ:-640}"
 DEVICE_ID="${ARACHNE_GRASP_DEVICE_ID:-0}"
+ONNX_DEVICE="${ARACHNE_GRASP_ONNX_DEVICE:-cpu}"
 DISPLAY_FRAME_PREFIX="${ARACHNE_GRASP_DISPLAY_FRAME_PREFIX:-grasp_preview_}"
 GRIPPER_TYPE="${ARACHNE_GRASP_GRIPPER_TYPE:-ms42dc}"
 TOOL_ADAPTER_XYZ="${ARACHNE_GRASP_TOOL_ADAPTER_XYZ:-0.0 0.0 0.0}"
 TOOL_ADAPTER_RPY="${ARACHNE_GRASP_TOOL_ADAPTER_RPY:-0.0 0.0 0.785398163397}"
 DEPTH_PROJECTION_FLIP_X="${ARACHNE_GRASP_DEPTH_PROJECTION_FLIP_X:-true}"
 DEPTH_PROJECTION_FLIP_Y="${ARACHNE_GRASP_DEPTH_PROJECTION_FLIP_Y:-true}"
-GRASP_BASE_OFFSET="${ARACHNE_GRASP_BASE_OFFSET:-0.06,0.09,-0.10}"
+GRASP_BASE_OFFSET="${ARACHNE_GRASP_BASE_OFFSET:-0.04,0.06,0}"
 EXECUTE_REAL="${ARACHNE_GRASP_EXECUTE_REAL:-false}"
 EXECUTE_REAL_CONFIRM="${ARACHNE_CONFIRM_GRASP_EXECUTE_REAL:-}"
 REAL_JOINT_STATES_TOPIC="${ARACHNE_GRASP_REAL_JOINT_STATES_TOPIC:-/joint_states}"
@@ -54,6 +57,9 @@ REAL_EXECUTE_BACKEND="${ARACHNE_GRASP_REAL_EXECUTE_BACKEND:-sdk_move_joint}"
 REAL_SDK_IP="${ARACHNE_GRASP_REAL_SDK_IP:-${AUBO_ROBOT_IP:-192.168.127.128}}"
 REAL_SDK_MOVE_SPEED="${ARACHNE_GRASP_REAL_SDK_MOVE_SPEED:-0.25}"
 REAL_SDK_MOVE_ACCEL="${ARACHNE_GRASP_REAL_SDK_MOVE_ACCEL:-0.45}"
+REAL_SDK_TEACH_FLAG_PATH="${ARACHNE_GRASP_REAL_SDK_TEACH_FLAG_PATH:-/tmp/arachne_aubo_teach_mode}"
+REAL_SDK_CONTROL_OWNER_PATH="${ARACHNE_GRASP_AUBO_CONTROL_OWNER_PATH:-/tmp/arachne_aubo_control_owner}"
+REAL_SDK_CONTROL_OWNER_NAME="${ARACHNE_GRASP_AUBO_CONTROL_OWNER_NAME:-grasp_task_server}"
 REAL_RETURN_HOME="${ARACHNE_GRASP_REAL_RETURN_HOME:-true}"
 REAL_HOME_JOINTS="${ARACHNE_GRASP_REAL_HOME_JOINTS:-${ARACHNE_AUBO_HOME_JOINTS_RAD:--1.5707963267949,0.201570428261868,1.65970467002488,0.485178041391533,1.67675136677345,0.76432946885334}}"
 REAL_HOME_DURATION="${ARACHNE_GRASP_REAL_HOME_DURATION:-2.5}"
@@ -77,6 +83,9 @@ mkdir -p "${LOG_DIR}"
   echo "python: ${ARACHNE_SYSTEM_PYTHON}"
   echo "yolo_model: ${MODEL}"
   echo "yolo_task: ${YOLO_TASK}"
+  echo "yolo_autoinstall: ${YOLO_AUTOINSTALL}"
+  echo "device_id: ${DEVICE_ID}"
+  echo "onnx_device: ${ONNX_DEVICE}"
   echo "ament_prefix_path: ${AMENT_PREFIX_PATH:-}"
   echo "depth_projection_flip_x: ${DEPTH_PROJECTION_FLIP_X}"
   echo "depth_projection_flip_y: ${DEPTH_PROJECTION_FLIP_Y}"
@@ -88,6 +97,9 @@ mkdir -p "${LOG_DIR}"
   echo "real_sdk_ip: ${REAL_SDK_IP}"
   echo "real_sdk_move_speed: ${REAL_SDK_MOVE_SPEED}"
   echo "real_sdk_move_accel: ${REAL_SDK_MOVE_ACCEL}"
+  echo "real_sdk_teach_flag_path: ${REAL_SDK_TEACH_FLAG_PATH}"
+  echo "real_sdk_control_owner_path: ${REAL_SDK_CONTROL_OWNER_PATH}"
+  echo "real_sdk_control_owner_name: ${REAL_SDK_CONTROL_OWNER_NAME}"
   echo "real_return_home: ${REAL_RETURN_HOME}"
   echo "real_home_joints: ${REAL_HOME_JOINTS}"
   echo "real_home_duration: ${REAL_HOME_DURATION}"
@@ -282,6 +294,9 @@ run_pipeline() {
       --real-execute-backend "${REAL_EXECUTE_BACKEND}"
       --real-joint-states-topic "${REAL_JOINT_STATES_TOPIC}"
       --real-sdk-ip "${REAL_SDK_IP}"
+      --real-sdk-teach-flag-path "${REAL_SDK_TEACH_FLAG_PATH}"
+      --real-sdk-control-owner-path "${REAL_SDK_CONTROL_OWNER_PATH}"
+      --real-sdk-control-owner-name "${REAL_SDK_CONTROL_OWNER_NAME}"
       --real-sdk-move-speed "${REAL_SDK_MOVE_SPEED}"
       --real-sdk-move-accel "${REAL_SDK_MOVE_ACCEL}"
       "${return_home_arg}"
@@ -297,6 +312,7 @@ run_pipeline() {
     --conf "${CONF}" \
     --imgsz "${IMGSZ}" \
     --device-id "${device_id}" \
+    --onnx-device "${ONNX_DEVICE}" \
     --gripper-type "${GRIPPER_TYPE}" \
     --aubo-base-frame "${DISPLAY_FRAME_PREFIX}aubo_base_link" \
     --grasp-base-offset "${GRASP_BASE_OFFSET}" \

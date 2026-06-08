@@ -118,6 +118,99 @@ PREVIEW_MAX_JOINT_ACCEL_RAD_SEC2 = 4.50
 PREVIEW_MAX_JOINT_JERK_RAD_SEC3 = 100.0
 PREVIEW_SMOOTHING_TAU_SEC = 0.04
 COLLISION_PENALTY = 1_000_000.0
+DEFAULT_AUBO_TEACH_FLAG_PATH = "/tmp/arachne_aubo_teach_mode"
+DEFAULT_AUBO_CONTROL_OWNER_PATH = "/tmp/arachne_aubo_control_owner"
+
+
+def _control_owner_payload(owner: str) -> str:
+    return json.dumps(
+        {"owner": owner, "pid": os.getpid(), "created_at": time.time()},
+        separators=(",", ":"),
+    ) + "\n"
+
+
+def _parse_control_owner(text: str) -> tuple[str, int | None]:
+    text = text.strip()
+    if not text:
+        return "", None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return text.splitlines()[0].strip(), None
+    owner = str(data.get("owner", "")).strip()
+    pid_value = data.get("pid")
+    try:
+        pid = int(pid_value) if pid_value is not None else None
+    except (TypeError, ValueError):
+        pid = None
+    return owner, pid
+
+
+def _pid_alive(pid: int | None) -> bool:
+    if pid is None:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _claim_control_owner(path: Path, owner: str) -> tuple[bool, str]:
+    owner = owner.strip() or "grasp_task_server"
+    for _attempt in range(2):
+        try:
+            fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        except FileExistsError:
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                return False, f"unreadable owner file {path}: {exc}"
+            active_owner, pid = _parse_control_owner(text)
+            if active_owner == owner and pid == os.getpid():
+                return True, f"already owned by {owner}"
+            if pid is not None and not _pid_alive(pid):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError as exc:
+                    return False, f"stale owner {active_owner or text!r} could not be cleared: {exc}"
+                continue
+            pid_text = str(pid) if pid is not None else "unknown"
+            return False, f"owned by {active_owner or text.strip() or 'unknown'} pid={pid_text}"
+        except OSError as exc:
+            return False, f"could not create owner file {path}: {exc}"
+
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(_control_owner_payload(owner))
+        except OSError as exc:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return False, f"could not write owner file {path}: {exc}"
+        return True, f"owned by {owner}"
+    return False, f"could not claim owner file {path}"
+
+
+def _release_control_owner(path: Path, owner: str) -> None:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return
+    except OSError:
+        return
+    active_owner, pid = _parse_control_owner(text)
+    if active_owner != (owner.strip() or "grasp_task_server"):
+        return
+    if pid is not None and pid != os.getpid():
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        return
 
 
 @dataclass
@@ -192,12 +285,16 @@ def _add_venv_site_packages(venv: Path) -> None:
             sys.path.insert(0, str(candidate))
 
 
-def _load_yolo(venv: Path, model_path: Path, task: str):
+def _load_yolo(venv: Path, model_path: Path, task: str, initial_device: str = ""):
+    os.environ.setdefault("YOLO_AUTOINSTALL", "false")
     _add_venv_site_packages(venv)
     from ultralytics import YOLO
 
     kwargs = {"task": task} if task else {}
-    return YOLO(str(model_path), **kwargs)
+    model = YOLO(str(model_path), **kwargs)
+    if initial_device:
+        model.overrides["device"] = initial_device
+    return model
 
 
 def _parse_args() -> argparse.Namespace:
@@ -214,6 +311,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--imgsz", type=int, default=640, help=hidden)
     parser.add_argument("--device-id", default="0", help=hidden)
+    parser.add_argument(
+        "--onnx-device",
+        default=os.environ.get("ARACHNE_GRASP_ONNX_DEVICE", "cpu"),
+        help=hidden,
+    )
     parser.add_argument("--gripper-type", choices=("ms42dc", "ag95"), default="ms42dc", help=hidden)
     parser.add_argument("--inference-period", type=float, default=0.45, help=hidden)
     parser.add_argument("--snapshot-iou-threshold", type=float, default=0.35, help=hidden)
@@ -261,7 +363,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--approach-distance", type=float, default=0.18, help=hidden)
     parser.add_argument("--grasp-standoff", type=float, default=0.035, help=hidden)
     parser.add_argument("--grasp-tcp-offset-m", type=float, default=0.12, help=hidden)
-    parser.add_argument("--grasp-base-offset", default="0.06,0.09,-0.10", help=hidden)
+    parser.add_argument("--grasp-base-offset", default="0.04,0.06,0", help=hidden)
     parser.add_argument("--lift-distance", type=float, default=0.10, help=hidden)
     parser.add_argument("--base-frame", default="base_link", help=hidden)
     parser.add_argument("--aubo-base-frame", default="grasp_preview_aubo_base_link", help=hidden)
@@ -354,7 +456,17 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--real-sdk-ip", default=os.environ.get("AUBO_ROBOT_IP", "192.168.127.128"), help=hidden)
     parser.add_argument("--real-sdk-rpc-port", type=int, default=30004, help=hidden)
     parser.add_argument("--real-sdk-rpc-timeout", type=float, default=2.0, help=hidden)
-    parser.add_argument("--real-sdk-teach-flag-path", default="/tmp/arachne_aubo_teach_mode", help=hidden)
+    parser.add_argument("--real-sdk-teach-flag-path", default=DEFAULT_AUBO_TEACH_FLAG_PATH, help=hidden)
+    parser.add_argument(
+        "--real-sdk-control-owner-path",
+        default=DEFAULT_AUBO_CONTROL_OWNER_PATH,
+        help=hidden,
+    )
+    parser.add_argument(
+        "--real-sdk-control-owner-name",
+        default="grasp_task_server",
+        help=hidden,
+    )
     parser.add_argument("--real-sdk-gate-settle-sec", type=float, default=0.12, help=hidden)
     parser.add_argument("--real-sdk-move-speed", type=float, default=0.25, help=hidden)
     parser.add_argument("--real-sdk-move-accel", type=float, default=0.45, help=hidden)
@@ -401,7 +513,10 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--real-gripper-command-topic", default="/arachne/gripper/command", help=hidden)
     parser.add_argument("--real-gripper-settle-sec", type=float, default=0.35, help=hidden)
-    parser.add_argument("--tool-orientation-limit-deg", type=float, default=30.0, help=hidden)
+    parser.add_argument("--tool-orientation-limit-deg", type=float, default=90.0, help=hidden)
+    parser.add_argument("--grasp-orientation-yaw-offsets-deg", default="0,30,-30,60,-60,90,-90,180", help=hidden)
+    parser.add_argument("--transit-orientation-yaw-offsets-deg", default="0,45,-45,90,-90", help=hidden)
+    parser.add_argument("--grasp-orientation-tilt-offsets-deg", default="0,15,-15", help=hidden)
     parser.add_argument("--moveit-use-orientation-path-constraint", action="store_true", help=hidden)
     parser.add_argument("--moveit-max-tool0-reach", type=float, default=1.03, help=hidden)
     parser.add_argument("--moveit-velocity-scale", type=float, default=0.50, help=hidden)
@@ -468,6 +583,17 @@ def _float_values(value: str, expected: int, label: str) -> list[float]:
     ]
     if len(parts) != expected:
         raise ValueError(f"{label} must contain {expected} values, got {len(parts)}")
+    return [float(part) for part in parts]
+
+
+def _float_list(value: str, label: str) -> list[float]:
+    parts = [
+        part.strip()
+        for part in str(value).replace(";", ",").replace(" ", ",").split(",")
+        if part.strip()
+    ]
+    if not parts:
+        raise ValueError(f"{label} must contain at least one value")
     return [float(part) for part in parts]
 
 
@@ -541,7 +667,14 @@ class GraspPreviewNode(Node):
         self.save_dir = Path(args.save_dir)
         self.save_dir.mkdir(parents=True, exist_ok=True)
 
-        self.model = _load_yolo(self.venv, self.model_path, str(args.yolo_task))
+        initial_device = (
+            str(args.onnx_device).strip()
+            if self.model_path.suffix.lower() == ".onnx"
+            else str(args.device_id)
+        )
+        self.model = _load_yolo(
+            self.venv, self.model_path, str(args.yolo_task), initial_device
+        )
         self.class_ids = _class_ids(self.model, args.classes)
         self.base_frame = str(args.base_frame)
         self.aubo_base_frame = str(args.aubo_base_frame)
@@ -644,6 +777,7 @@ class GraspPreviewNode(Node):
         self.get_logger().info(
             "grasp preview ready: "
             f"model={self.model_path} classes={args.classes or 'all'} "
+            f"inference_device={self._yolo_device()} "
             "markers=/arachne/grasp_preview/markers "
             "roi_cloud=/arachne/grasp_preview/roi_cloud "
             f"restart_topic={args.restart_search_topic}"
@@ -1127,6 +1261,7 @@ class GraspPreviewNode(Node):
         accel = max(float(self.args.real_sdk_move_accel), 0.05)
         blend_radius = max(float(self.args.real_sdk_blend_radius), 0.0)
         duration_scale = max(float(self.args.real_sdk_segment_duration_scale), 0.0)
+        owner_owned = False
         gate_owned = False
         self.get_logger().warn(
             f"sending REAL arm motion through Aubo SDK moveJoint: targets={len(targets)} "
@@ -1134,9 +1269,10 @@ class GraspPreviewNode(Node):
         )
 
         with AuboDirectJsonRpc(ip, port, timeout) as rpc:
-            self._real_sdk_require_running(rpc)
-            gate_owned = self._real_sdk_enter_gate()
             try:
+                self._real_sdk_require_running(rpc)
+                owner_owned = self._real_sdk_enter_control_owner()
+                gate_owned = self._real_sdk_enter_gate()
                 self._real_sdk_exit_servo_mode(rpc)
                 self._real_sdk_stop_joint(rpc, "pre-move cleanup", warn_only=True)
                 if bool(self.args.real_execute_gripper):
@@ -1199,9 +1335,11 @@ class GraspPreviewNode(Node):
                     self.get_logger().warn("REAL arm SDK moveJoint sequence complete")
             finally:
                 try:
-                    self._real_sdk_stop_joint(rpc, "post-move cleanup", warn_only=True)
+                    if gate_owned:
+                        self._real_sdk_stop_joint(rpc, "post-move cleanup", warn_only=True)
                 finally:
                     self._real_sdk_exit_gate(gate_owned)
+                    self._real_sdk_exit_control_owner(owner_owned)
 
     def _execute_real_follow_joint_trajectory(self, preview: GraspPreview) -> None:
         if self.real_arm_action_client is None:
@@ -1379,13 +1517,38 @@ class GraspPreviewNode(Node):
     def _real_sdk_enter_gate(self) -> bool:
         path = Path(str(self.args.real_sdk_teach_flag_path))
         if path.exists():
-            self.get_logger().warn(f"real SDK teach gate already active: {path}")
-            return False
-        path.write_text("grasp_preview_sdk_move_joint\n", encoding="utf-8")
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace").strip()
+            except OSError as exc:
+                raise RuntimeError(f"real SDK teach gate is unreadable: {path}: {exc}") from exc
+            raise RuntimeError(
+                "real SDK teach gate is already active; turn teach/jog off before grasp "
+                f"path={path} value={text!r}"
+            )
+        path.write_text("1\n", encoding="utf-8")
         settle = max(float(self.args.real_sdk_gate_settle_sec), 0.0)
         if settle > 0.0:
             time.sleep(settle)
         return True
+
+    def _real_sdk_enter_control_owner(self) -> bool:
+        path = Path(str(self.args.real_sdk_control_owner_path))
+        owner = str(self.args.real_sdk_control_owner_name).strip() or "grasp_task_server"
+        ok, message = _claim_control_owner(path, owner)
+        if not ok:
+            raise RuntimeError(
+                "Aubo control is busy; stop teach/manual jog before real grasp: "
+                f"{message}"
+            )
+        self.get_logger().warn(f"REAL Aubo control owner acquired: {message}")
+        return True
+
+    def _real_sdk_exit_control_owner(self, owner_owned: bool) -> None:
+        if not owner_owned:
+            return
+        path = Path(str(self.args.real_sdk_control_owner_path))
+        owner = str(self.args.real_sdk_control_owner_name).strip() or "grasp_task_server"
+        _release_control_owner(path, owner)
 
     def _real_sdk_exit_gate(self, gate_owned: bool) -> None:
         if not gate_owned:
@@ -1598,12 +1761,19 @@ class GraspPreviewNode(Node):
         kwargs = {
             "imgsz": int(self.args.imgsz),
             "conf": float(self.args.conf),
-            "device": str(self.args.device_id),
+            "device": self._yolo_device(),
             "verbose": False,
         }
         if self.class_ids is not None:
             kwargs["classes"] = self.class_ids
         return self.model.predict(frame, **kwargs)[0]
+
+    def _yolo_device(self) -> str:
+        if self.model_path.suffix.lower() == ".onnx":
+            device = str(self.args.onnx_device).strip()
+            if device:
+                return device
+        return str(self.args.device_id)
 
     def _best_detection(self, result) -> Detection | None:
         boxes = result.boxes
@@ -2760,16 +2930,53 @@ class GraspPreviewNode(Node):
             nominal = downward
 
         limit_rad = self._tool_orientation_limit_rad()
-        yaw_offsets = (0.0,)
+        if progress < 0.18:
+            yaw_offsets = (0.0,)
+            tilt_offsets = ((0.0, 0.0),)
+        elif progress < 0.60:
+            yaw_offsets = self._angle_offsets_rad(
+                str(self.args.grasp_orientation_yaw_offsets_deg),
+                "--grasp-orientation-yaw-offsets-deg",
+            )
+            tilt_offsets = self._grasp_tilt_offsets_rad()
+        else:
+            yaw_offsets = self._angle_offsets_rad(
+                str(self.args.transit_orientation_yaw_offsets_deg),
+                "--transit-orientation-yaw-offsets-deg",
+            )
+            tilt_offsets = ((0.0, 0.0),)
         candidates: list[np.ndarray] = []
         for yaw in yaw_offsets:
-            candidate = nominal @ self._rpy_matrix(0.0, 0.0, yaw)
-            candidate = self._limit_rotation_from_reference(
-                current_rotation_base, candidate, limit_rad
-            )
-            if not any(self._rotation_distance(candidate, existing) < 1e-4 for existing in candidates):
-                candidates.append(candidate)
+            for roll, pitch in tilt_offsets:
+                candidate = nominal @ self._rpy_matrix(roll, pitch, yaw)
+                candidate = self._limit_rotation_from_reference(
+                    current_rotation_base, candidate, limit_rad
+                )
+                if not any(
+                    self._rotation_distance(candidate, existing) < 1e-4
+                    for existing in candidates
+                ):
+                    candidates.append(candidate)
         return candidates
+
+    def _angle_offsets_rad(self, value: str, label: str) -> tuple[float, ...]:
+        offsets = [math.radians(item) for item in _float_list(value, label)]
+        if not any(abs(item) < 1e-9 for item in offsets):
+            offsets.insert(0, 0.0)
+        return tuple(offsets)
+
+    def _grasp_tilt_offsets_rad(self) -> tuple[tuple[float, float], ...]:
+        values = self._angle_offsets_rad(
+            str(self.args.grasp_orientation_tilt_offsets_deg),
+            "--grasp-orientation-tilt-offsets-deg",
+        )
+        offsets: list[tuple[float, float]] = [(0.0, 0.0)]
+        for value in values:
+            if abs(value) < 1e-9:
+                continue
+            offsets.append((value, 0.0))
+            offsets.append((0.0, value))
+        return tuple(offsets)
 
     def _rotation_from_tool_z_base(self, tool_z: np.ndarray, x_hint: np.ndarray) -> np.ndarray:
         z_axis = np.asarray(tool_z, dtype=float)

@@ -232,6 +232,8 @@ def _launch_setup(context, *args, **kwargs):
                         ),
                         "teach_method": LaunchConfiguration("aubo_teach_method"),
                         "teach_flag_path": LaunchConfiguration("aubo_teach_flag_path"),
+                        "control_owner_path": LaunchConfiguration("aubo_control_owner_path"),
+                        "control_owner_name": LaunchConfiguration("aubo_teach_control_owner_name"),
                     }
                 ],
                 output="screen",
@@ -254,6 +256,10 @@ def _launch_setup(context, *args, **kwargs):
                             LaunchConfiguration("aubo_rpc_timeout_sec"), value_type=float
                         ),
                         "teach_flag_path": LaunchConfiguration("aubo_teach_flag_path"),
+                        "control_owner_path": LaunchConfiguration("aubo_control_owner_path"),
+                        "control_owner_name": LaunchConfiguration(
+                            "aubo_sdk_velocity_control_owner_name"
+                        ),
                         "command_watchdog_sec": ParameterValue(
                             LaunchConfiguration("aubo_sdk_velocity_watchdog_sec"),
                             value_type=float,
@@ -336,6 +342,15 @@ def generate_launch_description():
             DeclareLaunchArgument("aubo_rpc_timeout_sec", default_value="2.0"),
             DeclareLaunchArgument("aubo_teach_method", default_value="freedrive"),
             DeclareLaunchArgument("aubo_teach_flag_path", default_value="/tmp/arachne_aubo_teach_mode"),
+            DeclareLaunchArgument(
+                "aubo_control_owner_path",
+                default_value="/tmp/arachne_aubo_control_owner",
+            ),
+            DeclareLaunchArgument("aubo_teach_control_owner_name", default_value="teach_panel"),
+            DeclareLaunchArgument(
+                "aubo_sdk_velocity_control_owner_name",
+                default_value="teach_panel",
+            ),
             DeclareLaunchArgument("aubo_sdk_velocity_watchdog_sec", default_value="0.75"),
             DeclareLaunchArgument("aubo_sdk_velocity_send_period_sec", default_value="0.20"),
             DeclareLaunchArgument("aubo_sdk_velocity_start_delay_sec", default_value="0.04"),

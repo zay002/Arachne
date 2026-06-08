@@ -194,7 +194,7 @@ ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES \
   ./scripts/vision/grasp_preview_real_sync.sh --execute-real
 ```
 
-真机执行仍会先同步真实 6 轴姿态，再规划。当前默认抓取补偿为 `ARACHNE_GRASP_BASE_OFFSET=0.06,0.09,-0.10`。轨迹下发前会检查真实 `/joint_states` 与规划第一帧是否接近；partial 轨迹默认拒绝执行。默认机械臂执行后端为 AUBO SDK JSON-RPC `MotionControl.moveJoint(q, a, v, blend_radius, duration)`：节点会选取少量关键关节目标，写入 `/tmp/arachne_aubo_teach_mode` 暂停 ROS driver 的 `servoJoint` 保持，逐段等待到位后再进入下一段；夹具命令走 `/arachne/gripper/command`。投放开爪后默认追加一次项目 home 姿态，home 来自 `scripts/env/arachne_real_defaults.sh` 的 `ARACHNE_AUBO_HOME_JOINTS_RAD`，可用 `ARACHNE_GRASP_REAL_RETURN_HOME=false` 临时关闭，或用 `ARACHNE_GRASP_REAL_HOME_JOINTS` 覆盖。普通 `grasp_preview.sh` 和不带 `--execute-real` 的 `grasp_preview_real_sync.sh` 仍然只做 RViz 预览。
+真机执行仍会先同步真实 6 轴姿态，再规划。当前临时默认抓取补偿为 `ARACHNE_GRASP_BASE_OFFSET=0.04,0.06,0`。轨迹下发前会检查真实 `/joint_states` 与规划第一帧是否接近；partial 轨迹默认拒绝执行。默认机械臂执行后端为 AUBO SDK JSON-RPC `MotionControl.moveJoint(q, a, v, blend_radius, duration)`：节点会选取少量关键关节目标，写入 `/tmp/arachne_aubo_teach_mode` 暂停 ROS driver 的 `servoJoint` 保持，逐段等待到位后再进入下一段；夹具命令走 `/arachne/gripper/command`。投放开爪后默认追加一次项目 home 姿态，home 来自 `scripts/env/arachne_real_defaults.sh` 的 `ARACHNE_AUBO_HOME_JOINTS_RAD`，可用 `ARACHNE_GRASP_REAL_RETURN_HOME=false` 临时关闭，或用 `ARACHNE_GRASP_REAL_HOME_JOINTS` 覆盖。普通 `grasp_preview.sh` 和不带 `--execute-real` 的 `grasp_preview_real_sync.sh` 仍然只做 RViz 预览。
 
 ### 人工操作 Grasp Task Server
 
@@ -251,6 +251,8 @@ ARACHNE_CONFIRM_AUBO_REMOTE_START=YES \
 ```
 
 需要 RViz 检查时把 `with_rviz:=false` 改成 `with_rviz:=true`。
+
+示教器可以和 server 同时开着，但不能同时下发机械臂动作。示教器空闲时不占控制权；只有 `teach_on/teach_off` 或手动 jog 正在执行时，才会写入 `/tmp/arachne_aubo_control_owner`。真实抓取发 `moveJoint` 前也会独占这个 owner，并写 `/tmp/arachne_aubo_teach_mode=1` 暂停 ROS driver 的 `servoJoint` 保持。若 preflight 提示 `aubo_control_owner` 或 `aubo_teach_gate` busy，先停止手动 jog 或发送 teach off，再重新 start。
 
 #### 3. 执行一次完整抓取
 
@@ -346,7 +348,7 @@ REAL arm SDK moveJoint sequence complete
 - `gripper_adapter_link` / `grasp_frame`：夹具安装座和抓取 TCP。`grasp_frame` 代表夹具中心，规划时默认也可通过 `--grasp-tcp-offset-m 0.12` 近似为法兰向夹具中心延伸 12 cm。
 - `ee_camera_link` 和 depth camera frame：末端 RGB-D 相机坐标。YOLO 只锁 2D 目标，深度 ROI 先在相机深度 frame 中投影成 3D 点，再经 TF 转到 `base_link`。
 
-抓取位置的现场补偿使用 `base_link` 下的米制偏置 `ARACHNE_GRASP_BASE_OFFSET=x,y,z`，只移动规划用的 approach/grasp/lift 目标，不移动原始 ROI 点云或篮筐。当前按真机观察默认设置为 `0.06,0.09,-0.10`，也就是向车前 6 cm、向左 9 cm、向下 10 cm；如果后续还要微调，可以这样覆盖：
+抓取位置的现场补偿使用 `base_link` 下的米制偏置 `ARACHNE_GRASP_BASE_OFFSET=x,y,z`，只移动规划用的 approach/grasp/lift 目标，不移动原始 ROI 点云或篮筐。当前临时默认设置为 `0.04,0.06,0`，也就是向车前 4 cm、向左 6 cm、高度不额外偏置；如果后续还要微调，可以这样覆盖：
 
 ```bash
 ARACHNE_GRASP_BASE_OFFSET=0.04,0.10,-0.06 ./scripts/vision/grasp_preview_real_sync.sh

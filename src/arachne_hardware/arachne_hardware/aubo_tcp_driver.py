@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import socket
 import time
 from pathlib import Path
@@ -11,6 +12,101 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Float64MultiArray, String
+
+
+DEFAULT_AUBO_TEACH_FLAG_PATH = "/tmp/arachne_aubo_teach_mode"
+DEFAULT_AUBO_CONTROL_OWNER_PATH = "/tmp/arachne_aubo_control_owner"
+
+
+def _control_owner_payload(owner: str) -> str:
+    return json.dumps(
+        {"owner": owner, "pid": os.getpid(), "created_at": time.time()},
+        separators=(",", ":"),
+    ) + "\n"
+
+
+def _parse_control_owner(text: str) -> tuple[str, int | None]:
+    text = text.strip()
+    if not text:
+        return "", None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return text.splitlines()[0].strip(), None
+    owner = str(data.get("owner", "")).strip()
+    pid_value = data.get("pid")
+    try:
+        pid = int(pid_value) if pid_value is not None else None
+    except (TypeError, ValueError):
+        pid = None
+    return owner, pid
+
+
+def _pid_alive(pid: int | None) -> bool:
+    if pid is None:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _claim_control_owner(path: Path, owner: str) -> tuple[bool, str]:
+    owner = owner.strip() or "unknown"
+    for _attempt in range(2):
+        try:
+            fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        except FileExistsError:
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                return False, f"unreadable owner file {path}: {exc}"
+            active_owner, pid = _parse_control_owner(text)
+            if active_owner == owner and pid == os.getpid():
+                return True, f"already owned by {owner}"
+            if pid is not None and not _pid_alive(pid):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError as exc:
+                    return False, f"stale owner {active_owner or text!r} could not be cleared: {exc}"
+                continue
+            pid_text = str(pid) if pid is not None else "unknown"
+            return False, f"owned by {active_owner or text.strip() or 'unknown'} pid={pid_text}"
+        except OSError as exc:
+            return False, f"could not create owner file {path}: {exc}"
+
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(_control_owner_payload(owner))
+        except OSError as exc:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return False, f"could not write owner file {path}: {exc}"
+        return True, f"owned by {owner}"
+    return False, f"could not claim owner file {path}"
+
+
+def _release_control_owner(path: Path, owner: str) -> None:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return
+    except OSError:
+        return
+    active_owner, pid = _parse_control_owner(text)
+    if active_owner != (owner.strip() or "unknown"):
+        return
+    if pid is not None and pid != os.getpid():
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        return
 
 
 class AuboOfficialStatusProbe(Node):
@@ -113,10 +209,13 @@ class AuboTeachCommandBridge(Node):
         self.declare_parameter("rpc_port", 30004)
         self.declare_parameter("rpc_timeout_sec", 2.0)
         self.declare_parameter("teach_method", "freedrive")
-        self.declare_parameter("teach_flag_path", "/tmp/arachne_aubo_teach_mode")
+        self.declare_parameter("teach_flag_path", DEFAULT_AUBO_TEACH_FLAG_PATH)
+        self.declare_parameter("control_owner_path", DEFAULT_AUBO_CONTROL_OWNER_PATH)
+        self.declare_parameter("control_owner_name", "teach_panel")
         self.declare_parameter("teach_enter_settle_sec", 0.35)
         self.declare_parameter("teach_exit_timeout_sec", 3.0)
         self.declare_parameter("teach_exit_poll_sec", 0.15)
+        self.control_owner_active = False
         self.status_pub = self.create_publisher(String, "/arachne/hardware/aubo_status", 10)
         self.create_subscription(
             String,
@@ -138,16 +237,27 @@ class AuboTeachCommandBridge(Node):
     def _call_teach(self, enabled: bool) -> None:
         method = str(self.get_parameter("teach_method").value).strip() or "freedrive"
         flag_path = Path(str(self.get_parameter("teach_flag_path").value))
+        owner_path = Path(str(self.get_parameter("control_owner_path").value))
+        owner_name = str(self.get_parameter("control_owner_name").value).strip() or "teach_panel"
         ip = str(self.get_parameter("robot_ip").value)
         port = int(self.get_parameter("rpc_port").value)
         timeout = float(self.get_parameter("rpc_timeout_sec").value)
+        owner_claimed = False
         try:
+            owner_ok, owner_message = _claim_control_owner(owner_path, owner_name)
+            if not owner_ok:
+                self._publish_status(
+                    f"aubo teach {method} refused; control {owner_message}", warn=True
+                )
+                return
+            owner_claimed = True
             if enabled:
                 flag_path.write_text("1\n", encoding="utf-8")
                 time.sleep(float(self.get_parameter("teach_enter_settle_sec").value))
                 with AuboDirectJsonRpc(ip, port, timeout) as rpc:
                     result = self._send_teach_rpc(rpc, method, True)
                     status = self._read_teach_status(rpc, method)
+                self.control_owner_active = True
                 self._publish_status(
                     f"aubo teach on active via {method}: result={result} status={status}"
                 )
@@ -157,12 +267,16 @@ class AuboTeachCommandBridge(Node):
                 result = self._send_teach_rpc(rpc, method, False)
                 status = self._wait_teach_disabled(rpc, method)
             self._clear_teach_flag(flag_path)
+            _release_control_owner(owner_path, owner_name)
+            self.control_owner_active = False
             self._publish_status(
                 f"aubo teach off complete via {method}: result={result} status={status}"
             )
         except Exception as exc:  # pragma: no cover - depends on live hardware.
             if enabled:
                 self._clear_teach_flag(flag_path)
+                if owner_claimed and not self.control_owner_active:
+                    _release_control_owner(owner_path, owner_name)
             else:
                 self._publish_status(
                     f"aubo teach {method} failed; keeping ROS teach gate active: {exc}",
@@ -266,7 +380,9 @@ class AuboSdkVelocityBridge(Node):
         self.declare_parameter("robot_ip", "192.168.127.128")
         self.declare_parameter("rpc_port", 30004)
         self.declare_parameter("rpc_timeout_sec", 0.6)
-        self.declare_parameter("teach_flag_path", "/tmp/arachne_aubo_teach_mode")
+        self.declare_parameter("teach_flag_path", DEFAULT_AUBO_TEACH_FLAG_PATH)
+        self.declare_parameter("control_owner_path", DEFAULT_AUBO_CONTROL_OWNER_PATH)
+        self.declare_parameter("control_owner_name", "teach_panel")
         self.declare_parameter("command_watchdog_sec", 0.75)
         self.declare_parameter("send_period_sec", 0.20)
         self.declare_parameter("gate_settle_sec", 0.08)
@@ -296,6 +412,7 @@ class AuboSdkVelocityBridge(Node):
         self.last_send_stamp = 0.0
         self.active = False
         self.gate_owned = False
+        self.control_owner_owned = False
         self.last_status_stamp = 0.0
         self.create_timer(0.01, self._tick)
         self._publish_status(
@@ -396,7 +513,11 @@ class AuboSdkVelocityBridge(Node):
             return True
         if not self._robot_running():
             return False
-        self._set_gate(True)
+        if not self._claim_control_owner():
+            return False
+        if not self._set_gate(True):
+            self._release_control_owner()
+            return False
         settle = max(float(self.get_parameter("gate_settle_sec").value), 0.0)
         if settle > 0.0:
             time.sleep(settle)
@@ -485,6 +606,8 @@ class AuboSdkVelocityBridge(Node):
         if not self.active:
             if self.gate_owned:
                 self._set_gate(False)
+            if self.control_owner_owned:
+                self._release_control_owner()
             if close_rpc:
                 self._close_rpc()
             self.commanded_velocity = None
@@ -499,6 +622,8 @@ class AuboSdkVelocityBridge(Node):
             self.last_send_stamp = 0.0
             if self.gate_owned:
                 self._set_gate(False)
+            if self.control_owner_owned:
+                self._release_control_owner()
             if close_rpc:
                 self._close_rpc()
             self._publish_status(f"aubo sdk velocity stopped: {reason}")
@@ -541,7 +666,27 @@ class AuboSdkVelocityBridge(Node):
             self.rpc.close()
             self.rpc = None
 
-    def _set_gate(self, enabled: bool) -> None:
+    def _claim_control_owner(self) -> bool:
+        if self.control_owner_owned:
+            return True
+        path = Path(str(self.get_parameter("control_owner_path").value))
+        owner = str(self.get_parameter("control_owner_name").value).strip() or "teach_panel"
+        ok, message = _claim_control_owner(path, owner)
+        if not ok:
+            self._publish_status_throttled(
+                f"aubo sdk velocity refused; control {message}", warn=True
+            )
+            return False
+        self.control_owner_owned = True
+        return True
+
+    def _release_control_owner(self) -> None:
+        path = Path(str(self.get_parameter("control_owner_path").value))
+        owner = str(self.get_parameter("control_owner_name").value).strip() or "teach_panel"
+        _release_control_owner(path, owner)
+        self.control_owner_owned = False
+
+    def _set_gate(self, enabled: bool) -> bool:
         path = Path(str(self.get_parameter("teach_flag_path").value))
         try:
             if enabled:
@@ -550,8 +695,9 @@ class AuboSdkVelocityBridge(Node):
                 path.unlink(missing_ok=True)
         except OSError as exc:
             self._publish_status(f"aubo sdk velocity gate update failed: {exc}", warn=True)
-            return
+            return False
         self.gate_owned = enabled
+        return True
 
     def _publish_status_throttled(self, text: str, *, warn: bool = False) -> None:
         now = time.monotonic()

@@ -18,7 +18,16 @@ def generate_launch_description():
             DeclareLaunchArgument("real_return_home", default_value="true"),
             DeclareLaunchArgument("real_sdk_move_speed", default_value="0.25"),
             DeclareLaunchArgument("real_sdk_move_accel", default_value="0.45"),
-            DeclareLaunchArgument("grasp_base_offset", default_value="0.06,0.09,-0.10"),
+            DeclareLaunchArgument(
+                "aubo_teach_flag_path",
+                default_value="/tmp/arachne_aubo_teach_mode",
+            ),
+            DeclareLaunchArgument(
+                "aubo_control_owner_path",
+                default_value="/tmp/arachne_aubo_control_owner",
+            ),
+            DeclareLaunchArgument("aubo_control_owner_name", default_value="grasp_task_server"),
+            DeclareLaunchArgument("grasp_base_offset", default_value="0.04,0.06,0"),
             DeclareLaunchArgument("extra_args", default_value=""),
             DeclareLaunchArgument("log_root", default_value="log/grasp_tasks"),
             DeclareLaunchArgument("require_safety_state_machine", default_value="false"),
@@ -73,6 +82,9 @@ def generate_launch_description():
                         "real_sdk_move_accel": ParameterValue(
                             LaunchConfiguration("real_sdk_move_accel"), value_type=float
                         ),
+                        "aubo_teach_flag_path": LaunchConfiguration("aubo_teach_flag_path"),
+                        "aubo_control_owner_path": LaunchConfiguration("aubo_control_owner_path"),
+                        "aubo_control_owner_name": LaunchConfiguration("aubo_control_owner_name"),
                         "grasp_base_offset": LaunchConfiguration("grasp_base_offset"),
                         "extra_args": LaunchConfiguration("extra_args"),
                         "log_root": LaunchConfiguration("log_root"),

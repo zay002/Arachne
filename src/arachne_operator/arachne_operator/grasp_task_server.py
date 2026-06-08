@@ -35,6 +35,37 @@ AUBO_JOINT_ALIASES = (
 
 
 TERMINAL_STATES = {"succeeded", "failed", "canceled"}
+DEFAULT_AUBO_TEACH_FLAG_PATH = "/tmp/arachne_aubo_teach_mode"
+DEFAULT_AUBO_CONTROL_OWNER_PATH = "/tmp/arachne_aubo_control_owner"
+
+
+def _parse_control_owner(text: str) -> tuple[str, int | None]:
+    text = text.strip()
+    if not text:
+        return "", None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return text.splitlines()[0].strip(), None
+    owner = str(data.get("owner", "")).strip()
+    pid_value = data.get("pid")
+    try:
+        pid = int(pid_value) if pid_value is not None else None
+    except (TypeError, ValueError):
+        pid = None
+    return owner, pid
+
+
+def _pid_alive(pid: int | None) -> bool:
+    if pid is None:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _angle_diff(target: float, current: float) -> float:
@@ -112,7 +143,10 @@ class GraspTaskServer(Node):
         self.declare_parameter("real_return_home", True)
         self.declare_parameter("real_sdk_move_speed", 0.25)
         self.declare_parameter("real_sdk_move_accel", 0.45)
-        self.declare_parameter("grasp_base_offset", "0.06,0.09,-0.10")
+        self.declare_parameter("aubo_teach_flag_path", DEFAULT_AUBO_TEACH_FLAG_PATH)
+        self.declare_parameter("aubo_control_owner_path", DEFAULT_AUBO_CONTROL_OWNER_PATH)
+        self.declare_parameter("aubo_control_owner_name", "grasp_task_server")
+        self.declare_parameter("grasp_base_offset", "0.04,0.06,0")
         self.declare_parameter("extra_args", "")
         self.declare_parameter("preflight_timeout_sec", 2.0)
         self.declare_parameter("status_publish_period_sec", 0.5)
@@ -966,6 +1000,11 @@ class GraspTaskServer(Node):
             "execute_real requires confirm_execute_real:=true",
             required=True,
         )
+        if execute_real:
+            ok, message = self._aubo_control_owner_available()
+            result.add("aubo_control_owner", ok, message, required=True)
+            ok, message = self._aubo_teach_gate_available()
+            result.add("aubo_teach_gate", ok, message, required=True)
 
         if set_autonomous:
             required = bool(self.get_parameter("require_safety_state_machine").value)
@@ -1009,6 +1048,47 @@ class GraspTaskServer(Node):
             self._add_cached_check(result, "color_image", required=True, max_age=max(timeout + 1.0, 2.0))
             self._add_cached_check(result, "depth_image", required=True, max_age=max(timeout + 1.0, 2.0))
         return result
+
+    def _aubo_control_owner_available(self) -> tuple[bool, str]:
+        path = Path(str(self.get_parameter("aubo_control_owner_path").value))
+        if not path.exists():
+            return True, f"available: {path}"
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return False, f"owner file unreadable {path}: {exc}"
+        owner, pid = _parse_control_owner(text)
+        if pid is not None and not _pid_alive(pid):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                return False, f"stale owner {owner or text!r} could not be cleared: {exc}"
+            return True, f"cleared stale owner={owner or 'unknown'} pid={pid}"
+        pid_text = str(pid) if pid is not None else "unknown"
+        return (
+            False,
+            f"busy: {path} owner={owner or text.strip() or 'unknown'} pid={pid_text}; "
+            "turn teach off or stop manual jog before starting grasp",
+        )
+
+    def _aubo_teach_gate_available(self) -> tuple[bool, str]:
+        path = Path(str(self.get_parameter("aubo_teach_flag_path").value))
+        if not path.exists():
+            return True, f"available: {path}"
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError as exc:
+            return False, f"teach gate unreadable {path}: {exc}"
+        if text.startswith("1"):
+            return (
+                False,
+                f"active: {path} value={text!r}; turn teach off or stop manual jog before starting grasp",
+            )
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            return False, f"inactive stale teach gate {path} could not be cleared: {exc}"
+        return True, f"cleared inactive stale teach gate value={text!r}"
 
     def _wait_for_fresh_inputs(self, timeout: float) -> None:
         deadline = time.monotonic() + timeout
@@ -1084,6 +1164,15 @@ class GraspTaskServer(Node):
         env["ARACHNE_GRASP_REAL_SDK_MOVE_ACCEL"] = str(
             self.get_parameter("real_sdk_move_accel").value
         )
+        env["ARACHNE_GRASP_REAL_SDK_TEACH_FLAG_PATH"] = str(
+            self.get_parameter("aubo_teach_flag_path").value
+        )
+        env["ARACHNE_GRASP_AUBO_CONTROL_OWNER_PATH"] = str(
+            self.get_parameter("aubo_control_owner_path").value
+        )
+        env["ARACHNE_GRASP_AUBO_CONTROL_OWNER_NAME"] = str(
+            self.get_parameter("aubo_control_owner_name").value
+        )
         env["ARACHNE_GRASP_BASE_OFFSET"] = str(self.get_parameter("grasp_base_offset").value)
         if bool(self.get_parameter("confirm_execute_real").value):
             env["ARACHNE_CONFIRM_GRASP_EXECUTE_REAL"] = "YES"
@@ -1113,6 +1202,9 @@ class GraspTaskServer(Node):
             "real_return_home",
             "real_sdk_move_speed",
             "real_sdk_move_accel",
+            "aubo_teach_flag_path",
+            "aubo_control_owner_path",
+            "aubo_control_owner_name",
             "grasp_base_offset",
             "extra_args",
         )
@@ -1140,6 +1232,9 @@ class GraspTaskServer(Node):
                 self.runner_success_requested = True
             self._event("arm_sequence_complete", {"line": stripped})
             self._terminate_process("real arm sequence complete")
+        elif "real execution blocked" in stripped.lower():
+            self._event("real_execution_blocked", {"line": stripped})
+            self._terminate_process("real execution blocked")
         elif "REAL execution is armed" in stripped:
             self._event("real_execution_armed", {"line": stripped})
         elif "grasp task failed" in stripped.lower() or "failed" in stripped.lower():
