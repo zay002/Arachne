@@ -376,6 +376,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--arm-collision-radius", type=float, default=0.075, help=hidden)
     parser.add_argument("--arm-collision-samples-per-link", type=int, default=8, help=hidden)
     parser.add_argument("--collision-margin", type=float, default=0.035, help=hidden)
+    parser.add_argument("--ground-min-z-base", type=float, default=-0.22, help=hidden)
+    parser.add_argument("--ground-clearance", type=float, default=0.02, help=hidden)
+    parser.add_argument("--tool-ground-clearance", type=float, default=0.015, help=hidden)
     parser.add_argument("--allow-colliding-best-effort", action="store_true", help=hidden)
     parser.add_argument("--release-tool-tilt-deg", type=float, default=12.0, help=hidden)
     parser.add_argument("--transit-height", type=float, default=0.36, help=hidden)
@@ -514,6 +517,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--real-gripper-command-topic", default="/arachne/gripper/command", help=hidden)
     parser.add_argument("--real-gripper-settle-sec", type=float, default=0.35, help=hidden)
     parser.add_argument("--tool-orientation-limit-deg", type=float, default=90.0, help=hidden)
+    parser.add_argument("--grasp-topdown-max-tilt-deg", type=float, default=65.0, help=hidden)
     parser.add_argument("--grasp-orientation-yaw-offsets-deg", default="0,30,-30,60,-60,90,-90,180", help=hidden)
     parser.add_argument("--transit-orientation-yaw-offsets-deg", default="0,45,-45,90,-90", help=hidden)
     parser.add_argument("--grasp-orientation-tilt-offsets-deg", default="0,15,-15", help=hidden)
@@ -2335,6 +2339,16 @@ class GraspPreviewNode(Node):
                         _matrix, message = self._tool_to_grasp_matrix()
                         return [], f"moveit: {message}"
                     target_tool0_base, target_tool0_rotation_base = tool_target
+                    tool_ground_ok, tool_ground_clearance, tool_ground_hit = (
+                        self._tool_target_ground_clearance_base(target_tool0_base, target_base)
+                    )
+                    if not tool_ground_ok:
+                        tx, ty, tz = target_tool0_base
+                        failure_messages.append(
+                            f"ori{orientation_index}/{target_name}: tool0=({tx:.3f},{ty:.3f},{tz:.3f}) "
+                            f"{tool_ground_hit} clearance={tool_ground_clearance:.3f}m"
+                        )
+                        continue
                     unreachable_note = self._moveit_unreachable_note(target_tool0_base)
                     if unreachable_note:
                         x, y, z = target_base
@@ -2406,6 +2420,14 @@ class GraspPreviewNode(Node):
                         planner_id,
                     )
                     if attempt.response is not None:
+                        path_safe, path_message = self._moveit_response_ground_safe(
+                            attempt.response, q_current, base_from_aubo
+                        )
+                        if not path_safe:
+                            failure_messages.append(
+                                f"{planner_id}/ori{orientation_index}: {path_message}"
+                            )
+                            continue
                         response = attempt.response
                         response_planner = planner_id
                         break
@@ -2505,6 +2527,60 @@ class GraspPreviewNode(Node):
             f"fallbacks={';'.join(fallback_notes) if fallback_notes else 'none'} "
             f"{limit_message}",
         )
+
+    def _tool_target_ground_clearance_base(
+        self,
+        tool0_base: tuple[float, float, float],
+        grasp_base: tuple[float, float, float],
+    ) -> tuple[bool, float, str | None]:
+        threshold = float(self.args.ground_min_z_base) + max(
+            float(self.args.tool_ground_clearance), 0.0
+        )
+        min_clearance = float("inf")
+        hit_name: str | None = None
+        a = np.asarray(tool0_base, dtype=float)
+        b = np.asarray(grasp_base, dtype=float)
+        samples = max(int(self.args.arm_collision_samples_per_link), 2)
+        for t in np.linspace(0.0, 1.0, samples):
+            point = a * (1.0 - t) + b * t
+            clearance = float(point[2] - threshold)
+            if clearance < min_clearance:
+                min_clearance = clearance
+                hit_name = "ground/gripper_tcp"
+            if clearance < 0.0:
+                return False, clearance, hit_name
+        return True, float(min_clearance if np.isfinite(min_clearance) else 0.0), hit_name
+
+    def _moveit_response_ground_safe(
+        self,
+        response,
+        q_start: np.ndarray,
+        base_from_aubo: np.ndarray,
+    ) -> tuple[bool, str]:
+        trajectory = response.trajectory.joint_trajectory
+        if not trajectory.points:
+            return False, "empty trajectory"
+        name_to_index = {name: i for i, name in enumerate(trajectory.joint_names)}
+        if not all(name in name_to_index for name in ARM_JOINT_NAMES):
+            return False, "trajectory missing Aubo joints"
+        q_previous = np.asarray(q_start, dtype=float)
+        for point_index, point in enumerate(trajectory.points[1:], start=1):
+            q_raw = np.asarray(
+                [point.positions[name_to_index[name]] for name in ARM_JOINT_NAMES],
+                dtype=float,
+            )
+            q_unwrapped = q_previous + self._joint_delta(q_raw, q_previous)
+            safe, clearance, hit_name = self._arm_collision_clearance_base(
+                q_unwrapped, base_from_aubo
+            )
+            if not safe:
+                return (
+                    False,
+                    f"path collision at point {point_index}: {hit_name or 'vehicle'} "
+                    f"clearance={clearance:.3f}m",
+                )
+            q_previous = q_unwrapped
+        return True, "ok"
 
     def _moveit_fallback_tolerances(
         self, target_name: str, is_soft_waypoint: bool
@@ -2921,11 +2997,10 @@ class GraspPreviewNode(Node):
             np.asarray([0.0, 0.0, -1.0], dtype=float), grasp_hint
         )
 
-        blend = min(max((float(progress) - 0.18) / 0.42, 0.0), 1.0)
         if progress < 0.18:
             nominal = current_rotation_base
         elif progress < 0.60:
-            nominal = self._blend_rotation(current_rotation_base, grasp_down, blend)
+            nominal = grasp_down
         else:
             nominal = downward
 
@@ -2949,15 +3024,30 @@ class GraspPreviewNode(Node):
         for yaw in yaw_offsets:
             for roll, pitch in tilt_offsets:
                 candidate = nominal @ self._rpy_matrix(roll, pitch, yaw)
-                candidate = self._limit_rotation_from_reference(
-                    current_rotation_base, candidate, limit_rad
-                )
+                if progress < 0.18:
+                    candidate = self._limit_rotation_from_reference(
+                        current_rotation_base, candidate, limit_rad
+                    )
+                else:
+                    candidate = self._orthonormalize_rotation(candidate)
+                if progress >= 0.18 and not self._is_topdown_grasp_orientation(candidate):
+                    continue
                 if not any(
                     self._rotation_distance(candidate, existing) < 1e-4
                     for existing in candidates
                 ):
                     candidates.append(candidate)
         return candidates
+
+    def _is_topdown_grasp_orientation(self, rotation_base: np.ndarray) -> bool:
+        tool_z_base = np.asarray(rotation_base, dtype=float)[:3, 2]
+        if float(np.linalg.norm(tool_z_base)) < 1e-9:
+            return False
+        tool_z_base = tool_z_base / float(np.linalg.norm(tool_z_base))
+        max_tilt = min(max(float(self.args.grasp_topdown_max_tilt_deg), 1.0), 89.0)
+        return float(np.dot(tool_z_base, np.asarray([0.0, 0.0, -1.0]))) >= math.cos(
+            math.radians(max_tilt)
+        )
 
     def _angle_offsets_rad(self, value: str, label: str) -> tuple[float, ...]:
         offsets = [math.radians(item) for item in _float_list(value, label)]
@@ -3057,6 +3147,11 @@ class GraspPreviewNode(Node):
         ]
         samples_per_link = max(int(self.args.arm_collision_samples_per_link), 2)
         radius = max(float(self.args.arm_collision_radius), 0.0)
+        ground_threshold = (
+            float(self.args.ground_min_z_base)
+            + max(float(self.args.ground_clearance), 0.0)
+            + radius
+        )
         min_clearance = float("inf")
         hit_name: str | None = None
         for start, end in zip(link_points[1:], link_points[2:]):
@@ -3064,6 +3159,12 @@ class GraspPreviewNode(Node):
             b = np.asarray(end, dtype=float)
             for t in np.linspace(0.0, 1.0, samples_per_link):
                 point = a * (1.0 - t) + b * t
+                ground_clearance = float(point[2] - ground_threshold)
+                if ground_clearance < min_clearance:
+                    min_clearance = ground_clearance
+                    hit_name = "ground/arm"
+                if ground_clearance < 0.0:
+                    return False, ground_clearance, "ground/arm"
                 for box in self.collision_boxes:
                     clearance = self._point_box_clearance(point, box) - radius
                     if clearance < min_clearance:
@@ -3843,6 +3944,12 @@ class GraspPreviewNode(Node):
                 "max_accel_rad_sec2": max(float(self.args.preview_max_joint_accel), 0.05),
                 "max_jerk_rad_sec3": max(float(self.args.preview_max_joint_jerk), 0.1),
                 "smoothing_tau_sec": max(float(self.args.preview_smoothing_tau), 0.02),
+            },
+            "ground_safety": {
+                "ground_min_z_base": float(self.args.ground_min_z_base),
+                "ground_clearance": float(self.args.ground_clearance),
+                "tool_ground_clearance": float(self.args.tool_ground_clearance),
+                "grasp_topdown_max_tilt_deg": float(self.args.grasp_topdown_max_tilt_deg),
             },
             "gripper_preview": {
                 "gripper_type": str(self.args.gripper_type),
