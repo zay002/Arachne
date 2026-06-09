@@ -9,6 +9,8 @@
   <xacro:property name="ms42dc_left_visual_xyz" value="-0.0133341030359 -0.0576833250744 -0.0610740704713"/>
   <xacro:property name="ms42dc_right_pivot_xyz" value="0.0853341030359 0.0576833250744 0.0610740704713"/>
   <xacro:property name="ms42dc_right_visual_xyz" value="-0.0853341030359 -0.0576833250744 -0.0610740704713"/>
+  <xacro:property name="ms42dc_closed_tip_z" value="0.158691938"/>
+  <xacro:property name="ms42dc_grasp_tip_inset" value="0.020"/>
 
   <xacro:macro name="arachne_ms42dc_mesh" params="name origin_xyz:='0 0 0'">
     <visual>
@@ -91,7 +93,7 @@
     <joint name="${prefix}grasp_frame_joint" type="fixed">
       <parent link="${prefix}body_link"/>
       <child link="grasp_frame"/>
-      <origin xyz="0 0 0.165" rpy="0 0 0"/>
+      <origin xyz="0 0 ${ms42dc_closed_tip_z - ms42dc_grasp_tip_inset}" rpy="0 0 0"/>
     </joint>
   </xacro:macro>
 </robot>

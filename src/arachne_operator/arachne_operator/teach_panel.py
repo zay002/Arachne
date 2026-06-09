@@ -2030,7 +2030,7 @@ class TeachPanelNode(Node):
         tool_transform = arm_base @ link_transforms[-1][1]
         tool_points = {
             "tool0": (0.0, 0.0, 0.0),
-            "grasp_frame": (0.0, 0.0, 0.165),
+            "grasp_frame": (0.0, 0.0, 0.138691938),
             "tool_envelope_x+": (0.070, 0.0, 0.090),
             "tool_envelope_x-": (-0.070, 0.0, 0.090),
             "tool_envelope_y+": (0.0, 0.070, 0.090),

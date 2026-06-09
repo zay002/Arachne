@@ -370,7 +370,7 @@ REAL arm SDK moveJoint sequence complete
 - `odom` / `map`：`odom -> base_link` 来自底盘里程计；`map -> odom` 属于定位系统，不写进 URDF。
 - `aubo_base_link`：Aubo 底座坐标，固定挂在 `base_link` 上；MoveIt 规划会把 `base_link` 下的抓取目标转换到这里求解。
 - `tool0`：Aubo 法兰中心。当前夹具/相机安装角度通过 `tool_adapter_rpy` 修正，默认绕法兰盘逆时针 45 度。
-- `gripper_adapter_link` / `grasp_frame`：夹具安装座和抓取 TCP。`grasp_frame` 代表夹具中心，规划时默认也可通过 `--grasp-tcp-offset-m 0.12` 近似为法兰向夹具中心延伸 12 cm。
+- `gripper_adapter_link` / `grasp_frame`：夹具安装座和抓取 TCP。MS42DC 的 `grasp_frame` 按闭合夹具模型计算：取闭合指尖端点平面中心，再沿指尖到法兰中心方向内收 2 cm，当前为法兰坐标下约 `(0, 0, 0.138692)` m；规划默认使用这个 URDF frame。
 - `ee_camera_link` 和 depth camera frame：末端 RGB-D 相机坐标。YOLO 只锁 2D 目标，深度 ROI 先在相机深度 frame 中投影成 3D 点，再经 TF 转到 `base_link`。
 
 抓取位置的现场补偿使用 `base_link` 下的米制偏置 `ARACHNE_GRASP_BASE_OFFSET=x,y,z`，只移动规划用的 approach/grasp/lift 目标，不移动原始 ROI 点云或篮筐。当前临时默认设置为 `0.04,0.06,0`，也就是向车前 4 cm、向左 6 cm、高度不额外偏置；如果后续还要微调，可以这样覆盖：
