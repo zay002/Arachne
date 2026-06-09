@@ -157,7 +157,7 @@ class GraspTaskServer(Node):
         self.declare_parameter("aubo_teach_flag_path", DEFAULT_AUBO_TEACH_FLAG_PATH)
         self.declare_parameter("aubo_control_owner_path", DEFAULT_AUBO_CONTROL_OWNER_PATH)
         self.declare_parameter("aubo_control_owner_name", "grasp_task_server")
-        self.declare_parameter("grasp_base_offset", "0.04,0.06,0")
+        self.declare_parameter("grasp_base_offset", "0,0,0")
         self.declare_parameter("extra_args", "")
         self.declare_parameter("preview_on_start", True)
         self.declare_parameter("preview_runner_script", "scripts/vision/grasp_preview.sh")

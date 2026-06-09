@@ -380,7 +380,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--approach-distance", type=float, default=0.18, help=hidden)
     parser.add_argument("--grasp-standoff", type=float, default=0.035, help=hidden)
     parser.add_argument("--grasp-tcp-offset-m", type=float, default=0.0, help=hidden)
-    parser.add_argument("--grasp-base-offset", default="0.04,0.06,0", help=hidden)
+    parser.add_argument("--grasp-base-offset", default="0,0,0", help=hidden)
     parser.add_argument("--disable-pointcloud-grasp-shape", action="store_true", help=hidden)
     parser.add_argument("--pointcloud-grasp-min-points", type=int, default=24, help=hidden)
     parser.add_argument("--pointcloud-axis-confidence-threshold", type=float, default=0.10, help=hidden)

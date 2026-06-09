@@ -194,7 +194,7 @@ ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES \
   ./scripts/vision/grasp_preview_real_sync.sh --execute-real
 ```
 
-真机执行仍会先同步真实 6 轴姿态，再规划。当前临时默认抓取补偿为 `ARACHNE_GRASP_BASE_OFFSET=0.04,0.06,0`。轨迹下发前会检查真实 `/joint_states` 与规划第一帧是否接近；partial 轨迹默认拒绝执行。默认机械臂执行后端为 AUBO SDK JSON-RPC `MotionControl.moveJoint(q, a, v, blend_radius, duration)`：节点会选取少量关键关节目标，写入 `/tmp/arachne_aubo_teach_mode` 暂停 ROS driver 的 `servoJoint` 保持，逐段等待到位后再进入下一段；夹具命令走 `/arachne/gripper/command`。投放开爪后默认追加一次项目 home 姿态，home 来自 `scripts/env/arachne_real_defaults.sh` 的 `ARACHNE_AUBO_HOME_JOINTS_RAD`，可用 `ARACHNE_GRASP_REAL_RETURN_HOME=false` 临时关闭，或用 `ARACHNE_GRASP_REAL_HOME_JOINTS` 覆盖。普通 `grasp_preview.sh` 和不带 `--execute-real` 的 `grasp_preview_real_sync.sh` 仍然只做 RViz 预览。
+真机执行仍会先同步真实 6 轴姿态，再规划。当前默认抓取补偿为 `ARACHNE_GRASP_BASE_OFFSET=0,0,0`，现场偏差应优先通过 AprilTag 手眼标定更新相机外参，而不是长期依赖 base offset。轨迹下发前会检查真实 `/joint_states` 与规划第一帧是否接近；partial 轨迹默认拒绝执行。默认机械臂执行后端为 AUBO SDK JSON-RPC `MotionControl.moveJoint(q, a, v, blend_radius, duration)`：节点会选取少量关键关节目标，写入 `/tmp/arachne_aubo_teach_mode` 暂停 ROS driver 的 `servoJoint` 保持，逐段等待到位后再进入下一段；夹具命令走 `/arachne/gripper/command`。投放开爪后默认追加一次项目 home 姿态，home 来自 `scripts/env/arachne_real_defaults.sh` 的 `ARACHNE_AUBO_HOME_JOINTS_RAD`，可用 `ARACHNE_GRASP_REAL_RETURN_HOME=false` 临时关闭，或用 `ARACHNE_GRASP_REAL_HOME_JOINTS` 覆盖。普通 `grasp_preview.sh` 和不带 `--execute-real` 的 `grasp_preview_real_sync.sh` 仍然只做 RViz 预览。
 
 ### 人工操作 Grasp Task Server
 
@@ -373,10 +373,36 @@ REAL arm SDK moveJoint sequence complete
 - `gripper_adapter_link` / `grasp_frame`：夹具安装座和抓取 TCP。MS42DC 的 `grasp_frame` 按闭合夹具模型计算：取闭合指尖端点平面中心，再沿指尖到法兰中心方向内收 2 cm，当前为法兰坐标下约 `(0, 0, 0.138692)` m；规划默认使用这个 URDF frame。
 - `ee_camera_link` 和 depth camera frame：末端 RGB-D 相机坐标。YOLO 只锁 2D 目标，深度 ROI 先在相机深度 frame 中投影成 3D 点，再经 TF 转到 `base_link`。
 
-抓取位置的现场补偿使用 `base_link` 下的米制偏置 `ARACHNE_GRASP_BASE_OFFSET=x,y,z`，只移动规划用的 approach/grasp/lift 目标，不移动原始 ROI 点云或篮筐。当前临时默认设置为 `0.04,0.06,0`，也就是向车前 4 cm、向左 6 cm、高度不额外偏置；如果后续还要微调，可以这样覆盖：
+抓取位置的现场补偿使用 `base_link` 下的米制偏置 `ARACHNE_GRASP_BASE_OFFSET=x,y,z`，只移动规划用的 approach/grasp/lift 目标，不移动原始 ROI 点云或篮筐。当前默认设置为 `0,0,0`；如果只做短期现场补偿，可以这样覆盖：
 
 ```bash
 ARACHNE_GRASP_BASE_OFFSET=0.04,0.10,-0.06 ./scripts/vision/grasp_preview_real_sync.sh
+```
+
+AprilTag 手眼标定用于求解真实 `gripper_adapter_link -> camera` 外参。当前默认使用 `/home/jetson/zhaoyang/arachne_floor_apriltag_board_a3.png` 这张 A3 横版标定板，物理尺寸按 `0.420 x 0.297 m` 处理。先启动相机和施教器，让标定板出现在彩色相机中，然后启动标定节点：
+
+```bash
+./scripts/vision/apriltag_hand_eye_calibration.sh
+```
+
+节点会优先尝试标准 AprilTag/ArUco 检测；如果 OpenCV 不能直接识别这块板上的 tag，会使用整张 A3 PNG 做平面模板匹配，再用相机内参求板位姿。
+
+每移动到一个新的机械臂姿态并稳定后采一组，建议至少 8 到 12 组，姿态要有明显的平移和旋转变化：
+
+```bash
+ros2 service call /arachne_apriltag_hand_eye_calibrator/capture std_srvs/srv/Trigger "{}"
+```
+
+采完后求解：
+
+```bash
+ros2 service call /arachne_apriltag_hand_eye_calibrator/solve std_srvs/srv/Trigger "{}"
+```
+
+结果会保存到 `log/calibration/hand_eye/hand_eye_*.json`，重点看 `gripper_to_camera.xyz` 和 `gripper_to_camera.rpy`。如果采错了可以清空：
+
+```bash
+ros2 service call /arachne_apriltag_hand_eye_calibrator/reset std_srvs/srv/Trigger "{}"
 ```
 
 抓取姿态可以在 RX/RY/RZ 上搜索多个候选，但默认按“娃娃机”方式从上往下接近。`--grasp-topdown-max-tilt-deg` 限制夹具 z 轴偏离向下方向的最大角度，`--ground-min-z-base`、`--ground-clearance` 和 `--tool-ground-clearance` 会拒绝任何机械臂连杆、tool0 到 grasp TCP 的夹具线段低于地面安全线的候选。

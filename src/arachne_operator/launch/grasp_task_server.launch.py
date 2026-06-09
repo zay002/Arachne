@@ -27,7 +27,7 @@ def generate_launch_description():
                 default_value="/tmp/arachne_aubo_control_owner",
             ),
             DeclareLaunchArgument("aubo_control_owner_name", default_value="grasp_task_server"),
-            DeclareLaunchArgument("grasp_base_offset", default_value="0.04,0.06,0"),
+            DeclareLaunchArgument("grasp_base_offset", default_value="0,0,0"),
             DeclareLaunchArgument("extra_args", default_value=""),
             DeclareLaunchArgument("preview_on_start", default_value="true"),
             DeclareLaunchArgument("preview_extra_args", default_value="--planner-backend none"),
