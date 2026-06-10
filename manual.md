@@ -214,6 +214,8 @@ source scripts/env/arachne_env.sh
 cp .env.local.example .env.local
 ```
 
+如果真机或服务器启动慢，把 `.env.local` 里的 `ARACHNE_CONSOLE_WAIT_TIMEOUT_SEC` 调大；设为 `0` 表示各窗口一直等待依赖 topic/service，不主动超时退出。
+
 常用控制：
 
 ```bash

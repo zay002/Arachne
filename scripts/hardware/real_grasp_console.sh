@@ -13,7 +13,7 @@ set -u
 
 AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
 AUBO_TYPE="${AUBO_TYPE:-aubo_i5}"
-WAIT_TIMEOUT_SEC="${WAIT_TIMEOUT_SEC:-90}"
+WAIT_TIMEOUT_SEC="${ARACHNE_CONSOLE_WAIT_TIMEOUT_SEC:-${WAIT_TIMEOUT_SEC:-180}}"
 RECORDING_DIR="${ARACHNE_TEACH_RECORDING_DIR:-${ROOT_DIR}/recordings/teach}"
 AUBO_PAYLOAD_MASS="${ARACHNE_AUBO_PAYLOAD_MASS}"
 AUBO_PAYLOAD_COG="${ARACHNE_AUBO_PAYLOAD_COG}"
@@ -74,6 +74,7 @@ Environment:
   AUBO_ROBOT_IP=${AUBO_ROBOT_IP}
   AUBO_TYPE=${AUBO_TYPE}
   WAIT_TIMEOUT_SEC=${WAIT_TIMEOUT_SEC}
+  ARACHNE_CONSOLE_WAIT_TIMEOUT_SEC=${WAIT_TIMEOUT_SEC}
   ARACHNE_TEACH_RECORDING_DIR=${RECORDING_DIR}
   ARACHNE_CONSOLE_SERVER_EXTRA_ARGS=${SERVER_EXTRA_ARGS}
   ARACHNE_USE_REMOTE_PLANNER_DEFAULT=${USE_REMOTE_PLANNER}
@@ -115,7 +116,7 @@ while (($#)); do
       QUICK=true
       RUN_ENV_CHECK=false
       REQUIRE_ODOM=false
-      WAIT_TIMEOUT_SEC="${ARACHNE_CONSOLE_QUICK_WAIT_TIMEOUT_SEC:-45}"
+      WAIT_TIMEOUT_SEC="${ARACHNE_CONSOLE_QUICK_WAIT_TIMEOUT_SEC:-${WAIT_TIMEOUT_SEC}}"
       ;;
     --terminal)
       shift
@@ -312,7 +313,7 @@ wait_for_topic() {
   local label="\$2"
   local deadline=\$((SECONDS + WAIT_TIMEOUT_SEC))
   local info
-  while (( SECONDS < deadline )); do
+  while (( WAIT_TIMEOUT_SEC <= 0 || SECONDS < deadline )); do
     info="\$(timeout 3 ros2 topic info --no-daemon "\${topic}" 2>/dev/null || true)"
     if grep -Eq '^Publisher count: [1-9][0-9]*$' <<<"\${info}"; then
       echo "ready: \${label} (\${topic})"
@@ -320,21 +321,21 @@ wait_for_topic() {
     fi
     sleep 1
   done
-  echo "Timed out waiting for \${label} (\${topic})." >&2
+  echo "Timed out after \${WAIT_TIMEOUT_SEC}s waiting for \${label} (\${topic})." >&2
   exit 1
 }
 wait_for_service() {
   local service="\$1"
   local label="\$2"
   local deadline=\$((SECONDS + WAIT_TIMEOUT_SEC))
-  while (( SECONDS < deadline )); do
+  while (( WAIT_TIMEOUT_SEC <= 0 || SECONDS < deadline )); do
     if timeout 3 ros2 service list --no-daemon 2>/dev/null | grep -qx "\${service}"; then
       echo "ready: \${label} (\${service})"
       return 0
     fi
     sleep 1
   done
-  echo "Timed out waiting for \${label} (\${service})." >&2
+  echo "Timed out after \${WAIT_TIMEOUT_SEC}s waiting for \${label} (\${service})." >&2
   exit 1
 }
 wait_for_controller_active() {
@@ -343,7 +344,7 @@ wait_for_controller_active() {
   local deadline=\$((SECONDS + WAIT_TIMEOUT_SEC))
   local output
   local clean_output
-  while (( SECONDS < deadline )); do
+  while (( WAIT_TIMEOUT_SEC <= 0 || SECONDS < deadline )); do
     refresh_ros2_cli_daemon
     output="\$(timeout 3 ros2 control list_controllers 2>/dev/null || true)"
     clean_output="\$(python3 -c 'import re,sys; print(re.sub("\\\\x1b\\\\[[0-9;]*m", "", sys.stdin.read()), end="")' <<<"\${output}")"
@@ -353,7 +354,7 @@ wait_for_controller_active() {
     fi
     sleep 1
   done
-  echo "Timed out waiting for \${label} (\${controller})." >&2
+  echo "Timed out after \${WAIT_TIMEOUT_SEC}s waiting for \${label} (\${controller})." >&2
   refresh_ros2_cli_daemon
   timeout 3 ros2 control list_controllers 2>/dev/null || true
   exit 1
