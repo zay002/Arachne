@@ -438,6 +438,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--moveit-local-fallback-orientation-tolerance", type=float, default=0.50, help=hidden)
     parser.add_argument("--moveit-grasp-fallback-position-tolerance", type=float, default=0.12, help=hidden)
     parser.add_argument("--moveit-grasp-fallback-orientation-tolerance", type=float, default=0.65, help=hidden)
+    parser.add_argument("--moveit-pose-goal-on-ik-failure", action=argparse.BooleanOptionalAction, default=True, help=hidden)
     parser.add_argument(
         "--moveit-local-first",
         action=argparse.BooleanOptionalAction,
@@ -2715,18 +2716,28 @@ class GraspPreviewNode(Node):
                         local_first_accepted = True
                         break
                     if not ik_ok:
-                        tx, ty, tz = target_tool0_base
-                        failure_messages.append(
-                            f"ik/ori{orientation_index} tool0=({tx:.3f},{ty:.3f},{tz:.3f}) "
-                            f"pos_err={position_error:.3f}m ori_err={orientation_error:.3f}rad"
+                        if not bool(self.args.moveit_pose_goal_on_ik_failure):
+                            tx, ty, tz = target_tool0_base
+                            failure_messages.append(
+                                f"ik/ori{orientation_index} tool0=({tx:.3f},{ty:.3f},{tz:.3f}) "
+                                f"pos_err={position_error:.3f}m ori_err={orientation_error:.3f}rad"
+                            )
+                            continue
+                        attempt = self._call_moveit_pose_plan(
+                            q_current,
+                            target_tool0_base,
+                            target_tool0_rotation_base,
+                            planner_id,
+                            max(float(self.args.moveit_ik_orientation_tolerance), 0.01),
+                            current_tool0_rotation_base,
                         )
-                        continue
-                    attempt = self._call_moveit_plan(
-                        q_current,
-                        q_goal,
-                        current_tool0_rotation_base,
-                        planner_id,
-                    )
+                    else:
+                        attempt = self._call_moveit_plan(
+                            q_current,
+                            q_goal,
+                            current_tool0_rotation_base,
+                            planner_id,
+                        )
                     if attempt.response is not None:
                         path_safe, path_message = self._moveit_response_ground_safe(
                             attempt.response, q_current, base_from_aubo
@@ -3010,6 +3021,72 @@ class GraspPreviewNode(Node):
         )
         q_goal = np.asarray(q_start, dtype=float) + self._joint_delta(q_solution, q_start)
         return bool(ok), q_goal, float(position_error), float(orientation_error)
+
+    def _call_moveit_pose_plan(
+        self,
+        q_start: np.ndarray,
+        target_tool0_base: tuple[float, float, float],
+        target_tool0_rotation_base: np.ndarray,
+        planner_id: str,
+        orientation_tolerance: float,
+        reference_rotation_base: np.ndarray,
+    ) -> MoveItPlanAttempt:
+        request = GetMotionPlan.Request()
+        motion_request = request.motion_plan_request
+        motion_request.group_name = "aubo_arm"
+        motion_request.pipeline_id = "ompl"
+        motion_request.planner_id = planner_id
+        motion_request.num_planning_attempts = max(int(self.args.moveit_planning_attempts), 1)
+        motion_request.allowed_planning_time = max(float(self.args.moveit_planning_time), 0.2)
+        motion_request.max_velocity_scaling_factor = min(
+            max(float(self.args.moveit_velocity_scale), 0.01), 1.0
+        )
+        motion_request.max_acceleration_scaling_factor = min(
+            max(float(self.args.moveit_accel_scale), 0.01), 1.0
+        )
+        start_names, start_positions = self._moveit_start_state_joint_values(q_start)
+        motion_request.start_state.joint_state.name = start_names
+        motion_request.start_state.joint_state.position = start_positions
+        motion_request.start_state.is_diff = False
+        motion_request.workspace_parameters.header.frame_id = self.base_frame
+        motion_request.workspace_parameters.min_corner.x = -1.0
+        motion_request.workspace_parameters.min_corner.y = -1.0
+        motion_request.workspace_parameters.min_corner.z = -0.3
+        motion_request.workspace_parameters.max_corner.x = 1.6
+        motion_request.workspace_parameters.max_corner.y = 1.0
+        motion_request.workspace_parameters.max_corner.z = 1.2
+        motion_request.goal_constraints = [
+            self._moveit_pose_goal_constraint(
+                target_tool0_base,
+                target_tool0_rotation_base,
+                orientation_tolerance,
+            )
+        ]
+        if bool(self.args.moveit_use_orientation_path_constraint):
+            motion_request.path_constraints = self._moveit_orientation_path_constraint(
+                reference_rotation_base
+            )
+
+        future = self.moveit_plan_client.call_async(request)
+        deadline = time.monotonic() + max(
+            float(self.args.moveit_planning_time)
+            + max(float(self.args.moveit_service_timeout_padding), 0.0),
+            0.3,
+        )
+        while not future.done() and time.monotonic() < deadline and rclpy.ok():
+            time.sleep(0.02)
+        if not future.done():
+            return MoveItPlanAttempt(None, "pose goal service timeout")
+        result = future.result()
+        if result is None:
+            return MoveItPlanAttempt(None, "pose goal empty service result")
+        response = result.motion_plan_response
+        if int(response.error_code.val) != 1:
+            return MoveItPlanAttempt(
+                None,
+                f"pose goal {self._moveit_error_message(int(response.error_code.val))}",
+            )
+        return MoveItPlanAttempt(response, "pose goal success")
 
     def _moveit_joint_goal_constraint(self, q_goal: np.ndarray) -> Constraints:
         constraints = Constraints()
