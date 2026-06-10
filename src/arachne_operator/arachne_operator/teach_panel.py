@@ -171,10 +171,10 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_state_joint_names", ",".join(DEFAULT_REAL_ARM_JOINTS))
         self.declare_parameter("arm_command_joint_names", ",".join(DEFAULT_REAL_ARM_JOINTS))
         self.declare_parameter("gripper_command_topic", "/arachne/gripper/command")
-        self.declare_parameter("base_linear_speed", 0.08)
-        self.declare_parameter("base_angular_speed", 0.30)
-        self.declare_parameter("base_replay_linear_speed", 0.20)
-        self.declare_parameter("base_replay_angular_speed", 0.24)
+        self.declare_parameter("base_linear_speed", 0.16)
+        self.declare_parameter("base_angular_speed", 0.60)
+        self.declare_parameter("base_replay_linear_speed", 0.40)
+        self.declare_parameter("base_replay_angular_speed", 0.48)
         self.declare_parameter("base_position_tolerance", 0.02)
         self.declare_parameter("base_yaw_tolerance_deg", 2.0)
         self.declare_parameter("base_manual_publish_rate", 12.0)
@@ -2217,6 +2217,7 @@ class TeachPanelApp:
         self._arm_hold_stream_active = False
         self._preset_hold_after: str | None = None
         self._preset_hold_active = False
+        self.program_record_buttons: list[ttk.Button] = []
         self.listbox: tk.Listbox | None = None
         self.log_text: tk.Text | None = None
         self.joint_tree: ttk.Treeview | None = None
@@ -2320,6 +2321,7 @@ class TeachPanelApp:
         self.program_record_button = ttk.Button(
             top, text="Program Rec Off", command=self._toggle_program_recording
         )
+        self.program_record_buttons.append(self.program_record_button)
         self.program_record_button.grid(row=0, column=9, rowspan=2, padx=4)
         ttk.Button(top, text="Stop", command=self.node.stop_all, style="Danger.TButton").grid(
             row=0, column=10, rowspan=2, padx=4
@@ -2383,7 +2385,10 @@ class TeachPanelApp:
             ("Save Config", self._save_config),
         )
         for index, (text, command) in enumerate(buttons, start=3):
-            ttk.Button(quick, text=text, command=command).grid(
+            button = ttk.Button(quick, text=text, command=command)
+            if text == "Program Rec":
+                self.program_record_buttons.append(button)
+            button.grid(
                 row=index // 3, column=index % 3, sticky="ew", padx=5, pady=5
             )
         for column in range(3):
@@ -2620,6 +2625,11 @@ class TeachPanelApp:
             else:
                 button.bind("<ButtonPress-1>", lambda _event, d=direction: self._base_press(d))
                 button.bind("<ButtonRelease-1>", lambda _event: self._base_release())
+        base_rec_button = ttk.Button(
+            frame, text="Program Rec Off", command=self._toggle_program_recording
+        )
+        base_rec_button.grid(row=3, column=0, columnspan=3, padx=4, pady=(8, 4), sticky="ew")
+        self.program_record_buttons.append(base_rec_button)
 
     def _build_arm_controls(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="Aubo Move / HandGuide")
@@ -2988,13 +2998,14 @@ class TeachPanelApp:
         self._update_program_record_button()
 
     def _update_program_record_button(self) -> None:
-        if not hasattr(self, "program_record_button"):
+        if not hasattr(self, "program_record_buttons"):
             return
         enabled, pending = self.node.base_motion_recording_state()
         text = f"Program Rec {'On' if enabled else 'Off'}"
         if pending:
             text += f" ({pending})"
-        self.program_record_button.configure(text=text)
+        for button in self.program_record_buttons:
+            button.configure(text=text)
 
     def _record(self) -> None:
         try:

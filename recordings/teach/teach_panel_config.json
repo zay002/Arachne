@@ -2,8 +2,8 @@
   "format": "arachne_teach_config_v1",
   "saved_at": "2026-06-05T09:59:59+08:00",
   "motion": {
-    "base_linear_speed": 0.08,
-    "base_angular_speed": 0.3,
+    "base_linear_speed": 0.16,
+    "base_angular_speed": 0.6,
     "arm_jog_step_m": 0.008,
     "arm_rotate_step_deg": 0.7,
     "arm_joint_step_deg": 0.4,
