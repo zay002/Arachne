@@ -152,10 +152,12 @@ cleanup_stale_preview_nodes() {
   pkill -f "[_]_node:=arachne_display_base_link_bridge" >/dev/null 2>&1 || true
   pkill -f "[j]oint_state_publisher .*arachne_display\\.urdf" >/dev/null 2>&1 || true
   pkill -f "[a]rachne_gripper/lib/arachne_gripper/joint_state_mux" >/dev/null 2>&1 || true
-  pkill -f "[r]os2 launch arachne_sensors gemini335.launch.py" >/dev/null 2>&1 || true
-  pkill -f "[g]emini335_v4l2_node" >/dev/null 2>&1 || true
-  pkill -f "[_]_node:=gemini335_color_tf" >/dev/null 2>&1 || true
-  pkill -f "[_]_node:=gemini335_depth_tf" >/dev/null 2>&1 || true
+  if [[ "${START_CAMERA}" == "true" ]]; then
+    pkill -f "[r]os2 launch arachne_sensors gemini335.launch.py" >/dev/null 2>&1 || true
+    pkill -f "[g]emini335_v4l2_node" >/dev/null 2>&1 || true
+    pkill -f "[_]_node:=gemini335_color_tf" >/dev/null 2>&1 || true
+    pkill -f "[_]_node:=gemini335_depth_tf" >/dev/null 2>&1 || true
+  fi
   pkill -f "[r]os2 launch arachne_moveit_config moveit_planning.launch.py" >/dev/null 2>&1 || true
   pkill -f "[m]oveit_ros_move_group/move_group.*joint_states:=/arachne/display/joint_states" >/dev/null 2>&1 || true
   pkill -f "[g]rasp_preview_pipeline.py" >/dev/null 2>&1 || true
