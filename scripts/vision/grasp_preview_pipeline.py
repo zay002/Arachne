@@ -1221,7 +1221,12 @@ class GraspPreviewNode(Node):
         self, generation: int, preview: GraspPreview, preview_header: Header
     ) -> None:
         start = time.monotonic()
-        arm_frames, ik_message = self._make_constrained_arm_trajectory(preview)
+        try:
+            arm_frames, ik_message = self._make_constrained_arm_trajectory(preview)
+        except Exception as exc:
+            arm_frames = []
+            ik_message = f"planning exception: {type(exc).__name__}: {exc}"
+            self.get_logger().error(ik_message)
         if self.stopping or not rclpy.ok():
             return
         planned_path = self._arm_trajectory_grasp_path_base(arm_frames) if arm_frames else []
@@ -2700,7 +2705,9 @@ class GraspPreviewNode(Node):
             current_tool0_rotation_base = self._orthonormalize_rotation(
                 np.asarray(selected_tool0_rotation_base, dtype=float)
             )
-            tool0_aubo = self._transform_point(aubo_from_base, selected_tool0_base)
+            tool0_aubo = self._transform_matrix_point(
+                aubo_from_base, np.asarray(selected_tool0_base, dtype=float)
+            )
             tool0_rotation_aubo = np.asarray(aubo_from_base[:3, :3], dtype=float) @ np.asarray(
                 current_tool0_rotation_base, dtype=float
             )
