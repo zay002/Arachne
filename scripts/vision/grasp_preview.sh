@@ -283,7 +283,7 @@ echo "  /arachne/grasp_preview/path"
 echo "  /arachne/grasp_preview/annotated_image"
 planner_backend_label="MoveIt 2 + OMPL via /plan_kinematic_path"
 if [[ " $* " == *" --planner-backend remote "* ]]; then
-  planner_backend_label="remote HTTP planner via ${REMOTE_PLANNER_URL:-http://127.0.0.1:8765}"
+  planner_backend_label="remote HTTP planner via ${REMOTE_PLANNER_URL:-http://127.0.0.1:8767}"
 elif [[ " $* " == *" --planner-backend local "* ]]; then
   planner_backend_label="local IK constrained trajectory"
 elif [[ " $* " == *" --planner-backend none "* ]]; then
@@ -349,7 +349,7 @@ run_pipeline() {
     --gripper-type "${GRIPPER_TYPE}" \
     --aubo-base-frame "${DISPLAY_FRAME_PREFIX}aubo_base_link" \
     --grasp-base-offset "${GRASP_BASE_OFFSET}" \
-    --remote-planner-url "${REMOTE_PLANNER_URL:-http://127.0.0.1:8765}" \
+    --remote-planner-url "${REMOTE_PLANNER_URL:-http://127.0.0.1:8767}" \
     --remote-planner-timeout "${REMOTE_PLANNER_TIMEOUT}" \
     "${projection_args[@]}" \
     "${execute_args[@]}" \

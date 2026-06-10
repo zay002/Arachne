@@ -420,7 +420,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--planner-backend", choices=("moveit", "remote", "local", "none"), default="moveit", help=hidden)
     parser.add_argument(
         "--remote-planner-url",
-        default=os.environ.get("ARACHNE_REMOTE_PLANNER_URL", "http://127.0.0.1:8765"),
+        default=os.environ.get("ARACHNE_REMOTE_PLANNER_URL", "http://127.0.0.1:8767"),
         help=hidden,
     )
     parser.add_argument("--remote-planner-timeout", type=float, default=2.0, help=hidden)
@@ -2572,6 +2572,7 @@ class GraspPreviewNode(Node):
         q_current = np.asarray(self.current_arm_joints, dtype=float)
         q_waypoints: list[np.ndarray] = [np.asarray(q_current, dtype=float)]
         target_events: list[dict[str, object]] = []
+        moveit_targets: list[dict[str, object]] = []
         reached_targets: list[str] = []
         notes: list[str] = []
         current_rotation_base = self._current_end_effector_rotation_base()
@@ -2657,6 +2658,7 @@ class GraspPreviewNode(Node):
                     orientation_error,
                     target_rotation_base,
                     target_tool0_rotation_base,
+                    target_tool0_base,
                 )
                 if best_candidate is None or score < best_candidate[0]:
                     best_candidate = candidate
@@ -2676,6 +2678,7 @@ class GraspPreviewNode(Node):
                 orientation_error,
                 selected_rotation_base,
                 selected_tool0_rotation_base,
+                selected_tool0_base,
             ) = best_candidate
             if np.max(np.abs(q_goal - q_waypoints[-1])) > 1e-5:
                 q_waypoints.append(np.asarray(q_goal, dtype=float))
@@ -2697,6 +2700,25 @@ class GraspPreviewNode(Node):
             current_tool0_rotation_base = self._orthonormalize_rotation(
                 np.asarray(selected_tool0_rotation_base, dtype=float)
             )
+            tool0_aubo = self._transform_point(aubo_from_base, selected_tool0_base)
+            tool0_rotation_aubo = np.asarray(aubo_from_base[:3, :3], dtype=float) @ np.asarray(
+                current_tool0_rotation_base, dtype=float
+            )
+            tool0_quat_aubo = self._quat_msg_from_matrix(tool0_rotation_aubo)
+            moveit_targets.append(
+                {
+                    "name": target_name,
+                    "tool0_xyz_aubo": [float(v) for v in tool0_aubo],
+                    "tool0_quat_aubo": [
+                        float(tool0_quat_aubo.x),
+                        float(tool0_quat_aubo.y),
+                        float(tool0_quat_aubo.z),
+                        float(tool0_quat_aubo.w),
+                    ],
+                    "position_tolerance": float(self.args.moveit_position_tolerance),
+                    "orientation_tolerance": float(self.args.moveit_ik_orientation_tolerance),
+                }
+            )
 
         payload = {
             "request_id": f"grasp_preview_{int(time.time() * 1000)}",
@@ -2717,6 +2739,16 @@ class GraspPreviewNode(Node):
                     "events": target_events,
                 }
             ],
+            "moveit_targets": moveit_targets,
+            "moveit": {
+                "planner_id": str(self.args.moveit_planners).split(",")[0].strip()
+                or "RRTConnectkConfigDefault",
+                "planning_time": float(self.args.moveit_planning_time),
+                "planning_attempts": int(self.args.moveit_planning_attempts),
+                "velocity_scale": float(self.args.moveit_velocity_scale),
+                "accel_scale": float(self.args.moveit_accel_scale),
+                "service_timeout_padding": float(self.args.moveit_service_timeout_padding),
+            },
             "constraints": {
                 "ground_min_z_base": float(self.args.ground_min_z_base),
                 "tool_ground_clearance": float(self.args.tool_ground_clearance),

@@ -210,18 +210,30 @@ source scripts/env/arachne_env.sh
 
 `--quick` 会跳过冗长环境检查，并且不因为 `/odom` 暂时未发布而阻塞 grasp server。需要严格检查时去掉 `--quick`。它会打开 Aubo driver、Aubo 远程启动、Scout/MS42DC、Gemini 相机、grasp server、施教器和 raw 2D 相机画面。
 
-如果要让抓取流程真正调用远端 planner，先在另一个终端建立到远端 `8765` 的 SSH tunnel，然后把本地 loopback URL 传给 console。真实 IP、账号、密码只放在当前 shell 或 SSH 配置里，不写进仓库：
+如果要让抓取流程调用服务器上的完整 MoveIt 2 + OMPL 规划，服务器端先启动远端规划栈：
 
 ```bash
-ssh -N -L 8765:127.0.0.1:8765 "${ARACHNE_REMOTE_USER}@${ARACHNE_REMOTE_HOST}"
+cd ~/projects/arachne_remote_full
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+./scripts/remote/remote_moveit_planner_stack.sh restart
 ```
 
+Jetson 端另开一个终端建立 SSH tunnel。真实 IP、账号、密码只放在当前 shell 或 SSH 配置里，不写进仓库：
+
 ```bash
-ARACHNE_CONSOLE_REMOTE_PLANNER_URL=http://127.0.0.1:8765 \
+ssh -N -L 8767:127.0.0.1:8766 "${ARACHNE_REMOTE_USER}@${ARACHNE_REMOTE_HOST}"
+```
+
+然后启动 console，并把 grasp server 指向本地 loopback：
+
+```bash
+ARACHNE_CONSOLE_REMOTE_PLANNER_URL=http://127.0.0.1:8767 \
+ARACHNE_CONSOLE_REMOTE_PLANNER_TIMEOUT=20 \
   ./scripts/hardware/real_grasp_console.sh --yes --quick
 ```
 
-当前 `--planner-backend remote` 会把本地快速 IK 生成的候选关节关键点发给远端 `/plan` 做候选筛选和时间参数化，再把返回的 joint frames 交给 Jetson 真机执行。它不是完整远端 MoveIt 碰撞规划；完整远端 OMPL/TrajOpt 仍需要后续在服务器部署 ROS/MoveIt 场景。
+当前 `--planner-backend remote` 会把本地感知得到的 tool0 关键位姿和当前 6 轴关节发给远端 `/plan`，由服务器上的 MoveIt 2/OMPL 做 `aubo_arm` 规划，再把返回的 joint frames 交给 Jetson 真机执行。Jetson 只负责相机、YOLO、真机执行和 UI，不再在本机跑 MoveIt 规划。
 
 启动后先看总状态：
 
