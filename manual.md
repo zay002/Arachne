@@ -200,22 +200,55 @@ ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES \
 
 `grasp_task_server` 是真实抓取的常驻入口。服务启动一次后，每次调用 `/arachne/grasp_task/start` 都会执行一轮完整流程：同步真机姿态 -> YOLO trash 分割 -> depth ROI 定位 -> MoveIt 规划 -> Aubo SDK 运动和夹具开合 -> 投放 -> 回 home。重复抓取时不需要重启 server。
 
-推荐现场入口是总控 console：
+现场优先使用总控 console：
 
 ```bash
 cd /home/jetson/zhaoyang/Arachne
 source scripts/env/arachne_env.sh
-./scripts/hardware/real_grasp_console.sh --yes
+./scripts/hardware/real_grasp_console.sh --yes --quick
 ```
 
-它会打开多个 terminal：Aubo driver、Aubo 远程启动、Scout/MS42DC bringup、grasp server、施教器和 2D 抓取画面。施教器顶部和 Home 页都有 `G Start` / `Grasp Start`、`G Stop` / `Grasp Stop`、`Restore` 按钮，分别对应 `/arachne/grasp_task/start`、`/arachne/grasp_task/stop`、`/arachne/grasp_task/restore`。正常抓取时优先使用这个入口；下面的分步命令主要用于调试。
+`--quick` 会跳过冗长环境检查，并且不因为 `/odom` 暂时未发布而阻塞 grasp server。需要严格检查时去掉 `--quick`。它会打开 Aubo driver、Aubo 远程启动、Scout/MS42DC、Gemini 相机、grasp server、施教器和 raw 2D 相机画面。
 
-如果远程桌面/terminal 弹窗不稳定，使用后台日志模式：
+启动后先看总状态：
 
 ```bash
-./scripts/hardware/real_grasp_console.sh --yes --terminal background
+./scripts/hardware/real_grasp_status.sh
+```
+
+如果远程桌面/terminal 弹窗不稳定，用后台日志模式：
+
+```bash
+./scripts/hardware/real_grasp_console.sh --yes --quick --terminal background
 tail -f log/real_grasp_console/latest/*.log
 ```
+
+执行一轮抓取可以直接按施教器里的 `G Start` / `Grasp Start`。命令行等价操作是：
+
+```bash
+ros2 service call /arachne/grasp_task/start std_srvs/srv/Trigger "{}"
+```
+
+停止当前任务：
+
+```bash
+ros2 service call /arachne/grasp_task/stop std_srvs/srv/Trigger "{}"
+```
+
+恢复规划恢复时的小幅底盘移动：
+
+```bash
+ros2 service call /arachne/grasp_task/restore std_srvs/srv/Trigger "{}"
+```
+
+查看任务状态和日志目录：
+
+```bash
+ros2 service call /arachne/grasp_task/status std_srvs/srv/Trigger "{}"
+tail -f log/grasp_tasks/*/process.log
+```
+
+`start` 返回 `success=True` 只表示后台任务已启动，不表示抓取已完成。等状态进入 `succeeded`、`failed` 或 `canceled` 后，重新摆放目标，再按一次 `G Start` 或再次调用 start 服务。
 
 首次同步新代码后构建一次：
 
@@ -226,117 +259,9 @@ colcon build --packages-select arachne_operator arachne_agent_bridge --symlink-i
 source install/setup.bash
 ```
 
-#### 1. 启动真机硬件
-
-Aubo 已经是 `Running / Normal` 时，直接启动整套硬件：
-
-```bash
-./scripts/hardware/real_bringup.sh
-```
-
-如果 Aubo 还在 `PowerOff` 或 `Idle`，先走远程启动。终端 1：
-
-```bash
-ARACHNE_CONFIRM_AUBO_DRIVER=YES \
-ARACHNE_AUBO_ALLOW_PRESTART=YES \
-./scripts/hardware/real_aubo_bringup.sh
-```
-
-终端 2：
-
-```bash
-ARACHNE_CONFIRM_AUBO_REMOTE_START=YES \
-./scripts/hardware/real_aubo_remote_start.sh
-```
-
-看到 `Aubo remote startup complete` 后，再启动 Scout 和 MS42DC：
-
-```bash
-./scripts/hardware/real_bringup.sh --no-aubo
-```
-
-#### 2. 启动抓取服务
-
-终端 3 启动 server，并保持这个终端不要关闭：
-
-```bash
-./scripts/vision/grasp_task_server.sh \
-  execute_real:=true \
-  confirm_execute_real:=true \
-  with_rviz:=false \
-  extra_args:="--moveit-planning-time 0.8 --moveit-service-timeout-padding 0.5 --moveit-planning-attempts 1"
-```
-
-需要 RViz 检查时把 `with_rviz:=false` 改成 `with_rviz:=true`。
-
 总控脚本默认打开 `/camera/color/image_raw` 的 raw 2D 画面，方便持续观察末端和物体，不依赖标注图刷新。server 空闲时仍会启动纯感知预览进程并发布 `/arachne/grasp_preview/annotated_image` 供日志/调试使用；真正执行抓取时 YOLO 完成一次目标锁定后暂停重检测，但 raw 画面会继续动态刷新。
 
 示教器可以和 server 同时开着，但不能同时下发机械臂动作。示教器空闲时不占控制权；只有 `teach_on/teach_off` 或手动 jog 正在执行时，才会写入 `/tmp/arachne_aubo_control_owner`。真实抓取发 `moveJoint` 前也会独占这个 owner，并写 `/tmp/arachne_aubo_teach_mode=1` 暂停 ROS driver 的 `servoJoint` 保持。若 preflight 提示 `aubo_control_owner` 或 `aubo_teach_gate` busy，先停止手动 jog 或发送 teach off，再重新 start。
-
-#### 3. 执行一次完整抓取
-
-终端 4 加载环境后操作服务：
-
-```bash
-cd /home/jetson/zhaoyang/Arachne
-source scripts/env/arachne_env.sh
-source install/setup.bash
-```
-
-先检查：
-
-```bash
-ros2 service call /arachne/grasp_task/preflight std_srvs/srv/Trigger "{}"
-```
-
-`success=True` 后开始一轮完整抓取：
-
-```bash
-ros2 service call /arachne/grasp_task/start std_srvs/srv/Trigger "{}"
-```
-
-`start` 返回 `success=True` 只表示后台任务已经启动，不表示抓取完成。
-
-查看状态：
-
-```bash
-ros2 service call /arachne/grasp_task/status std_srvs/srv/Trigger "{}"
-```
-
-`state` 含义：
-
-```text
-running    正在检测、规划或执行
-succeeded  真实抓取、投放、回 home 已完成
-failed     preflight、规划或 runner 失败
-canceled   人工取消
-```
-
-任务正在 `running` 时不要重复调用 `start`。需要中断时：
-
-```bash
-ros2 service call /arachne/grasp_task/stop std_srvs/srv/Trigger "{}"
-```
-
-如果规划恢复曾经小幅移动过底盘，需要人工恢复时：
-
-```bash
-ros2 service call /arachne/grasp_task/restore std_srvs/srv/Trigger "{}"
-```
-
-#### 4. 重复抓取
-
-等上一轮进入 `succeeded`、`failed` 或 `canceled` 后，重新摆放目标，再调用同一个 start 命令：
-
-```bash
-ros2 service call /arachne/grasp_task/start std_srvs/srv/Trigger "{}"
-```
-
-也就是说，重复流程是：
-
-```text
-preflight 一次确认硬件 -> start -> 等 terminal state -> 摆下一个目标 -> start -> ...
-```
 
 如果中途目标放错或想重新识别：
 

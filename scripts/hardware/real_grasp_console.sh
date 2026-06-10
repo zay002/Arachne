@@ -21,6 +21,8 @@ TEACH_WITH_CAMERA="${ARACHNE_CONSOLE_TEACH_WITH_CAMERA:-false}"
 TEACH_WITH_RVIZ="${ARACHNE_CONSOLE_TEACH_WITH_RVIZ:-true}"
 TEACH_WITH_VISUALIZATION="${ARACHNE_CONSOLE_TEACH_WITH_VISUALIZATION:-true}"
 WITH_VIEWER="${ARACHNE_CONSOLE_WITH_VIEWER:-true}"
+REQUIRE_ODOM="${ARACHNE_CONSOLE_REQUIRE_ODOM:-false}"
+REQUIRE_CAMERA_TOPICS="${ARACHNE_CONSOLE_REQUIRE_CAMERA_TOPICS:-true}"
 VIEWER_IMAGE_TOPIC="${ARACHNE_CONSOLE_VIEWER_IMAGE_TOPIC:-/camera/color/image_raw}"
 CAMERA_COLOR_WIDTH="${ARACHNE_CONSOLE_CAMERA_COLOR_WIDTH:-640}"
 CAMERA_COLOR_HEIGHT="${ARACHNE_CONSOLE_CAMERA_COLOR_HEIGHT:-480}"
@@ -31,6 +33,7 @@ CAMERA_DEPTH_FPS="${ARACHNE_CONSOLE_CAMERA_DEPTH_FPS:-5.0}"
 RUN_ENV_CHECK=true
 STOP_EXISTING=true
 CONFIRM=false
+QUICK=false
 TERMINAL_KIND="${ARACHNE_CONSOLE_TERMINAL:-auto}"
 
 usage() {
@@ -52,6 +55,7 @@ Options:
   --skip-env-check     Skip scripts/hardware/check_real_hardware_env.sh --strict.
   --no-stop-existing   Do not stop stale Arachne real stack processes first.
   --no-viewer          Do not open image_view for the camera image topic.
+  --quick              Skip strict env check and do not block server startup on /odom.
   --terminal KIND      auto, gnome-terminal, xfce4-terminal, xterm, or background.
   -h, --help           Show this help.
 
@@ -64,6 +68,8 @@ Environment:
   ARACHNE_CONSOLE_TEACH_WITH_CAMERA=${TEACH_WITH_CAMERA}
   ARACHNE_CONSOLE_TEACH_WITH_RVIZ=${TEACH_WITH_RVIZ}
   ARACHNE_CONSOLE_WITH_VIEWER=${WITH_VIEWER}
+  ARACHNE_CONSOLE_REQUIRE_ODOM=${REQUIRE_ODOM}
+  ARACHNE_CONSOLE_REQUIRE_CAMERA_TOPICS=${REQUIRE_CAMERA_TOPICS}
   ARACHNE_CONSOLE_VIEWER_IMAGE_TOPIC=${VIEWER_IMAGE_TOPIC}
   ARACHNE_CONSOLE_CAMERA_COLOR_WIDTH=${CAMERA_COLOR_WIDTH}
   ARACHNE_CONSOLE_CAMERA_COLOR_HEIGHT=${CAMERA_COLOR_HEIGHT}
@@ -90,6 +96,12 @@ while (($#)); do
       ;;
     --no-viewer)
       WITH_VIEWER=false
+      ;;
+    --quick)
+      QUICK=true
+      RUN_ENV_CHECK=false
+      REQUIRE_ODOM=false
+      WAIT_TIMEOUT_SEC="${ARACHNE_CONSOLE_QUICK_WAIT_TIMEOUT_SEC:-45}"
       ;;
     --terminal)
       shift
@@ -247,6 +259,8 @@ SERVER_EXTRA_ARGS=$(q "${SERVER_EXTRA_ARGS}")
 TEACH_WITH_CAMERA=$(q "${TEACH_WITH_CAMERA}")
 TEACH_WITH_RVIZ=$(q "${TEACH_WITH_RVIZ}")
 TEACH_WITH_VISUALIZATION=$(q "${TEACH_WITH_VISUALIZATION}")
+REQUIRE_ODOM=$(q "${REQUIRE_ODOM}")
+REQUIRE_CAMERA_TOPICS=$(q "${REQUIRE_CAMERA_TOPICS}")
 VIEWER_IMAGE_TOPIC=$(q "${VIEWER_IMAGE_TOPIC}")
 CAMERA_COLOR_WIDTH=$(q "${CAMERA_COLOR_WIDTH}")
 CAMERA_COLOR_HEIGHT=$(q "${CAMERA_COLOR_HEIGHT}")
@@ -336,6 +350,9 @@ echo "  terminal: ${TERMINAL_KIND}"
 echo "  logs: ${LOG_DIR}"
 echo "  Aubo: ${AUBO_ROBOT_IP} / ${AUBO_TYPE}"
 echo "  server extra args: ${SERVER_EXTRA_ARGS}"
+echo "  quick mode: ${QUICK}"
+echo "  require odom before server: ${REQUIRE_ODOM}"
+echo "  require camera topics in preflight: ${REQUIRE_CAMERA_TOPICS}"
 
 cd "${ROOT_DIR}"
 
@@ -407,7 +424,11 @@ exec ros2 launch arachne_sensors gemini335.launch.py \
 
 server_script="$(write_runner "40_grasp_task_server" '
 wait_for_topic "/joint_states" "Aubo joint states"
-wait_for_topic "/odom" "Scout odometry"
+if [[ "${REQUIRE_ODOM}" == "true" ]]; then
+  wait_for_topic "/odom" "Scout odometry"
+else
+  echo "Skipping blocking wait for /odom (ARACHNE_CONSOLE_REQUIRE_ODOM=false)."
+fi
 wait_for_topic "/arachne/hardware/gripper_status" "MS42DC status"
 wait_for_topic "/camera/color/image_raw" "Gemini335 color image"
 wait_for_topic "/camera/depth/image_raw" "Gemini335 depth image"
@@ -426,6 +447,8 @@ exec env \
   with_rviz:=false \
   preview_on_start:=true \
   planning_recovery_base_enabled:=false \
+  require_odom:="${REQUIRE_ODOM}" \
+  require_camera_topics:="${REQUIRE_CAMERA_TOPICS}" \
   extra_args:="${SERVER_EXTRA_ARGS}"
 ')"
 
