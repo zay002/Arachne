@@ -8,6 +8,8 @@ import os
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable
@@ -415,7 +417,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--trajectory-joint-tolerance", type=float, default=0.004, help=hidden)
     parser.add_argument("--trajectory-max-duration", type=float, default=90.0, help=hidden)
     parser.add_argument("--planning-key-waypoints", default="approach,grasp,safe_mid,basket_over", help=hidden)
-    parser.add_argument("--planner-backend", choices=("moveit", "local", "none"), default="moveit", help=hidden)
+    parser.add_argument("--planner-backend", choices=("moveit", "remote", "local", "none"), default="moveit", help=hidden)
+    parser.add_argument(
+        "--remote-planner-url",
+        default=os.environ.get("ARACHNE_REMOTE_PLANNER_URL", "http://127.0.0.1:8765"),
+        help=hidden,
+    )
+    parser.add_argument("--remote-planner-timeout", type=float, default=2.0, help=hidden)
     parser.add_argument("--moveit-plan-service", default="/plan_kinematic_path", help=hidden)
     parser.add_argument(
         "--moveit-planners",
@@ -2537,9 +2545,263 @@ class GraspPreviewNode(Node):
     ) -> tuple[list[JointTrajectoryFrame], str]:
         if str(self.args.planner_backend) == "none":
             return [], "perception_only: planning skipped"
+        if str(self.args.planner_backend) == "remote":
+            return self._make_remote_arm_trajectory(preview)
         if str(self.args.planner_backend) == "moveit":
             return self._make_moveit_arm_trajectory(preview)
         return self._make_local_arm_trajectory(preview)
+
+    def _make_remote_arm_trajectory(
+        self, preview: GraspPreview
+    ) -> tuple[list[JointTrajectoryFrame], str]:
+        targets = self._planning_target_samples(preview)
+        if not targets:
+            return [], "remote: no planning key waypoints"
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                self.aubo_base_frame,
+                self.base_frame,
+                rclpy.time.Time(),
+                timeout=Duration(seconds=0.05),
+            )
+        except TransformException as exc:
+            return [], f"remote: waiting for TF {self.aubo_base_frame} <- {self.base_frame}: {exc}"
+        aubo_from_base = self._matrix_from_transform(transform)
+        base_from_aubo = self._invert_rigid(aubo_from_base)
+
+        q_current = np.asarray(self.current_arm_joints, dtype=float)
+        q_waypoints: list[np.ndarray] = [np.asarray(q_current, dtype=float)]
+        target_events: list[dict[str, object]] = []
+        reached_targets: list[str] = []
+        notes: list[str] = []
+        current_rotation_base = self._current_end_effector_rotation_base()
+        current_tool0_rotation_base = self._current_tool_rotation_base()
+
+        for index, (target_name, target_base, progress) in enumerate(targets):
+            target_rotations_base = self._target_orientation_candidates_base(
+                target_base,
+                progress,
+                current_rotation_base,
+                preview.pointcloud_shape,
+                target_name,
+            )
+            best_candidate = None
+            failure_messages: list[str] = []
+            for orientation_index, target_rotation_base in enumerate(target_rotations_base):
+                tool_target = self._tool0_target_from_grasp_target(
+                    target_base, target_rotation_base
+                )
+                if tool_target is None:
+                    _matrix, message = self._tool_to_grasp_matrix()
+                    return [], f"remote: {message}"
+                target_tool0_base, target_tool0_rotation_base = tool_target
+                tool_ground_ok, tool_ground_clearance, tool_ground_hit = (
+                    self._tool_target_ground_clearance_base(target_tool0_base, target_base)
+                )
+                if not tool_ground_ok:
+                    failure_messages.append(
+                        f"ori{orientation_index}: {tool_ground_hit} clearance={tool_ground_clearance:.3f}m"
+                    )
+                    continue
+                unreachable_note = self._moveit_unreachable_note(target_tool0_base)
+                if unreachable_note:
+                    failure_messages.append(f"ori{orientation_index}: {unreachable_note}")
+                    continue
+                ik_ok, q_goal, position_error, orientation_error = self._solve_tool0_goal_joints(
+                    q_current,
+                    aubo_from_base,
+                    target_tool0_base,
+                    target_tool0_rotation_base,
+                )
+                tolerance_position, tolerance_orientation = self._moveit_fallback_tolerances(
+                    target_name, target_name != "grasp"
+                )
+                if not (
+                    ik_ok
+                    or (
+                        position_error <= tolerance_position
+                        and orientation_error <= tolerance_orientation
+                    )
+                ):
+                    failure_messages.append(
+                        f"ori{orientation_index}: pos_err={position_error:.3f}m ori_err={orientation_error:.3f}rad"
+                    )
+                    continue
+                q_unwrapped_goal = np.asarray(q_current, dtype=float) + self._joint_delta(
+                    q_goal, q_current
+                )
+                endpoint_safe, endpoint_clearance, endpoint_hit_name = self._arm_collision_clearance_base(
+                    q_unwrapped_goal, base_from_aubo
+                )
+                segment_safe, segment_clearance, segment_hit_name = (
+                    self._joint_segment_collision_clearance_base(
+                        q_current, q_unwrapped_goal, base_from_aubo
+                    )
+                )
+                if not (endpoint_safe and segment_safe) and not bool(self.args.allow_colliding_best_effort):
+                    hit_name = endpoint_hit_name if not endpoint_safe else segment_hit_name
+                    failure_messages.append(f"ori{orientation_index}: collision risk {hit_name or 'vehicle'}")
+                    continue
+                clearance = min(float(endpoint_clearance), float(segment_clearance))
+                score = (
+                    100.0 * float(position_error)
+                    + 5.0 * float(orientation_error)
+                    + 0.25 * float(np.linalg.norm(q_unwrapped_goal - q_current))
+                    - 0.1 * clearance
+                )
+                candidate = (
+                    score,
+                    q_unwrapped_goal,
+                    orientation_index,
+                    position_error,
+                    orientation_error,
+                    target_rotation_base,
+                    target_tool0_rotation_base,
+                )
+                if best_candidate is None or score < best_candidate[0]:
+                    best_candidate = candidate
+            if best_candidate is None:
+                x, y, z = target_base
+                return (
+                    [],
+                    f"remote: no IK candidate at {target_name} {index + 1}/{len(targets)} "
+                    f"grasp_xyz=({x:.3f},{y:.3f},{z:.3f}); "
+                    + " | ".join(failure_messages[-6:]),
+                )
+            (
+                _score,
+                q_goal,
+                orientation_index,
+                position_error,
+                orientation_error,
+                selected_rotation_base,
+                selected_tool0_rotation_base,
+            ) = best_candidate
+            if np.max(np.abs(q_goal - q_waypoints[-1])) > 1e-5:
+                q_waypoints.append(np.asarray(q_goal, dtype=float))
+                target_events.append(
+                    {
+                        "waypoint_index": len(q_waypoints) - 1,
+                        "name": target_name,
+                        "phase": target_name,
+                    }
+                )
+            q_current = np.asarray(q_waypoints[-1], dtype=float)
+            reached_targets.append(target_name)
+            notes.append(
+                f"{target_name}/ori{orientation_index}:pos_err={position_error:.3f}m,ori_err={orientation_error:.3f}rad"
+            )
+            current_rotation_base = self._orthonormalize_rotation(
+                np.asarray(selected_rotation_base, dtype=float)
+            )
+            current_tool0_rotation_base = self._orthonormalize_rotation(
+                np.asarray(selected_tool0_rotation_base, dtype=float)
+            )
+
+        payload = {
+            "request_id": f"grasp_preview_{int(time.time() * 1000)}",
+            "current_joints_rad": [float(v) for v in q_waypoints[0]],
+            "targets": [
+                {
+                    "name": name,
+                    "xyz_base": [float(v) for v in target_base],
+                    "phase": name,
+                }
+                for name, target_base, _progress in targets
+            ],
+            "candidates": [
+                {
+                    "label": "local_ik_keypoints",
+                    "score": 0.0,
+                    "waypoints_rad": [[float(v) for v in q] for q in q_waypoints[1:]],
+                    "events": target_events,
+                }
+            ],
+            "constraints": {
+                "ground_min_z_base": float(self.args.ground_min_z_base),
+                "tool_ground_clearance": float(self.args.tool_ground_clearance),
+                "max_joint_speed_rad_s": float(self.args.preview_max_joint_speed),
+                "max_joint_accel_rad_s2": float(self.args.preview_max_joint_accel),
+                "max_segment_joint_delta_rad": float(self.args.real_sdk_max_segment_joint_delta),
+                "min_segment_duration_sec": float(self.args.real_sdk_min_segment_duration),
+            },
+        }
+        try:
+            response = self._remote_planner_post(payload)
+            frames = self._remote_trajectory_frames(response)
+        except Exception as exc:
+            return [], f"remote: planner request failed: {exc}"
+        if not frames:
+            return [], f"remote: empty trajectory response status={response.get('status')}"
+        return (
+            frames,
+            "remote_joint_waypoint_plan "
+            f"url={self._redacted_remote_url()} "
+            f"targets={','.join(reached_targets)} "
+            f"frames={len(frames)} duration={frames[-1].time_from_start:.2f}s "
+            f"ik={';'.join(notes)} status={response.get('status')}",
+        )
+
+    def _remote_planner_post(self, payload: dict[str, object]) -> dict[str, object]:
+        url = str(self.args.remote_planner_url).rstrip("/") + "/plan"
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        timeout = max(float(self.args.remote_planner_timeout), 0.1)
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as handle:
+                response = json.loads(handle.read().decode("utf-8"))
+        except urllib.error.URLError as exc:
+            raise RuntimeError(str(exc)) from exc
+        if not isinstance(response, dict):
+            raise RuntimeError("non-object JSON response")
+        if not bool(response.get("ok")):
+            raise RuntimeError(
+                f"{response.get('status')}: {response.get('constraint_issues') or response.get('message')}"
+            )
+        return response
+
+    def _remote_trajectory_frames(self, response: dict[str, object]) -> list[JointTrajectoryFrame]:
+        trajectory = response.get("trajectory")
+        if not isinstance(trajectory, dict):
+            return []
+        frames_raw = trajectory.get("frames")
+        if not isinstance(frames_raw, list):
+            return []
+        frames: list[JointTrajectoryFrame] = []
+        for index, raw in enumerate(frames_raw):
+            if not isinstance(raw, dict):
+                continue
+            positions = tuple(float(v) for v in raw.get("positions", []))
+            if len(positions) != 6:
+                continue
+            velocities = tuple(float(v) for v in raw.get("velocities", [0.0] * 6))
+            accelerations = tuple(float(v) for v in raw.get("accelerations", [0.0] * 6))
+            if len(velocities) != 6:
+                velocities = (0.0,) * 6
+            if len(accelerations) != 6:
+                accelerations = (0.0,) * 6
+            frames.append(
+                JointTrajectoryFrame(
+                    float(raw.get("time_from_start", index * 0.2)),
+                    positions,  # type: ignore[arg-type]
+                    velocities,  # type: ignore[arg-type]
+                    accelerations,  # type: ignore[arg-type]
+                )
+            )
+        return frames
+
+    def _redacted_remote_url(self) -> str:
+        url = str(self.args.remote_planner_url)
+        if "@" not in url:
+            return url
+        scheme, rest = url.split("://", 1) if "://" in url else ("", url)
+        host = rest.split("@", 1)[1]
+        return f"{scheme + '://' if scheme else ''}<redacted>@{host}"
 
     def _make_moveit_arm_trajectory(
         self, preview: GraspPreview

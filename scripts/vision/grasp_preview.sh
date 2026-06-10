@@ -70,11 +70,16 @@ REAL_SDK_CONTROL_OWNER_NAME="${ARACHNE_GRASP_AUBO_CONTROL_OWNER_NAME:-grasp_task
 REAL_RETURN_HOME="${ARACHNE_GRASP_REAL_RETURN_HOME:-true}"
 REAL_HOME_JOINTS="${ARACHNE_GRASP_REAL_HOME_JOINTS:-${ARACHNE_AUBO_HOME_JOINTS_RAD:--1.5707963267949,0.201570428261868,1.65970467002488,0.485178041391533,1.67675136677345,0.76432946885334}}"
 REAL_HOME_DURATION="${ARACHNE_GRASP_REAL_HOME_DURATION:-2.5}"
+REMOTE_PLANNER_URL="${ARACHNE_REMOTE_PLANNER_URL:-}"
+REMOTE_PLANNER_TIMEOUT="${ARACHNE_REMOTE_PLANNER_TIMEOUT:-2.0}"
 START_MODEL="${ARACHNE_GRASP_START_MODEL:-true}"
 START_MOVEIT="${ARACHNE_GRASP_START_MOVEIT:-true}"
 START_CAMERA="${ARACHNE_GRASP_START_CAMERA:-true}"
 WITH_RVIZ="${ARACHNE_GRASP_WITH_RVIZ:-true}"
 ARM_JOINTS_OVERRIDE="${ARACHNE_GRASP_ARM_JOINTS:-}"
+if [[ " $* " == *" --planner-backend remote "* || " $* " == *" --planner-backend local "* || " $* " == *" --planner-backend none "* ]]; then
+  START_MOVEIT=false
+fi
 LOG_DIR="${ROOT_DIR}/log/grasp_preview/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "${LOG_DIR}"
 
@@ -113,6 +118,8 @@ mkdir -p "${LOG_DIR}"
   echo "real_return_home: ${REAL_RETURN_HOME}"
   echo "real_home_joints: ${REAL_HOME_JOINTS}"
   echo "real_home_duration: ${REAL_HOME_DURATION}"
+  echo "remote_planner_url: ${REMOTE_PLANNER_URL:-disabled}"
+  echo "remote_planner_timeout: ${REMOTE_PLANNER_TIMEOUT}"
 } >"${LOG_DIR}/00_environment.txt"
 
 if [[ "${EXECUTE_REAL}" == "true" && "${EXECUTE_REAL_CONFIRM}" != "YES" ]]; then
@@ -274,7 +281,15 @@ echo "  /arachne/grasp_preview/markers"
 echo "  /arachne/grasp_preview/roi_cloud"
 echo "  /arachne/grasp_preview/path"
 echo "  /arachne/grasp_preview/annotated_image"
-echo "Planner backend: MoveIt 2 + OMPL via /plan_kinematic_path"
+planner_backend_label="MoveIt 2 + OMPL via /plan_kinematic_path"
+if [[ " $* " == *" --planner-backend remote "* ]]; then
+  planner_backend_label="remote HTTP planner via ${REMOTE_PLANNER_URL:-http://127.0.0.1:8765}"
+elif [[ " $* " == *" --planner-backend local "* ]]; then
+  planner_backend_label="local IK constrained trajectory"
+elif [[ " $* " == *" --planner-backend none "* ]]; then
+  planner_backend_label="perception only"
+fi
+echo "Planner backend: ${planner_backend_label}"
 echo "RViz MarkerArray shows named task waypoints and a magenta playback cursor."
 if [[ "${EXECUTE_REAL}" == "true" ]]; then
   echo "REAL execution is armed: backend=${REAL_EXECUTE_BACKEND}; default sends key joint targets through Aubo SDK moveJoint."
@@ -334,6 +349,8 @@ run_pipeline() {
     --gripper-type "${GRIPPER_TYPE}" \
     --aubo-base-frame "${DISPLAY_FRAME_PREFIX}aubo_base_link" \
     --grasp-base-offset "${GRASP_BASE_OFFSET}" \
+    --remote-planner-url "${REMOTE_PLANNER_URL:-http://127.0.0.1:8765}" \
+    --remote-planner-timeout "${REMOTE_PLANNER_TIMEOUT}" \
     "${projection_args[@]}" \
     "${execute_args[@]}" \
     "$@"

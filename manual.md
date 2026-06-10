@@ -210,6 +210,19 @@ source scripts/env/arachne_env.sh
 
 `--quick` 会跳过冗长环境检查，并且不因为 `/odom` 暂时未发布而阻塞 grasp server。需要严格检查时去掉 `--quick`。它会打开 Aubo driver、Aubo 远程启动、Scout/MS42DC、Gemini 相机、grasp server、施教器和 raw 2D 相机画面。
 
+如果要让抓取流程真正调用远端 planner，先在另一个终端建立到远端 `8765` 的 SSH tunnel，然后把本地 loopback URL 传给 console。真实 IP、账号、密码只放在当前 shell 或 SSH 配置里，不写进仓库：
+
+```bash
+ssh -N -L 8765:127.0.0.1:8765 "${ARACHNE_REMOTE_USER}@${ARACHNE_REMOTE_HOST}"
+```
+
+```bash
+ARACHNE_CONSOLE_REMOTE_PLANNER_URL=http://127.0.0.1:8765 \
+  ./scripts/hardware/real_grasp_console.sh --yes --quick
+```
+
+当前 `--planner-backend remote` 会把本地快速 IK 生成的候选关节关键点发给远端 `/plan` 做候选筛选和时间参数化，再把返回的 joint frames 交给 Jetson 真机执行。它不是完整远端 MoveIt 碰撞规划；完整远端 OMPL/TrajOpt 仍需要后续在服务器部署 ROS/MoveIt 场景。
+
 启动后先看总状态：
 
 ```bash
