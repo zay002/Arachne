@@ -2572,16 +2572,12 @@ class GraspPreviewNode(Node):
         except TransformException as exc:
             return [], f"remote: waiting for TF {self.aubo_base_frame} <- {self.base_frame}: {exc}"
         aubo_from_base = self._matrix_from_transform(transform)
-        base_from_aubo = self._invert_rigid(aubo_from_base)
 
         q_current = np.asarray(self.current_arm_joints, dtype=float)
-        q_waypoints: list[np.ndarray] = [np.asarray(q_current, dtype=float)]
-        target_events: list[dict[str, object]] = []
         moveit_targets: list[dict[str, object]] = []
         reached_targets: list[str] = []
         notes: list[str] = []
         current_rotation_base = self._current_end_effector_rotation_base()
-        current_tool0_rotation_base = self._current_tool_rotation_base()
 
         for index, (target_name, target_base, progress) in enumerate(targets):
             target_rotations_base = self._target_orientation_candidates_base(
@@ -2591,7 +2587,7 @@ class GraspPreviewNode(Node):
                 preview.pointcloud_shape,
                 target_name,
             )
-            best_candidate = None
+            selected_candidate = None
             failure_messages: list[str] = []
             for orientation_index, target_rotation_base in enumerate(target_rotations_base):
                 tool_target = self._tool0_target_from_grasp_target(
@@ -2613,92 +2609,29 @@ class GraspPreviewNode(Node):
                 if unreachable_note:
                     failure_messages.append(f"ori{orientation_index}: {unreachable_note}")
                     continue
-                ik_ok, q_goal, position_error, orientation_error = self._solve_tool0_goal_joints(
-                    q_current,
-                    aubo_from_base,
-                    target_tool0_base,
-                    target_tool0_rotation_base,
-                )
-                tolerance_position, tolerance_orientation = self._moveit_fallback_tolerances(
-                    target_name, target_name != "grasp"
-                )
-                if not (
-                    ik_ok
-                    or (
-                        position_error <= tolerance_position
-                        and orientation_error <= tolerance_orientation
-                    )
-                ):
-                    failure_messages.append(
-                        f"ori{orientation_index}: pos_err={position_error:.3f}m ori_err={orientation_error:.3f}rad"
-                    )
-                    continue
-                q_unwrapped_goal = np.asarray(q_current, dtype=float) + self._joint_delta(
-                    q_goal, q_current
-                )
-                endpoint_safe, endpoint_clearance, endpoint_hit_name = self._arm_collision_clearance_base(
-                    q_unwrapped_goal, base_from_aubo
-                )
-                segment_safe, segment_clearance, segment_hit_name = (
-                    self._joint_segment_collision_clearance_base(
-                        q_current, q_unwrapped_goal, base_from_aubo
-                    )
-                )
-                if not (endpoint_safe and segment_safe) and not bool(self.args.allow_colliding_best_effort):
-                    hit_name = endpoint_hit_name if not endpoint_safe else segment_hit_name
-                    failure_messages.append(f"ori{orientation_index}: collision risk {hit_name or 'vehicle'}")
-                    continue
-                clearance = min(float(endpoint_clearance), float(segment_clearance))
-                score = (
-                    100.0 * float(position_error)
-                    + 5.0 * float(orientation_error)
-                    + 0.25 * float(np.linalg.norm(q_unwrapped_goal - q_current))
-                    - 0.1 * clearance
-                )
-                candidate = (
-                    score,
-                    q_unwrapped_goal,
+                selected_candidate = (
                     orientation_index,
-                    position_error,
-                    orientation_error,
                     target_rotation_base,
                     target_tool0_rotation_base,
                     target_tool0_base,
                 )
-                if best_candidate is None or score < best_candidate[0]:
-                    best_candidate = candidate
-            if best_candidate is None:
+                break
+            if selected_candidate is None:
                 x, y, z = target_base
                 return (
                     [],
-                    f"remote: no IK candidate at {target_name} {index + 1}/{len(targets)} "
+                    f"remote: no geometric pose candidate at {target_name} {index + 1}/{len(targets)} "
                     f"grasp_xyz=({x:.3f},{y:.3f},{z:.3f}); "
                     + " | ".join(failure_messages[-6:]),
                 )
             (
-                _score,
-                q_goal,
                 orientation_index,
-                position_error,
-                orientation_error,
                 selected_rotation_base,
                 selected_tool0_rotation_base,
                 selected_tool0_base,
-            ) = best_candidate
-            if np.max(np.abs(q_goal - q_waypoints[-1])) > 1e-5:
-                q_waypoints.append(np.asarray(q_goal, dtype=float))
-                target_events.append(
-                    {
-                        "waypoint_index": len(q_waypoints) - 1,
-                        "name": target_name,
-                        "phase": target_name,
-                    }
-                )
-            q_current = np.asarray(q_waypoints[-1], dtype=float)
+            ) = selected_candidate
             reached_targets.append(target_name)
-            notes.append(
-                f"{target_name}/ori{orientation_index}:pos_err={position_error:.3f}m,ori_err={orientation_error:.3f}rad"
-            )
+            notes.append(f"{target_name}/ori{orientation_index}:remote_pose_goal")
             current_rotation_base = self._orthonormalize_rotation(
                 np.asarray(selected_rotation_base, dtype=float)
             )
@@ -2729,7 +2662,7 @@ class GraspPreviewNode(Node):
 
         payload = {
             "request_id": f"grasp_preview_{int(time.time() * 1000)}",
-            "current_joints_rad": [float(v) for v in q_waypoints[0]],
+            "current_joints_rad": [float(v) for v in q_current],
             "targets": [
                 {
                     "name": name,
@@ -2740,10 +2673,10 @@ class GraspPreviewNode(Node):
             ],
             "candidates": [
                 {
-                    "label": "local_ik_keypoints",
+                    "label": "remote_moveit_pose_goals",
                     "score": 0.0,
-                    "waypoints_rad": [[float(v) for v in q] for q in q_waypoints[1:]],
-                    "events": target_events,
+                    "waypoints_rad": [],
+                    "events": [],
                 }
             ],
             "moveit_targets": moveit_targets,
@@ -2791,11 +2724,22 @@ class GraspPreviewNode(Node):
             method="POST",
         )
         timeout = max(float(self.args.remote_planner_timeout), 0.1)
+        target_count = len(payload.get("moveit_targets", [])) if isinstance(payload.get("moveit_targets"), list) else 0
+        start = time.monotonic()
+        self.get_logger().info(
+            f"remote planner request: url={self._redacted_remote_url()} "
+            f"moveit_targets={target_count} timeout={timeout:.1f}s"
+        )
         try:
             with urllib.request.urlopen(request, timeout=timeout) as handle:
                 response = json.loads(handle.read().decode("utf-8"))
         except urllib.error.URLError as exc:
             raise RuntimeError(str(exc)) from exc
+        elapsed = time.monotonic() - start
+        self.get_logger().info(
+            f"remote planner response: ok={bool(response.get('ok')) if isinstance(response, dict) else False} "
+            f"wall={elapsed:.2f}s"
+        )
         if not isinstance(response, dict):
             raise RuntimeError("non-object JSON response")
         if not bool(response.get("ok")):
