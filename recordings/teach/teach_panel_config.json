@@ -8,7 +8,8 @@
     "arm_rotate_step_deg": 0.7,
     "arm_joint_step_deg": 0.4,
     "arm_hold_period_sec": 0.1,
-    "arm_waypoint_duration_sec": 3.75
+    "arm_waypoint_duration_sec": 3.75,
+    "gripper_settle_sec": 2.0
   },
   "poses": {
     "home_joints_deg": "-90.00,11.55,95.09,27.80,96.07,43.79",

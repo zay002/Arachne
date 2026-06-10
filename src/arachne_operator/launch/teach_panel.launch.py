@@ -4,7 +4,7 @@ from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -161,6 +161,38 @@ def generate_launch_description():
                 "arm_waypoint_duration_sec": ParameterValue(
                     LaunchConfiguration("arm_waypoint_duration_sec"), value_type=float
                 ),
+                "arm_replay_backend": LaunchConfiguration("arm_replay_backend"),
+                "aubo_sdk_ip": LaunchConfiguration("aubo_sdk_ip"),
+                "aubo_sdk_rpc_port": ParameterValue(
+                    LaunchConfiguration("aubo_sdk_rpc_port"), value_type=int
+                ),
+                "aubo_sdk_rpc_timeout_sec": ParameterValue(
+                    LaunchConfiguration("aubo_sdk_rpc_timeout_sec"), value_type=float
+                ),
+                "aubo_sdk_move_speed_rad_sec": ParameterValue(
+                    LaunchConfiguration("aubo_sdk_move_speed_rad_sec"), value_type=float
+                ),
+                "aubo_sdk_move_accel_rad_sec2": ParameterValue(
+                    LaunchConfiguration("aubo_sdk_move_accel_rad_sec2"), value_type=float
+                ),
+                "aubo_sdk_blend_radius": ParameterValue(
+                    LaunchConfiguration("aubo_sdk_blend_radius"), value_type=float
+                ),
+                "aubo_sdk_move_duration_sec": ParameterValue(
+                    LaunchConfiguration("aubo_sdk_move_duration_sec"), value_type=float
+                ),
+                "aubo_sdk_goal_tolerance_rad": ParameterValue(
+                    LaunchConfiguration("aubo_sdk_goal_tolerance_rad"), value_type=float
+                ),
+                "aubo_sdk_arrival_timeout_padding_sec": ParameterValue(
+                    LaunchConfiguration("aubo_sdk_arrival_timeout_padding_sec"), value_type=float
+                ),
+                "aubo_sdk_teach_flag_path": LaunchConfiguration("aubo_sdk_teach_flag_path"),
+                "aubo_sdk_control_owner_path": LaunchConfiguration("aubo_sdk_control_owner_path"),
+                "aubo_sdk_control_owner_name": LaunchConfiguration("aubo_sdk_control_owner_name"),
+                "gripper_settle_sec": ParameterValue(
+                    LaunchConfiguration("gripper_settle_sec"), value_type=float
+                ),
                 "arm_jog_position_tolerance": ParameterValue(
                     LaunchConfiguration("arm_jog_position_tolerance"), value_type=float
                 ),
@@ -299,6 +331,29 @@ def generate_launch_description():
             DeclareLaunchArgument("arm_velocity_keepout_check_interval_sec", default_value="0.05"),
             DeclareLaunchArgument("arm_velocity_stream_deadman_sec", default_value="0.75"),
             DeclareLaunchArgument("arm_waypoint_duration_sec", default_value="3.75"),
+            DeclareLaunchArgument("arm_replay_backend", default_value="sdk_move_joint"),
+            DeclareLaunchArgument(
+                "aubo_sdk_ip",
+                default_value=EnvironmentVariable("AUBO_ROBOT_IP", default_value="192.168.127.128"),
+            ),
+            DeclareLaunchArgument("aubo_sdk_rpc_port", default_value="30004"),
+            DeclareLaunchArgument("aubo_sdk_rpc_timeout_sec", default_value="3.0"),
+            DeclareLaunchArgument("aubo_sdk_move_speed_rad_sec", default_value="0.25"),
+            DeclareLaunchArgument("aubo_sdk_move_accel_rad_sec2", default_value="0.45"),
+            DeclareLaunchArgument("aubo_sdk_blend_radius", default_value="0.0"),
+            DeclareLaunchArgument("aubo_sdk_move_duration_sec", default_value="0.0"),
+            DeclareLaunchArgument("aubo_sdk_goal_tolerance_rad", default_value="0.04"),
+            DeclareLaunchArgument("aubo_sdk_arrival_timeout_padding_sec", default_value="3.0"),
+            DeclareLaunchArgument(
+                "aubo_sdk_teach_flag_path",
+                default_value="/tmp/arachne_aubo_teach_mode",
+            ),
+            DeclareLaunchArgument(
+                "aubo_sdk_control_owner_path",
+                default_value="/tmp/arachne_aubo_control_owner",
+            ),
+            DeclareLaunchArgument("aubo_sdk_control_owner_name", default_value="teach_panel"),
+            DeclareLaunchArgument("gripper_settle_sec", default_value="2.0"),
             DeclareLaunchArgument("arm_jog_position_tolerance", default_value="0.0008"),
             DeclareLaunchArgument("arm_orientation_tolerance", default_value="0.01"),
             DeclareLaunchArgument("arm_jog_orientation_tolerance", default_value="0.004"),

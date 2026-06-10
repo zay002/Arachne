@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import socket
 import threading
 import time
 from dataclasses import asdict, dataclass, fields, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -47,6 +50,138 @@ DEFAULT_ARM_BASE_RPY = "0.0,0.0,1.57079632679"
 DEFAULT_REAR_RACK_KEEPOUT_MIN_XYZ = "-0.41,-0.22,0.04"
 DEFAULT_REAR_RACK_KEEPOUT_MAX_XYZ = "0.09,0.22,0.82"
 DEFAULT_TEACH_CONFIG_PATH = "recordings/teach/teach_panel_config.json"
+DEFAULT_AUBO_TEACH_FLAG_PATH = "/tmp/arachne_aubo_teach_mode"
+DEFAULT_AUBO_CONTROL_OWNER_PATH = "/tmp/arachne_aubo_control_owner"
+
+
+def _control_owner_payload(owner: str) -> str:
+    return json.dumps(
+        {"owner": owner, "pid": os.getpid(), "created_at": time.time()},
+        separators=(",", ":"),
+    ) + "\n"
+
+
+def _parse_control_owner(text: str) -> tuple[str, int | None]:
+    text = text.strip()
+    if not text:
+        return "", None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return text.splitlines()[0].strip(), None
+    owner = str(data.get("owner", "")).strip()
+    pid_value = data.get("pid")
+    try:
+        pid = int(pid_value) if pid_value is not None else None
+    except (TypeError, ValueError):
+        pid = None
+    return owner, pid
+
+
+def _pid_alive(pid: int | None) -> bool:
+    if pid is None:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _claim_control_owner(path: Path, owner: str) -> tuple[bool, str]:
+    owner = owner.strip() or "unknown"
+    for _attempt in range(2):
+        try:
+            fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        except FileExistsError:
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                return False, f"unreadable owner file {path}: {exc}"
+            active_owner, pid = _parse_control_owner(text)
+            if active_owner == owner and pid == os.getpid():
+                return True, f"already owned by {owner}"
+            if pid is not None and not _pid_alive(pid):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError as exc:
+                    return False, f"stale owner {active_owner or text!r} could not be cleared: {exc}"
+                continue
+            pid_text = str(pid) if pid is not None else "unknown"
+            return False, f"owned by {active_owner or text.strip() or 'unknown'} pid={pid_text}"
+        except OSError as exc:
+            return False, f"could not create owner file {path}: {exc}"
+
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(_control_owner_payload(owner))
+        except OSError as exc:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return False, f"could not write owner file {path}: {exc}"
+        return True, f"owned by {owner}"
+    return False, f"could not claim owner file {path}"
+
+
+def _release_control_owner(path: Path, owner: str) -> None:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except (FileNotFoundError, OSError):
+        return
+    active_owner, pid = _parse_control_owner(text)
+    if active_owner != (owner.strip() or "unknown"):
+        return
+    if pid is not None and pid != os.getpid():
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        return
+
+
+class AuboDirectJsonRpc:
+    def __init__(self, ip: str, port: int, timeout: float) -> None:
+        self.ip = ip
+        self.port = port
+        self.timeout = timeout
+        self.request_id = 0
+        self.robot_name = "rob1"
+        self.sock: socket.socket | None = None
+
+    def __enter__(self) -> "AuboDirectJsonRpc":
+        self.sock = socket.create_connection((self.ip, self.port), timeout=self.timeout)
+        self.sock.settimeout(self.timeout)
+        names = self.call("getRobotNames")
+        if names:
+            self.robot_name = str(names[0])
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        if self.sock is not None:
+            self.sock.close()
+
+    def call(self, method: str, params: list[Any] | None = None) -> Any:
+        if self.sock is None:
+            raise RuntimeError("not connected")
+        self.request_id += 1
+        request = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params or [],
+            "id": self.request_id,
+        }
+        self.sock.sendall(json.dumps(request, separators=(",", ":")).encode("utf-8"))
+        response = json.loads(self.sock.recv(8192).decode("utf-8", errors="replace"))
+        if response.get("error") not in (None, "", "None", "null"):
+            raise RuntimeError(f"{method} failed: {response['error']}")
+        return response.get("result")
+
+    def robot_call(self, suffix: str, params: list[Any] | None = None) -> Any:
+        return self.call(f"{self.robot_name}.{suffix}", params)
 
 
 @dataclass
@@ -204,6 +339,19 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_velocity_keepout_check_interval_sec", 0.05)
         self.declare_parameter("arm_velocity_stream_deadman_sec", 0.75)
         self.declare_parameter("arm_waypoint_duration_sec", 3.75)
+        self.declare_parameter("arm_replay_backend", "sdk_move_joint")
+        self.declare_parameter("aubo_sdk_ip", os.environ.get("AUBO_ROBOT_IP", "192.168.127.128"))
+        self.declare_parameter("aubo_sdk_rpc_port", 30004)
+        self.declare_parameter("aubo_sdk_rpc_timeout_sec", 3.0)
+        self.declare_parameter("aubo_sdk_move_speed_rad_sec", 0.25)
+        self.declare_parameter("aubo_sdk_move_accel_rad_sec2", 0.45)
+        self.declare_parameter("aubo_sdk_blend_radius", 0.0)
+        self.declare_parameter("aubo_sdk_move_duration_sec", 0.0)
+        self.declare_parameter("aubo_sdk_goal_tolerance_rad", 0.04)
+        self.declare_parameter("aubo_sdk_arrival_timeout_padding_sec", 3.0)
+        self.declare_parameter("aubo_sdk_teach_flag_path", DEFAULT_AUBO_TEACH_FLAG_PATH)
+        self.declare_parameter("aubo_sdk_control_owner_path", DEFAULT_AUBO_CONTROL_OWNER_PATH)
+        self.declare_parameter("aubo_sdk_control_owner_name", "teach_panel")
         self.declare_parameter("arm_home_joints_deg", DEFAULT_ARM_HOME_JOINTS_DEG)
         self.declare_parameter("arm_install_joints_deg", DEFAULT_ARM_INSTALL_JOINTS_DEG)
         self.declare_parameter("aubo_payload_mass_kg", DEFAULT_AUBO_PAYLOAD_MASS_KG)
@@ -230,6 +378,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("aubo_teach_command_topic", "/arachne/aubo/teach_command")
         self.declare_parameter("aubo_teach_exit_wait_sec", 8.0)
         self.declare_parameter("replay_settle_sec", 0.2)
+        self.declare_parameter("gripper_settle_sec", 2.0)
         self.declare_parameter("recording_dir", "recordings/teach")
         self.declare_parameter("teach_config_path", DEFAULT_TEACH_CONFIG_PATH)
         self.declare_parameter("teach_config_autoload", True)
@@ -511,6 +660,7 @@ class TeachPanelNode(Node):
                 "arm_waypoint_duration_sec": float(
                     self.get_parameter("arm_waypoint_duration_sec").value
                 ),
+                "gripper_settle_sec": float(self.get_parameter("gripper_settle_sec").value),
             },
             "poses": {
                 "home_joints_deg": str(self.get_parameter("arm_home_joints_deg").value),
@@ -656,6 +806,16 @@ class TeachPanelNode(Node):
                         motion.get(
                             "arm_waypoint_duration_sec",
                             self.get_parameter("arm_waypoint_duration_sec").value,
+                        )
+                    ),
+                ),
+                Parameter(
+                    "gripper_settle_sec",
+                    Parameter.Type.DOUBLE,
+                    float(
+                        motion.get(
+                            "gripper_settle_sec",
+                            self.get_parameter("gripper_settle_sec").value,
                         )
                     ),
                 ),
@@ -1617,6 +1777,8 @@ class TeachPanelNode(Node):
         try:
             if not self._ensure_aubo_motion_ready():
                 raise RuntimeError("Aubo teach mode is still active")
+            replay_gripper = self.gripper_state
+            previous_arm_joints: list[float] | None = None
             for index, waypoint in enumerate(waypoints, start=1):
                 if self.cancel_event.is_set():
                     break
@@ -1629,10 +1791,20 @@ class TeachPanelNode(Node):
 
                 if waypoint.base_motion:
                     self._replay_base_motion(waypoint.base_motion, waypoint.label)
-                if waypoint.gripper in ("open", "close"):
-                    self.publish_gripper(waypoint.gripper)
-                if not self._move_arm_to_positions_velocity(waypoint.arm_joints, waypoint.label):
+                if previous_arm_joints is None:
+                    previous_arm_joints = self._current_arm_vector()
+                if previous_arm_joints is None:
+                    raise RuntimeError(f"missing arm joint state before {waypoint.label}")
+                if not self._replay_arm_waypoint(previous_arm_joints, waypoint.arm_joints, waypoint.label):
                     raise RuntimeError(f"arm waypoint failed: {waypoint.label}")
+                previous_arm_joints = [float(value) for value in waypoint.arm_joints]
+                if waypoint.gripper in ("open", "close") and waypoint.gripper != replay_gripper:
+                    self.publish_gripper(waypoint.gripper)
+                    replay_gripper = waypoint.gripper
+                    gripper_wait = max(float(self.get_parameter("gripper_settle_sec").value), 0.0)
+                    if gripper_wait > 0.0:
+                        self._status(f"gripper settle {gripper_wait:.1f}s: {waypoint.gripper}")
+                        self._sleep(gripper_wait)
                 self._sleep(float(self.get_parameter("replay_settle_sec").value))
             self.set_base_velocity(0.0, 0.0)
             self._status("replay complete" if not self.cancel_event.is_set() else "replay stopped")
@@ -1857,6 +2029,7 @@ class TeachPanelNode(Node):
         *,
         wait: bool,
         velocities: list[float] | None = None,
+        accelerations: list[float] | None = None,
         manual_stream: bool = False,
     ) -> bool:
         if label != "hold current":
@@ -1875,8 +2048,11 @@ class TeachPanelNode(Node):
             if velocities is not None and len(velocities) == len(point.positions)
             else [0.0 for _ in point.positions]
         )
-        if not manual_stream:
-            point.accelerations = [0.0 for _ in point.positions]
+        point.accelerations = (
+            [float(value) for value in accelerations]
+            if accelerations is not None and len(accelerations) == len(point.positions)
+            else [0.0 for _ in point.positions]
+        )
         point.time_from_start.sec = int(duration)
         point.time_from_start.nanosec = int((duration % 1.0) * 1e9)
         trajectory.points = [point]
@@ -1937,18 +2113,329 @@ class TeachPanelNode(Node):
             self._sleep(duration)
         return True
 
+    def _replay_arm_waypoint(self, start: list[float], target: list[float], label: str) -> bool:
+        backend = str(self.get_parameter("arm_replay_backend").value).strip().lower()
+        if backend in ("sdk", "sdk_move_joint", "movejoint", "move_joint"):
+            return self._send_arm_sdk_move_joint(target, label)
+        if backend in ("velocity", "velocity_stream", "stream"):
+            return self._send_arm_replay_segment(start, target, label)
+        self._status(f"unknown arm replay backend {backend!r}; using sdk_move_joint", warn=True)
+        return self._send_arm_sdk_move_joint(target, label)
+
+    def _send_arm_sdk_move_joint(self, target: list[float], label: str) -> bool:
+        if len(target) != len(self.arm_command_joint_names):
+            self._status(f"Aubo SDK moveJoint skipped: invalid joint target for {label}", warn=True)
+            return False
+        violation = self._arm_keepout_violation(target, label)
+        if violation is not None:
+            self._status(f"Aubo SDK moveJoint blocked by safety zone: {violation}", warn=True)
+            return False
+
+        ip = str(self.get_parameter("aubo_sdk_ip").value)
+        port = int(self.get_parameter("aubo_sdk_rpc_port").value)
+        timeout = max(float(self.get_parameter("aubo_sdk_rpc_timeout_sec").value), 0.1)
+        speed = max(float(self.get_parameter("aubo_sdk_move_speed_rad_sec").value), 0.01)
+        accel = max(float(self.get_parameter("aubo_sdk_move_accel_rad_sec2").value), 0.05)
+        blend_radius = max(float(self.get_parameter("aubo_sdk_blend_radius").value), 0.0)
+        duration = max(float(self.get_parameter("aubo_sdk_move_duration_sec").value), 0.0)
+        owner_owned = False
+        gate_owned = False
+
+        self._status(
+            f"Aubo SDK moveJoint: {label} speed={speed:.3f} accel={accel:.3f}"
+        )
+        try:
+            with AuboDirectJsonRpc(ip, port, timeout) as rpc:
+                self._sdk_require_running(rpc)
+                owner_owned = self._sdk_enter_control_owner()
+                gate_owned = self._sdk_enter_gate()
+                self._sdk_exit_servo_mode(rpc)
+                self._sdk_stop_joint(rpc, "pre-move cleanup", warn_only=True)
+                result = rpc.robot_call(
+                    "MotionControl.moveJoint",
+                    [[float(value) for value in target], accel, speed, blend_radius, duration],
+                )
+                if result not in (0, None):
+                    self._status(f"Aubo SDK moveJoint failed at {label}: result={result}", warn=True)
+                    return False
+                self._sdk_wait_exec_complete(rpc, label)
+                return self._sdk_wait_arrival(rpc, np.asarray(target, dtype=float), label)
+        except Exception as exc:
+            self._status(f"Aubo SDK moveJoint failed at {label}: {exc}", warn=True)
+            return False
+        finally:
+            if gate_owned:
+                try:
+                    with AuboDirectJsonRpc(ip, port, timeout) as rpc:
+                        self._sdk_stop_joint(rpc, "post-move cleanup", warn_only=True)
+                except Exception:
+                    pass
+            self._sdk_exit_gate(gate_owned)
+            self._sdk_exit_control_owner(owner_owned)
+
+    def _sdk_require_running(self, rpc: AuboDirectJsonRpc) -> None:
+        mode = str(rpc.robot_call("RobotState.getRobotModeType")).strip().lower()
+        safety = str(rpc.robot_call("RobotState.getSafetyModeType")).strip().lower()
+        if mode != "running" or safety not in ("normal", "reducedmode"):
+            raise RuntimeError(f"Aubo not ready: mode={mode} safety={safety}")
+
+    def _sdk_enter_control_owner(self) -> bool:
+        path = Path(str(self.get_parameter("aubo_sdk_control_owner_path").value))
+        owner = str(self.get_parameter("aubo_sdk_control_owner_name").value).strip() or "teach_panel"
+        ok, message = _claim_control_owner(path, owner)
+        if not ok:
+            raise RuntimeError(f"Aubo control owner unavailable: {message}")
+        return True
+
+    def _sdk_exit_control_owner(self, owner_owned: bool) -> None:
+        if not owner_owned:
+            return
+        path = Path(str(self.get_parameter("aubo_sdk_control_owner_path").value))
+        owner = str(self.get_parameter("aubo_sdk_control_owner_name").value).strip() or "teach_panel"
+        _release_control_owner(path, owner)
+
+    def _sdk_enter_gate(self) -> bool:
+        path = Path(str(self.get_parameter("aubo_sdk_teach_flag_path").value))
+        try:
+            path.write_text("1\n", encoding="utf-8")
+        except OSError as exc:
+            raise RuntimeError(f"failed to set Aubo teach gate {path}: {exc}") from exc
+        time.sleep(0.15)
+        return True
+
+    def _sdk_exit_gate(self, gate_owned: bool) -> None:
+        if not gate_owned:
+            return
+        path = Path(str(self.get_parameter("aubo_sdk_teach_flag_path").value))
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            self._status(f"failed to release Aubo teach gate {path}: {exc}", warn=True)
+
+    def _sdk_exit_servo_mode(self, rpc: AuboDirectJsonRpc) -> None:
+        try:
+            result = rpc.robot_call("MotionControl.setServoModeSelect", [0])
+            if result not in (0, None):
+                self._status(f"Aubo SDK setServoModeSelect(0) result={result}", warn=True)
+            return
+        except Exception as exc:
+            self._status(
+                f"Aubo SDK setServoModeSelect unavailable, trying setServoMode(false): {exc}",
+                warn=True,
+            )
+        result = rpc.robot_call("MotionControl.setServoMode", [False])
+        if result not in (0, None):
+            self._status(f"Aubo SDK setServoMode(false) result={result}", warn=True)
+
+    def _sdk_stop_joint(
+        self, rpc: AuboDirectJsonRpc, reason: str, *, warn_only: bool = False
+    ) -> None:
+        accel = max(float(self.get_parameter("aubo_sdk_move_accel_rad_sec2").value), 0.05)
+        try:
+            result = rpc.robot_call("MotionControl.stopJoint", [accel])
+        except Exception as exc:
+            if warn_only:
+                self._status(f"Aubo SDK stopJoint failed during {reason}: {exc}", warn=True)
+                return
+            raise
+        if result not in (0, None):
+            message = f"Aubo SDK stopJoint result={result} during {reason}"
+            if warn_only:
+                self._status(message, warn=True)
+            else:
+                raise RuntimeError(message)
+
+    def _sdk_wait_exec_complete(self, rpc: AuboDirectJsonRpc, label: str) -> None:
+        timeout = max(float(self.get_parameter("arm_waypoint_duration_sec").value), 0.5) + 8.0
+        deadline = time.monotonic() + timeout
+        exec_id = rpc.robot_call("MotionControl.getExecId")
+        start_deadline = time.monotonic() + 0.5
+        while exec_id == -1 and time.monotonic() < start_deadline and not self.cancel_event.is_set():
+            time.sleep(0.05)
+            exec_id = rpc.robot_call("MotionControl.getExecId")
+        while exec_id != -1 and time.monotonic() < deadline and not self.cancel_event.is_set():
+            time.sleep(0.05)
+            exec_id = rpc.robot_call("MotionControl.getExecId")
+        if self.cancel_event.is_set():
+            raise RuntimeError(f"Aubo SDK moveJoint cancelled at {label}")
+        if exec_id != -1:
+            raise TimeoutError(f"Aubo SDK moveJoint exec timeout at {label}: exec_id={exec_id}")
+
+    def _sdk_wait_arrival(self, rpc: AuboDirectJsonRpc, target: np.ndarray, label: str) -> bool:
+        tolerance = max(float(self.get_parameter("aubo_sdk_goal_tolerance_rad").value), 0.001)
+        speed = max(float(self.get_parameter("aubo_sdk_move_speed_rad_sec").value), 0.01)
+        current = np.asarray(
+            [float(value) for value in rpc.robot_call("RobotState.getJointPositions")],
+            dtype=float,
+        )
+        max_delta = float(np.max(np.abs(self._joint_delta(target, current))))
+        timeout = max(max_delta / speed, 0.5) + max(
+            float(self.get_parameter("aubo_sdk_arrival_timeout_padding_sec").value), 0.0
+        )
+        deadline = time.monotonic() + timeout
+        stable_since: float | None = None
+        stable_required = 0.25
+        last_error = max_delta
+        while not self.cancel_event.is_set() and time.monotonic() < deadline:
+            current = np.asarray(
+                [float(value) for value in rpc.robot_call("RobotState.getJointPositions")],
+                dtype=float,
+            )
+            last_error = float(np.max(np.abs(self._joint_delta(target, current))))
+            if last_error <= tolerance:
+                now = time.monotonic()
+                if stable_since is None:
+                    stable_since = now
+                if now - stable_since >= stable_required:
+                    self._status(f"Aubo SDK moveJoint reached: {label}")
+                    return True
+            else:
+                stable_since = None
+            time.sleep(0.05)
+        self._status(
+            f"Aubo SDK moveJoint arrival timeout at {label}: "
+            f"max_error={last_error:.3f}rad tolerance={tolerance:.3f}rad",
+            warn=True,
+        )
+        return False
+
+    def _joint_delta(self, target: np.ndarray, current: np.ndarray) -> np.ndarray:
+        return np.asarray(
+            [
+                _angle_diff(float(target_value), float(current_value))
+                for target_value, current_value in zip(target, current)
+            ],
+            dtype=float,
+        )
+
+    def _send_arm_replay_segment(
+        self, start: list[float], target: list[float], label: str
+    ) -> bool:
+        if len(target) != len(self.arm_command_joint_names):
+            self._status(f"arm replay skipped: invalid joint target length for {label}", warn=True)
+            return False
+        if len(start) != len(target):
+            self._status(f"arm replay skipped: invalid segment start length for {label}", warn=True)
+            return False
+
+        violation = self._arm_keepout_violation(target, label)
+        if violation is not None:
+            self._status(f"arm replay blocked by safety zone: {violation}", warn=True)
+            return False
+
+        duration = self._arm_replay_segment_duration(start, target)
+        nominal_velocities, nominal_accelerations = self._arm_replay_segment_derivatives(
+            start, target, duration
+        )
+        peak_speed = max((abs(value) for value in nominal_velocities), default=0.0)
+        peak_accel = max((abs(value) for value in nominal_accelerations), default=0.0)
+        self._status(
+            f"arm replay segment: {label} t={duration:.2f}s "
+            f"speed={peak_speed:.3f} accel={peak_accel:.3f}"
+        )
+        start_array = np.array([float(value) for value in start], dtype=float)
+        target_array = np.array([float(value) for value in target], dtype=float)
+        delta = np.array(
+            [
+                _angle_diff(float(target_value), float(start_value))
+                for start_value, target_value in zip(start_array, target_array)
+            ],
+            dtype=float,
+        )
+        tolerance = max(float(self.get_parameter("arm_goal_tolerance").value), 0.005)
+        rate = max(float(self.get_parameter("arm_velocity_publish_rate").value), 1.0)
+        period = 1.0 / rate
+        gain = 1.1
+        deadline = time.monotonic() + max(duration + 8.0, 4.0)
+        started = time.monotonic()
+        stable_since: float | None = None
+        stable_required = 0.25
+
+        try:
+            while not self.cancel_event.is_set() and time.monotonic() < deadline:
+                now = time.monotonic()
+                current = self._current_arm_vector()
+                if current is None or len(current) != len(target):
+                    self._status(f"arm replay skipped: no joint state for {label}", warn=True)
+                    return False
+                current_array = np.array([float(value) for value in current], dtype=float)
+                elapsed = max(0.0, now - started)
+                u = min(elapsed / max(duration, 1e-3), 1.0)
+                smooth_u = (3.0 * u * u) - (2.0 * u * u * u)
+                smooth_du = (6.0 * u * (1.0 - u)) / max(duration, 1e-3)
+                desired = start_array + delta * smooth_u
+                feedforward = delta * smooth_du
+                position_error = np.array(
+                    [
+                        _angle_diff(float(desired_value), float(current_value))
+                        for desired_value, current_value in zip(desired, current_array)
+                    ],
+                    dtype=float,
+                )
+                velocity = feedforward + position_error * gain
+                final_error = np.array(
+                    [
+                        _angle_diff(float(target_value), float(current_value))
+                        for target_value, current_value in zip(target_array, current_array)
+                    ],
+                    dtype=float,
+                )
+                if float(np.max(np.abs(final_error))) <= tolerance:
+                    if stable_since is None:
+                        stable_since = now
+                    if now - stable_since >= stable_required:
+                        self._status(f"arm replay reached: {label}")
+                        return True
+                else:
+                    stable_since = None
+                self._set_manual_arm_velocity([float(value) for value in velocity], label)
+                time.sleep(period)
+            self._status(f"arm replay timeout/cancel: {label}", warn=True)
+            return False
+        finally:
+            self.stop_arm_velocity_hold()
+
+    def _arm_replay_segment_duration(self, start: list[float], target: list[float]) -> float:
+        duration = max(float(self.get_parameter("arm_waypoint_duration_sec").value), 0.2)
+        deltas = [abs(_angle_diff(float(t), float(s))) for s, t in zip(start, target)]
+        max_delta = max(deltas, default=0.0)
+        max_speed = max(float(self.get_parameter("arm_velocity_max_joint_speed_rad_sec").value), 0.01)
+        max_accel = max(float(self.get_parameter("arm_velocity_max_joint_accel_rad_sec2").value), 0.01)
+        duration = max(duration, max_delta / max_speed)
+        duration = max(duration, math.sqrt(max_delta / max_accel) if max_delta > 0.0 else duration)
+        return duration
+
+    def _arm_replay_segment_derivatives(
+        self, start: list[float], target: list[float], duration: float
+    ) -> tuple[list[float], list[float]]:
+        safe_duration = max(float(duration), 1e-3)
+        velocities = [
+            _angle_diff(float(target_value), float(start_value)) / safe_duration
+            for start_value, target_value in zip(start, target)
+        ]
+        accelerations = [value / safe_duration for value in velocities]
+        return velocities, accelerations
+
     def _wait_for_arm_target(
         self, target: list[float], tolerance: float, timeout_sec: float
     ) -> bool:
         deadline = time.monotonic() + max(timeout_sec, 0.0)
         best_error = float("inf")
+        stable_since: float | None = None
+        stable_required = 0.25
         while time.monotonic() < deadline and not self.cancel_event.is_set():
             current = self._current_arm_vector()
             if current is not None and len(current) == len(target):
                 error = max(abs(a - b) for a, b in zip(current, target))
                 best_error = min(best_error, error)
                 if error <= tolerance:
-                    return True
+                    now = time.monotonic()
+                    if stable_since is None:
+                        stable_since = now
+                    if now - stable_since >= stable_required:
+                        return True
+                else:
+                    stable_since = None
             time.sleep(0.05)
         self.get_logger().warning(f"arm target feedback timeout: best_error={best_error:.4f}")
         return False
@@ -2093,6 +2580,7 @@ class TeachPanelNode(Node):
         arm_joint_step_deg: float,
         arm_hold_period_sec: float,
         waypoint_duration_sec: float,
+        gripper_settle_sec: float,
         arm_home_joints_deg: str,
         arm_install_joints_deg: str,
     ) -> None:
@@ -2106,6 +2594,8 @@ class TeachPanelNode(Node):
             raise ValueError("hold period must be positive")
         if waypoint_duration_sec <= 0.0:
             raise ValueError("waypoint duration must be positive")
+        if gripper_settle_sec < 0.0:
+            raise ValueError("gripper settle must be non-negative")
         home_values = _parse_joint_degrees(arm_home_joints_deg, label="home joints")
         install_values = _parse_joint_degrees(arm_install_joints_deg, label="install joints")
         self.set_parameters(
@@ -2134,6 +2624,11 @@ class TeachPanelNode(Node):
                     float(waypoint_duration_sec),
                 ),
                 Parameter(
+                    "gripper_settle_sec",
+                    Parameter.Type.DOUBLE,
+                    float(gripper_settle_sec),
+                ),
+                Parameter(
                     "arm_home_joints_deg",
                     Parameter.Type.STRING,
                     _format_joint_degrees(home_values),
@@ -2149,7 +2644,8 @@ class TeachPanelNode(Node):
             "motion settings applied: "
             f"base={base_linear_speed:.3f}m/s {base_angular_speed:.3f}rad/s, "
             f"tcp={arm_jog_step_m:.3f}m, rot={arm_rotate_step_deg:.1f}deg, "
-            f"joint={arm_joint_step_deg:.1f}deg, hold={arm_hold_period_sec:.2f}s"
+            f"joint={arm_joint_step_deg:.1f}deg, hold={arm_hold_period_sec:.2f}s, "
+            f"gripper_settle={gripper_settle_sec:.1f}s"
         )
 
     def _status(self, text: str, *, warn: bool = False) -> None:
@@ -2196,6 +2692,9 @@ class TeachPanelApp:
         )
         self.waypoint_duration_var = tk.StringVar(
             value=f"{float(node.get_parameter('arm_waypoint_duration_sec').value):.2f}"
+        )
+        self.gripper_settle_var = tk.StringVar(
+            value=f"{float(node.get_parameter('gripper_settle_sec').value):.1f}"
         )
         self.home_joints_var = tk.StringVar(
             value=str(node.get_parameter("arm_home_joints_deg").value)
@@ -2509,6 +3008,7 @@ class TeachPanelApp:
             ("Joint step deg", self.arm_joint_step_var),
             ("Hold period s", self.arm_hold_period_var),
             ("Waypoint duration s", self.waypoint_duration_var),
+            ("Gripper settle s", self.gripper_settle_var),
         )
         for row, (label, var) in enumerate(fields):
             ttk.Label(motion, text=label, width=20).grid(row=row, column=0, sticky="w", padx=6, pady=5)
@@ -2809,6 +3309,7 @@ class TeachPanelApp:
                 arm_joint_step_deg=float(self.arm_joint_step_var.get()),
                 arm_hold_period_sec=float(self.arm_hold_period_var.get()),
                 waypoint_duration_sec=float(self.waypoint_duration_var.get()),
+                gripper_settle_sec=float(self.gripper_settle_var.get()),
                 arm_home_joints_deg=self.home_joints_var.get(),
                 arm_install_joints_deg=self.install_joints_var.get(),
             )
@@ -2924,6 +3425,9 @@ class TeachPanelApp:
         )
         self.waypoint_duration_var.set(
             f"{float(self.node.get_parameter('arm_waypoint_duration_sec').value):.2f}"
+        )
+        self.gripper_settle_var.set(
+            f"{float(self.node.get_parameter('gripper_settle_sec').value):.1f}"
         )
         self.home_joints_var.set(str(self.node.get_parameter("arm_home_joints_deg").value))
         self.install_joints_var.set(str(self.node.get_parameter("arm_install_joints_deg").value))
