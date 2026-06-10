@@ -224,10 +224,18 @@ cp .env.local.example .env.local
 ./scripts/hardware/real_grasp_console_remote.sh restart
 ```
 
-`real_grasp_console_remote.sh` 默认等价于 `--yes --quick`，会打开 Aubo driver、Aubo 远程启动、Scout/MS42DC、Gemini 相机、grasp server、施教器和 raw 2D 相机画面。需要传递 terminal 参数时直接追加：
+`real_grasp_console_remote.sh` 默认等价于 `--yes --quick --terminal background`。Aubo driver、Aubo 远程启动、Scout/MS42DC、Gemini 相机和 grasp server 都在后台跑，避免一次弹出大量终端；施教器、RViz 和 raw 2D 相机画面仍会按各自节点正常显示。后台日志集中在 `log/real_grasp_console/latest/`。
+
+如果需要现场看某个后台进程输出：
 
 ```bash
-./scripts/hardware/real_grasp_console_remote.sh --terminal background
+tail -f log/real_grasp_console/latest/*.log
+```
+
+如果临时想恢复多终端调试：
+
+```bash
+./scripts/hardware/real_grasp_console_remote.sh --terminal auto
 ```
 
 当前 `--planner-backend remote` 会把本地感知得到的 tool0 关键位姿和当前 6 轴关节发给远端 `/plan`，由服务器上的 MoveIt 2/OMPL 做 `aubo_arm` 规划，再把返回的 joint frames 交给 Jetson 真机执行。Jetson 只负责相机、YOLO、真机执行和 UI，不再在本机跑 MoveIt 规划。

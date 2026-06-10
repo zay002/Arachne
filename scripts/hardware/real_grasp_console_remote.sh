@@ -52,6 +52,7 @@ Common optional values:
   ARACHNE_REMOTE_MOVEIT_PORT=8766
   ARACHNE_REMOTE_LOCAL_PORT=8767
   ARACHNE_CONSOLE_REMOTE_PLANNER_TIMEOUT=20
+  ARACHNE_CONSOLE_TERMINAL=background
 EOF
 }
 
@@ -110,6 +111,16 @@ check_health() {
     --timeout 5
 }
 
+has_terminal_arg() {
+  local arg
+  for arg in "$@"; do
+    if [[ "${arg}" == "--terminal" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 start_all() {
   require_remote_config
   start_tunnel
@@ -118,7 +129,12 @@ start_all() {
   export ARACHNE_USE_REMOTE_PLANNER_DEFAULT=true
   export ARACHNE_CONSOLE_REMOTE_PLANNER_URL="${REMOTE_URL}"
   export ARACHNE_CONSOLE_REMOTE_PLANNER_TIMEOUT="${REMOTE_TIMEOUT}"
-  "${ROOT_DIR}/scripts/hardware/real_grasp_console.sh" --yes --quick "$@"
+  local console_args=(--yes --quick)
+  if ! has_terminal_arg "$@"; then
+    console_args+=(--terminal "${ARACHNE_CONSOLE_TERMINAL:-background}")
+  fi
+  console_args+=("$@")
+  "${ROOT_DIR}/scripts/hardware/real_grasp_console.sh" "${console_args[@]}"
 }
 
 case "${ACTION}" in
