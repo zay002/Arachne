@@ -24,7 +24,10 @@ __pycache__/
 
 # Local secrets and agent provider credentials.
 .env
+.env.local
+.env.*
 *.env
+!.env.local.example
 !*.example.env
 secrets/
 credentials/

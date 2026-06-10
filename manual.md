@@ -200,40 +200,41 @@ ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES \
 
 `grasp_task_server` 是真实抓取的常驻入口。服务启动一次后，每次调用 `/arachne/grasp_task/start` 都会执行一轮完整流程：同步真机姿态 -> YOLO trash 分割 -> depth ROI 定位 -> MoveIt 规划 -> Aubo SDK 运动和夹具开合 -> 投放 -> 回 home。重复抓取时不需要重启 server。
 
-现场优先使用总控 console：
+现场优先使用一键总控 console。它会读取本地 `.env.local`，启动服务器上的 MoveIt 2 + OMPL 规划栈，建立本地 SSH tunnel，然后启动 Jetson 上的真机 console：
 
 ```bash
 cd /home/jetson/zhaoyang/Arachne
 source scripts/env/arachne_env.sh
-./scripts/hardware/real_grasp_console.sh --yes --quick
+./scripts/hardware/real_grasp_console_remote.sh
 ```
 
-`--quick` 会跳过冗长环境检查，并且不因为 `/odom` 暂时未发布而阻塞 grasp server。需要严格检查时去掉 `--quick`。它会打开 Aubo driver、Aubo 远程启动、Scout/MS42DC、Gemini 相机、grasp server、施教器和 raw 2D 相机画面。
-
-如果要让抓取流程调用服务器上的完整 MoveIt 2 + OMPL 规划，服务器端先启动远端规划栈：
+本地 `.env.local` 不提交到 Git，用来保存服务器地址、用户、端口和默认远端规划开关。首次配置可以参考 `.env.local.example`：
 
 ```bash
-cd ~/projects/arachne_remote_full
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-./scripts/remote/remote_moveit_planner_stack.sh restart
+cp .env.local.example .env.local
 ```
 
-Jetson 端另开一个终端建立 SSH tunnel。真实 IP、账号、密码只放在当前 shell 或 SSH 配置里，不写进仓库：
+常用控制：
 
 ```bash
-ssh -N -L 8767:127.0.0.1:8766 "${ARACHNE_REMOTE_USER}@${ARACHNE_REMOTE_HOST}"
+./scripts/hardware/real_grasp_console_remote.sh status
+./scripts/hardware/real_grasp_console_remote.sh stop
+./scripts/hardware/real_grasp_console_remote.sh restart
 ```
 
-然后启动 console，并把 grasp server 指向本地 loopback：
+`real_grasp_console_remote.sh` 默认等价于 `--yes --quick`，会打开 Aubo driver、Aubo 远程启动、Scout/MS42DC、Gemini 相机、grasp server、施教器和 raw 2D 相机画面。需要传递 terminal 参数时直接追加：
 
 ```bash
-ARACHNE_CONSOLE_REMOTE_PLANNER_URL=http://127.0.0.1:8767 \
-ARACHNE_CONSOLE_REMOTE_PLANNER_TIMEOUT=20 \
-  ./scripts/hardware/real_grasp_console.sh --yes --quick
+./scripts/hardware/real_grasp_console_remote.sh --terminal background
 ```
 
 当前 `--planner-backend remote` 会把本地感知得到的 tool0 关键位姿和当前 6 轴关节发给远端 `/plan`，由服务器上的 MoveIt 2/OMPL 做 `aubo_arm` 规划，再把返回的 joint frames 交给 Jetson 真机执行。Jetson 只负责相机、YOLO、真机执行和 UI，不再在本机跑 MoveIt 规划。
+
+如果要临时禁用服务器规划，仅用 Jetson 本机调试：
+
+```bash
+ARACHNE_USE_REMOTE_PLANNER_DEFAULT=false ./scripts/hardware/real_grasp_console.sh --yes --quick
+```
 
 启动后先看总状态：
 

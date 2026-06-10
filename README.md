@@ -73,7 +73,8 @@ source install/setup.bash
 | 真机姿态同步抓取预览 | `./scripts/vision/grasp_preview_real_sync.sh` |
 | 真机同步并执行抓取 | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
 | 抓取任务服务器 | `./scripts/vision/grasp_task_server.sh` |
-| 真机抓取总控 console | `./scripts/hardware/real_grasp_console.sh --yes --quick` |
+| 真机抓取总控 console（默认服务器规划） | `./scripts/hardware/real_grasp_console_remote.sh` |
+| 真机抓取总控 console（本机规划/调试） | `ARACHNE_USE_REMOTE_PLANNER_DEFAULT=false ./scripts/hardware/real_grasp_console.sh --yes --quick` |
 | 服务器 MoveIt 规划栈 | `./scripts/remote/remote_moveit_planner_stack.sh restart` |
 | Agent Bridge | `./scripts/agent/agent_bridge.sh` |
 | 真机环境检查 | `./scripts/hardware/check_real_hardware_env.sh` |

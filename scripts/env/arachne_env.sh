@@ -11,6 +11,9 @@ fi
 ARACHNE_ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export ARACHNE_ROOT_DIR
 # shellcheck disable=SC1091
+source "${ARACHNE_ROOT_DIR}/scripts/env/load_local_env.sh"
+arachne_load_local_env "${ARACHNE_ROOT_DIR}"
+# shellcheck disable=SC1091
 source "${ARACHNE_ROOT_DIR}/scripts/env/ros_env.sh"
 
 ARACHNE_ENV_SOURCE_WORKSPACE=1
