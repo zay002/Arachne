@@ -179,6 +179,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("base_yaw_tolerance_deg", 2.0)
         self.declare_parameter("base_manual_publish_rate", 12.0)
         self.declare_parameter("base_motion_max_segment_sec", 20.0)
+        self.declare_parameter("base_ignore_spurious_zero_odom", True)
         self.declare_parameter("arm_jog_step_m", 0.008)
         self.declare_parameter("arm_jog_duration_sec", 0.24)
         self.declare_parameter("arm_rotate_step_rad", math.radians(0.7))
@@ -349,7 +350,26 @@ class TeachPanelNode(Node):
     def _odom_callback(self, msg: Odometry) -> None:
         pose = Pose2D(msg.pose.pose.position.x, msg.pose.pose.position.y, _yaw_from_odom(msg))
         with self.lock:
+            if self._looks_like_spurious_zero_odom_locked(pose):
+                return
             self.base_pose = pose
+
+    def _looks_like_spurious_zero_odom_locked(self, pose: Pose2D) -> bool:
+        if not bool(self.get_parameter("base_ignore_spurious_zero_odom").value):
+            return False
+        current = self.base_pose
+        if current is None:
+            return False
+        incoming_near_zero = (
+            abs(pose.x) < 1e-4 and abs(pose.y) < 1e-4 and abs(pose.yaw) < math.radians(0.05)
+        )
+        if not incoming_near_zero:
+            return False
+        current_nonzero = (
+            math.hypot(current.x, current.y) > 0.02
+            or abs(current.yaw) > math.radians(2.0)
+        )
+        return current_nonzero
 
     def _joint_state_callback(self, msg: JointState) -> None:
         positions = dict(zip(msg.name, msg.position))

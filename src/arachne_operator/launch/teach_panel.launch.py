@@ -92,6 +92,9 @@ def generate_launch_description():
                 "base_motion_max_segment_sec": ParameterValue(
                     LaunchConfiguration("base_motion_max_segment_sec"), value_type=float
                 ),
+                "base_ignore_spurious_zero_odom": ParameterValue(
+                    LaunchConfiguration("base_ignore_spurious_zero_odom"), value_type=bool
+                ),
                 "arm_jog_step_m": ParameterValue(
                     LaunchConfiguration("arm_jog_step_m"), value_type=float
                 ),
@@ -270,6 +273,7 @@ def generate_launch_description():
             DeclareLaunchArgument("base_replay_angular_speed", default_value="0.24"),
             DeclareLaunchArgument("base_manual_publish_rate", default_value="12.0"),
             DeclareLaunchArgument("base_motion_max_segment_sec", default_value="20.0"),
+            DeclareLaunchArgument("base_ignore_spurious_zero_odom", default_value="true"),
             DeclareLaunchArgument("arm_jog_step_m", default_value="0.008"),
             DeclareLaunchArgument("arm_jog_duration_sec", default_value="0.24"),
             DeclareLaunchArgument("arm_rotate_step_rad", default_value="0.0122173"),

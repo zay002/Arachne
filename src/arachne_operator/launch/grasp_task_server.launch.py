@@ -31,7 +31,7 @@ def generate_launch_description():
             DeclareLaunchArgument("extra_args", default_value=""),
             DeclareLaunchArgument("preview_on_start", default_value="true"),
             DeclareLaunchArgument("preview_extra_args", default_value="--planner-backend none"),
-            DeclareLaunchArgument("planning_recovery_base_enabled", default_value="true"),
+            DeclareLaunchArgument("planning_recovery_base_enabled", default_value="false"),
             DeclareLaunchArgument(
                 "planning_recovery_base_sequence",
                 default_value="forward:0.04,back:0.08,turn_left:5deg,turn_right:10deg",

@@ -162,7 +162,7 @@ class GraspTaskServer(Node):
         self.declare_parameter("preview_on_start", True)
         self.declare_parameter("preview_runner_script", "scripts/vision/grasp_preview.sh")
         self.declare_parameter("preview_extra_args", "--planner-backend none")
-        self.declare_parameter("planning_recovery_base_enabled", True)
+        self.declare_parameter("planning_recovery_base_enabled", False)
         self.declare_parameter(
             "planning_recovery_base_sequence",
             "forward:0.04,back:0.08,turn_left:5deg,turn_right:10deg",
@@ -457,7 +457,10 @@ class GraspTaskServer(Node):
         command.extend(extra)
         env = os.environ.copy()
         env["ARACHNE_GRASP_START_MOVEIT"] = "false"
+        env["ARACHNE_GRASP_START_MODEL"] = "false"
         env["ARACHNE_GRASP_WITH_RVIZ"] = "false"
+        env["ARACHNE_GRASP_DISPLAY_FRAME_PREFIX"] = ""
+        env["ARACHNE_GRASP_CAMERA_PARENT_FRAME"] = "ee_camera_link"
         env["ARACHNE_GRASP_EXECUTE_REAL"] = "false"
         env["ARACHNE_GRASP_REAL_RETURN_HOME"] = "false"
         env["ARACHNE_GRASP_CLASSES"] = str(self.get_parameter("classes").value)

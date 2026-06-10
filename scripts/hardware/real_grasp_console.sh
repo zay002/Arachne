@@ -22,6 +22,12 @@ TEACH_WITH_RVIZ="${ARACHNE_CONSOLE_TEACH_WITH_RVIZ:-true}"
 TEACH_WITH_VISUALIZATION="${ARACHNE_CONSOLE_TEACH_WITH_VISUALIZATION:-true}"
 WITH_VIEWER="${ARACHNE_CONSOLE_WITH_VIEWER:-true}"
 VIEWER_IMAGE_TOPIC="${ARACHNE_CONSOLE_VIEWER_IMAGE_TOPIC:-/camera/color/image_raw}"
+CAMERA_COLOR_WIDTH="${ARACHNE_CONSOLE_CAMERA_COLOR_WIDTH:-640}"
+CAMERA_COLOR_HEIGHT="${ARACHNE_CONSOLE_CAMERA_COLOR_HEIGHT:-480}"
+CAMERA_COLOR_FPS="${ARACHNE_CONSOLE_CAMERA_COLOR_FPS:-30.0}"
+CAMERA_DEPTH_WIDTH="${ARACHNE_CONSOLE_CAMERA_DEPTH_WIDTH:-640}"
+CAMERA_DEPTH_HEIGHT="${ARACHNE_CONSOLE_CAMERA_DEPTH_HEIGHT:-480}"
+CAMERA_DEPTH_FPS="${ARACHNE_CONSOLE_CAMERA_DEPTH_FPS:-5.0}"
 RUN_ENV_CHECK=true
 STOP_EXISTING=true
 CONFIRM=false
@@ -58,6 +64,10 @@ Environment:
   ARACHNE_CONSOLE_TEACH_WITH_RVIZ=${TEACH_WITH_RVIZ}
   ARACHNE_CONSOLE_WITH_VIEWER=${WITH_VIEWER}
   ARACHNE_CONSOLE_VIEWER_IMAGE_TOPIC=${VIEWER_IMAGE_TOPIC}
+  ARACHNE_CONSOLE_CAMERA_COLOR_WIDTH=${CAMERA_COLOR_WIDTH}
+  ARACHNE_CONSOLE_CAMERA_COLOR_HEIGHT=${CAMERA_COLOR_HEIGHT}
+  ARACHNE_CONSOLE_CAMERA_DEPTH_WIDTH=${CAMERA_DEPTH_WIDTH}
+  ARACHNE_CONSOLE_CAMERA_DEPTH_HEIGHT=${CAMERA_DEPTH_HEIGHT}
 
 After startup, use the teach panel buttons:
   G Start / Grasp Start  -> /arachne/grasp_task/start
@@ -237,6 +247,12 @@ TEACH_WITH_CAMERA=$(q "${TEACH_WITH_CAMERA}")
 TEACH_WITH_RVIZ=$(q "${TEACH_WITH_RVIZ}")
 TEACH_WITH_VISUALIZATION=$(q "${TEACH_WITH_VISUALIZATION}")
 VIEWER_IMAGE_TOPIC=$(q "${VIEWER_IMAGE_TOPIC}")
+CAMERA_COLOR_WIDTH=$(q "${CAMERA_COLOR_WIDTH}")
+CAMERA_COLOR_HEIGHT=$(q "${CAMERA_COLOR_HEIGHT}")
+CAMERA_COLOR_FPS=$(q "${CAMERA_COLOR_FPS}")
+CAMERA_DEPTH_WIDTH=$(q "${CAMERA_DEPTH_WIDTH}")
+CAMERA_DEPTH_HEIGHT=$(q "${CAMERA_DEPTH_HEIGHT}")
+CAMERA_DEPTH_FPS=$(q "${CAMERA_DEPTH_FPS}")
 cd "\${ROOT_DIR}"
 set +u
 source "\${ROOT_DIR}/scripts/env/arachne_env.sh"
@@ -376,11 +392,19 @@ wait_for_topic "/joint_states" "Aubo joint states"
 wait_for_topic "/odom" "Scout odometry"
 wait_for_topic "/arachne/hardware/gripper_status" "MS42DC status"
 echo "Starting grasp task server..."
-exec "${ROOT_DIR}/scripts/vision/grasp_task_server.sh" \
+exec env \
+  ARACHNE_GRASP_CAMERA_COLOR_WIDTH="${CAMERA_COLOR_WIDTH}" \
+  ARACHNE_GRASP_CAMERA_COLOR_HEIGHT="${CAMERA_COLOR_HEIGHT}" \
+  ARACHNE_GRASP_CAMERA_COLOR_FPS="${CAMERA_COLOR_FPS}" \
+  ARACHNE_GRASP_CAMERA_DEPTH_WIDTH="${CAMERA_DEPTH_WIDTH}" \
+  ARACHNE_GRASP_CAMERA_DEPTH_HEIGHT="${CAMERA_DEPTH_HEIGHT}" \
+  ARACHNE_GRASP_CAMERA_DEPTH_FPS="${CAMERA_DEPTH_FPS}" \
+  "${ROOT_DIR}/scripts/vision/grasp_task_server.sh" \
   execute_real:=true \
   confirm_execute_real:=true \
   with_rviz:=false \
   preview_on_start:=true \
+  planning_recovery_base_enabled:=false \
   extra_args:="${SERVER_EXTRA_ARGS}"
 ')"
 
@@ -396,8 +420,10 @@ exec ros2 launch arachne_operator teach_panel.launch.py \
 
 viewer_script="$(write_runner "60_grasp_viewer" '
 echo "Opening raw 2D camera view: ${VIEWER_IMAGE_TOPIC}"
-exec ros2 run image_view image_view --ros-args \
-  -r image:="${VIEWER_IMAGE_TOPIC}"
+wait_for_topic "${VIEWER_IMAGE_TOPIC}" "raw camera image"
+exec "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/vision/raw_image_viewer.py" \
+  --topic "${VIEWER_IMAGE_TOPIC}" \
+  --window "Arachne Raw Camera"
 ')"
 
 open_terminal "Arachne Aubo Driver" "${aubo_driver_script}" "${LOG_DIR}/10_aubo_driver.log"

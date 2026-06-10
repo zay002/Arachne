@@ -49,6 +49,13 @@ TOOL_ADAPTER_XYZ="${ARACHNE_GRASP_TOOL_ADAPTER_XYZ:-0.0 0.0 0.0}"
 TOOL_ADAPTER_RPY="${ARACHNE_GRASP_TOOL_ADAPTER_RPY:-0.0 0.0 0.785398163397}"
 DEPTH_PROJECTION_FLIP_X="${ARACHNE_GRASP_DEPTH_PROJECTION_FLIP_X:-true}"
 DEPTH_PROJECTION_FLIP_Y="${ARACHNE_GRASP_DEPTH_PROJECTION_FLIP_Y:-true}"
+CAMERA_PARENT_FRAME="${ARACHNE_GRASP_CAMERA_PARENT_FRAME:-${DISPLAY_FRAME_PREFIX}ee_camera_link}"
+CAMERA_COLOR_WIDTH="${ARACHNE_GRASP_CAMERA_COLOR_WIDTH:-640}"
+CAMERA_COLOR_HEIGHT="${ARACHNE_GRASP_CAMERA_COLOR_HEIGHT:-480}"
+CAMERA_COLOR_FPS="${ARACHNE_GRASP_CAMERA_COLOR_FPS:-30.0}"
+CAMERA_DEPTH_WIDTH="${ARACHNE_GRASP_CAMERA_DEPTH_WIDTH:-640}"
+CAMERA_DEPTH_HEIGHT="${ARACHNE_GRASP_CAMERA_DEPTH_HEIGHT:-480}"
+CAMERA_DEPTH_FPS="${ARACHNE_GRASP_CAMERA_DEPTH_FPS:-5.0}"
 GRASP_BASE_OFFSET="${ARACHNE_GRASP_BASE_OFFSET:-0,0,0}"
 EXECUTE_REAL="${ARACHNE_GRASP_EXECUTE_REAL:-false}"
 EXECUTE_REAL_CONFIRM="${ARACHNE_CONFIRM_GRASP_EXECUTE_REAL:-}"
@@ -89,6 +96,9 @@ mkdir -p "${LOG_DIR}"
   echo "ament_prefix_path: ${AMENT_PREFIX_PATH:-}"
   echo "depth_projection_flip_x: ${DEPTH_PROJECTION_FLIP_X}"
   echo "depth_projection_flip_y: ${DEPTH_PROJECTION_FLIP_Y}"
+  echo "camera_parent_frame: ${CAMERA_PARENT_FRAME}"
+  echo "camera_color_size: ${CAMERA_COLOR_WIDTH}x${CAMERA_COLOR_HEIGHT}@${CAMERA_COLOR_FPS}"
+  echo "camera_depth_size: ${CAMERA_DEPTH_WIDTH}x${CAMERA_DEPTH_HEIGHT}@${CAMERA_DEPTH_FPS}"
   echo "grasp_base_offset: ${GRASP_BASE_OFFSET}"
   echo "execute_real: ${EXECUTE_REAL}"
   echo "execute_real_confirmed: $([[ "${EXECUTE_REAL_CONFIRM}" == "YES" ]] && echo true || echo false)"
@@ -235,9 +245,15 @@ if [[ "${START_CAMERA}" == "true" ]]; then
     with_color_view:=false \
     with_depth_view:=false \
     with_tf:=true \
+    "color_width:=${CAMERA_COLOR_WIDTH}" \
+    "color_height:=${CAMERA_COLOR_HEIGHT}" \
+    "color_fps:=${CAMERA_COLOR_FPS}" \
+    "depth_width:=${CAMERA_DEPTH_WIDTH}" \
+    "depth_height:=${CAMERA_DEPTH_HEIGHT}" \
+    "depth_fps:=${CAMERA_DEPTH_FPS}" \
     "projection_flip_x:=${DEPTH_PROJECTION_FLIP_X}" \
     "projection_flip_y:=${DEPTH_PROJECTION_FLIP_Y}" \
-    "camera_parent_frame:=${DISPLAY_FRAME_PREFIX}ee_camera_link" \
+    "camera_parent_frame:=${CAMERA_PARENT_FRAME}" \
     >"${CAMERA_LOG}" 2>&1 &
   PIDS+=("$!")
   sleep 2.0

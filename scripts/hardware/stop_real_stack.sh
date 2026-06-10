@@ -21,7 +21,9 @@ PATTERNS=(
   "/scripts/hardware/real_grasp_console.sh"
   "/scripts/vision/grasp_preview.sh"
   "grasp_preview_pipeline.py"
+  "raw_image_viewer.py"
   "image_view.*arachne/grasp_preview/annotated_image"
+  "image_view.*camera/color/image_raw"
 )
 
 collect_pids() {
