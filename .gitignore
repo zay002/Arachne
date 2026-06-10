@@ -137,3 +137,5 @@ third_party/scout_ros/**
 !third_party/MS42DC.step
 !third_party/MS42DC_SPLIT/
 !third_party/MS42DC_SPLIT/*.stl
+
+tmp/

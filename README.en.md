@@ -69,6 +69,8 @@ Without that environment, RViz may fail to resolve `package://...` mesh paths, c
 | Gazebo autonomous pick validation | `./scripts/sim/gazebo_autopick_demo.sh` |
 | Godot showcase | `./scripts/godot/godot_showcase.sh` |
 | Gemini335 YOLO live preview | `./scripts/vision/gemini_yolo_live.sh` |
+| C16 lidar driver | `ros2 launch lslidar_c16_decoder lslidar_c16_launch.py` |
+| C16 + robot fusion RViz | `rviz2 -d src/arachne_description/rviz/arachne_lidar_fusion.rviz` |
 | Trash segmentation grasp-to-basket preview | `./scripts/vision/grasp_preview.sh` |
 | Real-pose synchronized grasp preview | `./scripts/vision/grasp_preview_real_sync.sh` |
 | Real-pose synchronized grasp execution | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
@@ -103,7 +105,7 @@ Arachne follows the normal ROS mobile-base convention: `base_link` has +X toward
 | MS42DC | `ms42dc_direct_serial_driver` | `/arachne/gripper/command` to Type-C serial frames. The gripper controller is CH91xx/CH343-family; the current unit is treated as the CH9012 path. Recommended alias: `/dev/motor_serial` |
 | Aubo i5 | `AuboRobot/aubo_ros2_driver` | TCP/IP + ros2_control, launched with the robot IP |
 | Gemini335 | `arachne_sensors` | End-effector RGB-D camera for detection, depth ROI, grasp-pose estimation, and teach observations |
-| Leishen Intelligence C16 | `arachne_description` / future lidar driver | Rear-rack lidar model is already in the TF tree; it is planned for obstacle sensing, localization support, and mobile-manipulation safety constraints |
+| Leishen Intelligence C16 | `third_party/LS-LIDAR-C16ROS2` + `arachne_description` | UDP `2368/2369`, default device IP `192.168.1.200`; point cloud publishes on `/lslidar_point_cloud` with frame `lidar_link`; fusion RViz uses `lidar_link` as the fixed frame |
 
 Prepare real-hardware ROS packages:
 
@@ -163,7 +165,8 @@ It starts real bringup, waits for `/odom`, `/joint_states`, the Aubo trajectory 
 | Path | Purpose |
 | --- | --- |
 | `src/arachne_description` | Unified robot model, RViz config, gripper variants, and sensor frames |
-| `src/arachne_sensors` | Gemini335 RGB-D camera nodes, reserved C16 lidar integration, and sensor launch files |
+| `src/arachne_sensors` | Gemini335 RGB-D camera nodes and sensor launch files |
+| `third_party/LS-LIDAR-C16ROS2` | Leishen C16 ROS 2 driver, patched for Humble and connected to `lidar_link` |
 | `src/arachne_demo` | Switch Pro controller, Gazebo showroom, autonomous pick validation |
 | `src/arachne_hardware` | Real bringup, Scout/MS42DC wrappers, safety state, command gating |
 | `src/arachne_control` | ros2_control names, mock controllers, hardware profiles |

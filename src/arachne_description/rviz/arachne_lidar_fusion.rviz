@@ -8,22 +8,22 @@ Visualization Manager:
       Enabled: true
       Name: Grid
       Plane: XY
-      Reference Frame: base_link
+      Reference Frame: lidar_link
     - Class: rviz_default_plugins/RobotModel
-      Alpha: 0.65
+      Alpha: 1
       Description Source: Topic
       Description Topic:
         Depth: 5
         Durability Policy: Transient Local
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /arachne/display/robot_description
+        Value: /robot_description
       Enabled: true
       Name: RobotModel
       Visual Enabled: true
       Collision Enabled: false
     - Class: rviz_default_plugins/TF
-      Enabled: false
+      Enabled: true
       Name: TF
     - Class: rviz_default_plugins/Axes
       Enabled: true
@@ -31,28 +31,6 @@ Visualization Manager:
       Name: LidarOrigin
       Radius: 0.01
       Reference Frame: lidar_link
-    - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
-      Name: GraspPreviewMarkers
-      Topic:
-        Depth: 10
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /arachne/grasp_preview/markers
-    - Class: rviz_default_plugins/PointCloud2
-      Enabled: true
-      Name: GraspRoiCloud
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /arachne/grasp_preview/roi_cloud
-      Style: Points
-      Size (Pixels): 4
-      Color Transformer: FlatColor
-      Color: 0; 255; 80
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -84,22 +62,11 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
-    - Class: rviz_default_plugins/Path
-      Enabled: true
-      Name: GraspToBasketPath
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /arachne/grasp_preview/path
-      Line Style: Lines
-      Line Width: 0.035
-      Color: 0; 180; 255
   Enabled: true
+  Fixed Frame: lidar_link
   Global Options:
     Background Color: 248; 248; 245
-    Fixed Frame: base_link
+    Fixed Frame: lidar_link
     Frame Rate: 30
   Name: root
   Tools:
@@ -109,9 +76,13 @@ Visualization Manager:
   Value: true
 Views:
   Current:
-    Class: rviz_default_plugins/ThirdPersonFollower
-    Distance: 1.45
+    Class: rviz_default_plugins/Orbit
+    Distance: 3.0
+    Focal Point:
+      X: 0
+      Y: 0
+      Z: 0.25
     Name: Current View
-    Pitch: 0.55
-    Target Frame: base_link
-    Yaw: 0.55
+    Pitch: 0.65
+    Target Frame: lidar_link
+    Yaw: 0.75

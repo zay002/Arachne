@@ -224,7 +224,7 @@ cp .env.local.example .env.local
 ./scripts/hardware/real_grasp_console_remote.sh restart
 ```
 
-`real_grasp_console_remote.sh` 默认等价于 `--yes --quick --terminal background`。Aubo driver、Aubo 远程启动、Scout/MS42DC、Gemini 相机和 grasp server 都在后台跑，避免一次弹出大量终端；施教器、RViz 和 raw 2D 相机画面仍会按各自节点正常显示。后台日志集中在 `log/real_grasp_console/latest/`。
+`real_grasp_console_remote.sh` 默认等价于 `--yes --quick --terminal background`。Aubo driver、Aubo 远程启动、Scout/MS42DC、Gemini 相机和 grasp server 都在后台跑，避免一次弹出大量终端；施教器和 raw 2D 相机画面按节点正常显示。RViz 统一使用 `src/arachne_description/rviz/arachne_lidar_fusion.rviz` 这类融合配置时，只保留一个整车 TF/RobotModel 源，避免 mock/teach visualization 双 `robot_state_publisher` 抢同名 TF。后台日志集中在 `log/real_grasp_console/latest/`。
 
 如果需要现场看某个后台进程输出：
 
@@ -500,14 +500,14 @@ Grasp preview 的模型可视化使用专用 `/arachne/display/joint_states` 和
 tail -f yolo_workspace/runs/gemini_yolo_live/latest.log
 ```
 
-用 mock 硬件打开施教器和 RViz，不会控制真机：
+用 mock 硬件打开施教器和融合 RViz，不会控制真机。当前推荐让 mock `robot_state_publisher` 作为唯一整车 TF 源；施教器只开面板，RViz 单独打开，避免两个 `robot_state_publisher` 同时发布同名 TF：
 
 终端 1：
 
 ```bash
 cd /home/jetson/zhaoyang/Arachne
 source scripts/env/arachne_env.sh
-ros2 launch arachne_hardware mock_bringup.launch.py
+ros2 launch arachne_control mock_ros2_control.launch.py gripper_type:=ms42dc
 ```
 
 终端 2：
@@ -515,8 +515,30 @@ ros2 launch arachne_hardware mock_bringup.launch.py
 ```bash
 cd /home/jetson/zhaoyang/Arachne
 source scripts/env/arachne_env.sh
-./scripts/operator/teach_panel.sh
+ros2 launch arachne_operator teach_panel.launch.py \
+  with_camera:=false \
+  with_visualization:=false \
+  arm_replay_backend:=velocity_stream \
+  arm_manual_prefer_topic:=true
 ```
+
+终端 3，可选打开 C16 雷达。如果只想看模型可跳过这一步：
+
+```bash
+cd /home/jetson/zhaoyang/Arachne
+source scripts/env/arachne_env.sh
+ros2 launch lslidar_c16_decoder lslidar_c16_launch.py
+```
+
+终端 4，打开融合 RViz：
+
+```bash
+cd /home/jetson/zhaoyang/Arachne
+source scripts/env/arachne_env.sh
+rviz2 -d src/arachne_description/rviz/arachne_lidar_fusion.rviz
+```
+
+当前 C16 配置位于 `third_party/LS-LIDAR-C16ROS2/lslidar_c16/lslidar_c16_decoder/params/lslidar_c16.yaml`：`device_ip=192.168.1.200`、`msop_port=2368`、`difop_port=2369`、`frame_id=lidar_link`、`distance_unit=0.5`。融合 RViz 固定坐标为 `lidar_link`，即“雷达图中放入整车模型”；如果现场比例不对，优先调整 `distance_unit`，不是缩放车模。
 
 这个模式适合检查：
 
