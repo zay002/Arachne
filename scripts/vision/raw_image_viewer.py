@@ -17,9 +17,10 @@ class RawImageViewer(Node):
         self.topic = topic
         self.window = window
         self.latest: Image | None = None
+        self.window_created = False
+        self.frame_count = 0
         self.last_frame_time = 0.0
         self.create_subscription(Image, topic, self._image_cb, 5)
-        cv2.namedWindow(window, cv2.WINDOW_NORMAL)
         self.get_logger().info(f"raw image viewer ready: {topic}")
 
     def _image_cb(self, msg: Image) -> None:
@@ -29,17 +30,20 @@ class RawImageViewer(Node):
         if self.latest is not None:
             try:
                 image = self._decode(self.latest)
+                if not self.window_created:
+                    cv2.namedWindow(self.window, cv2.WINDOW_NORMAL)
+                    self.window_created = True
                 cv2.imshow(self.window, image)
+                self.frame_count += 1
+                if self.frame_count == 1:
+                    self.get_logger().info(
+                        f"first frame displayed: {image.shape[1]}x{image.shape[0]}"
+                    )
                 self.last_frame_time = time.monotonic()
             except Exception as exc:
                 self.get_logger().warn(f"failed to display image: {exc}", throttle_duration_sec=2.0)
-        key = cv2.waitKey(1) & 0xFF
+        key = cv2.waitKey(1 if self.window_created else 20) & 0xFF
         if key in (ord("q"), 27):
-            return False
-        try:
-            if cv2.getWindowProperty(self.window, cv2.WND_PROP_VISIBLE) < 1:
-                return False
-        except cv2.error:
             return False
         return True
 
@@ -81,7 +85,10 @@ def main() -> None:
             rclpy.spin_once(node, timeout_sec=0.02)
     finally:
         node.destroy_node()
-        cv2.destroyAllWindows()
+        try:
+            cv2.destroyAllWindows()
+        except cv2.error:
+            pass
         rclpy.shutdown()
 
 
