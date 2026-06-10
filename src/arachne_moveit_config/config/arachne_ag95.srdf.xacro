@@ -75,6 +75,7 @@
 
   <disable_collisions link1="base_link" link2="arm_mount_link" reason="Adjacent"/>
   <disable_collisions link1="arm_mount_link" link2="aubo_base_link" reason="Adjacent"/>
+  <disable_collisions link1="arm_mount_link" link2="aubo_shoulder_Link" reason="Adjacent"/>
   <disable_collisions link1="aubo_base_link" link2="aubo_shoulder_Link" reason="Adjacent"/>
   <disable_collisions link1="aubo_shoulder_Link" link2="aubo_upperArm_Link" reason="Adjacent"/>
   <disable_collisions link1="aubo_upperArm_Link" link2="aubo_foreArm_Link" reason="Adjacent"/>

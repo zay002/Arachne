@@ -109,7 +109,7 @@ class RemoteMoveItPlanner(Node):
         for index, target in enumerate(targets):
             if not isinstance(target, dict):
                 return self._failure(request_id, f"target {index} is not an object", frames)
-            result = self._call_moveit(q_start, target, moveit_options, planner_id)
+            result = self._call_moveit_variants(q_start, target, moveit_options, planner_id)
             if not result["ok"]:
                 result.update({"request_id": request_id, "trajectory": self._trajectory(frames, segment_reports)})
                 return result
@@ -130,7 +130,7 @@ class RemoteMoveItPlanner(Node):
             segment_reports.append(
                 {
                     "index": index,
-                    "name": str(target.get("name") or f"target_{index}"),
+                    "name": str(result.get("selected_name") or target.get("name") or f"target_{index}"),
                     "planner": planner_id,
                     "points": len(points),
                     "duration": round(sum(point["dt"] for point in points[1:]), 4),
@@ -147,6 +147,42 @@ class RemoteMoveItPlanner(Node):
             "constraint_issues": [],
             "rejected_candidates": [],
             "trajectory": self._trajectory(frames, segment_reports),
+        }
+
+    def _target_variants(self, target: dict[str, Any]) -> list[dict[str, Any]]:
+        variants = target.get("alternatives")
+        if not isinstance(variants, list) or not variants:
+            return [target]
+        result = []
+        for index, variant in enumerate(variants):
+            if not isinstance(variant, dict):
+                continue
+            merged = dict(target)
+            merged.update(variant)
+            merged.pop("alternatives", None)
+            merged.setdefault("name", f"{target.get('name') or 'target'}:alt{index}")
+            result.append(merged)
+        return result or [target]
+
+    def _call_moveit_variants(
+        self,
+        q_start: list[float],
+        target: dict[str, Any],
+        options: dict[str, Any],
+        planner_id: str,
+    ) -> dict[str, Any]:
+        failures = []
+        for index, variant in enumerate(self._target_variants(target)):
+            result = self._call_moveit(q_start, variant, options, planner_id)
+            if result.get("ok"):
+                result["selected_name"] = str(variant.get("name") or target.get("name") or f"target_alt{index}")
+                result["selected_variant"] = index
+                return result
+            failures.append(f"alt{index}:{result.get('message') or result.get('status')}")
+        return {
+            "ok": False,
+            "status": "moveit_failed",
+            "message": f"{target.get('name', '')} all alternatives failed: " + " | ".join(failures[-8:]),
         }
 
     def _call_moveit(

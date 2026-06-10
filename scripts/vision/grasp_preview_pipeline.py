@@ -2587,7 +2587,7 @@ class GraspPreviewNode(Node):
                 preview.pointcloud_shape,
                 target_name,
             )
-            selected_candidate = None
+            alternatives: list[dict[str, object]] = []
             failure_messages: list[str] = []
             for orientation_index, target_rotation_base in enumerate(target_rotations_base):
                 tool_target = self._tool0_target_from_grasp_target(
@@ -2609,14 +2609,30 @@ class GraspPreviewNode(Node):
                 if unreachable_note:
                     failure_messages.append(f"ori{orientation_index}: {unreachable_note}")
                     continue
-                selected_candidate = (
-                    orientation_index,
-                    target_rotation_base,
-                    target_tool0_rotation_base,
-                    target_tool0_base,
+                tool0_aubo = self._transform_matrix_point(
+                    aubo_from_base, np.asarray(target_tool0_base, dtype=float)
                 )
-                break
-            if selected_candidate is None:
+                tool0_rotation_aubo = np.asarray(aubo_from_base[:3, :3], dtype=float) @ np.asarray(
+                    self._orthonormalize_rotation(target_tool0_rotation_base), dtype=float
+                )
+                tool0_quat_aubo = self._quat_msg_from_matrix(tool0_rotation_aubo)
+                alternatives.append(
+                    {
+                        "name": f"{target_name}:ori{orientation_index}",
+                        "orientation_index": int(orientation_index),
+                        "tool0_xyz_aubo": [float(v) for v in tool0_aubo],
+                        "tool0_quat_aubo": [
+                            float(tool0_quat_aubo.x),
+                            float(tool0_quat_aubo.y),
+                            float(tool0_quat_aubo.z),
+                            float(tool0_quat_aubo.w),
+                        ],
+                    }
+                )
+                max_alternatives = 6 if target_name == "grasp" else 3
+                if len(alternatives) >= max_alternatives:
+                    break
+            if not alternatives:
                 x, y, z = target_base
                 return (
                     [],
@@ -2624,39 +2640,18 @@ class GraspPreviewNode(Node):
                     f"grasp_xyz=({x:.3f},{y:.3f},{z:.3f}); "
                     + " | ".join(failure_messages[-6:]),
                 )
-            (
-                orientation_index,
-                selected_rotation_base,
-                selected_tool0_rotation_base,
-                selected_tool0_base,
-            ) = selected_candidate
             reached_targets.append(target_name)
-            notes.append(f"{target_name}/ori{orientation_index}:remote_pose_goal")
-            current_rotation_base = self._orthonormalize_rotation(
-                np.asarray(selected_rotation_base, dtype=float)
-            )
-            current_tool0_rotation_base = self._orthonormalize_rotation(
-                np.asarray(selected_tool0_rotation_base, dtype=float)
-            )
-            tool0_aubo = self._transform_matrix_point(
-                aubo_from_base, np.asarray(selected_tool0_base, dtype=float)
-            )
-            tool0_rotation_aubo = np.asarray(aubo_from_base[:3, :3], dtype=float) @ np.asarray(
-                current_tool0_rotation_base, dtype=float
-            )
-            tool0_quat_aubo = self._quat_msg_from_matrix(tool0_rotation_aubo)
+            notes.append(f"{target_name}:remote_pose_alternatives={len(alternatives)}")
+            current_rotation_base = np.asarray(target_rotations_base[0], dtype=float)
+            first = alternatives[0]
             moveit_targets.append(
                 {
                     "name": target_name,
-                    "tool0_xyz_aubo": [float(v) for v in tool0_aubo],
-                    "tool0_quat_aubo": [
-                        float(tool0_quat_aubo.x),
-                        float(tool0_quat_aubo.y),
-                        float(tool0_quat_aubo.z),
-                        float(tool0_quat_aubo.w),
-                    ],
+                    "tool0_xyz_aubo": first["tool0_xyz_aubo"],
+                    "tool0_quat_aubo": first["tool0_quat_aubo"],
                     "position_tolerance": float(self.args.moveit_position_tolerance),
                     "orientation_tolerance": float(self.args.moveit_ik_orientation_tolerance),
+                    "alternatives": alternatives,
                 }
             )
 
