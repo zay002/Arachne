@@ -12,6 +12,8 @@ PATTERNS=(
   "/install/arachne_hardware/lib/arachne_hardware/ms42dc_official_bridge"
   "/install/arachne_hardware/lib/arachne_hardware/scout_waveshare_serial_driver"
   "/install/arachne_hardware/lib/arachne_hardware/scout_official_status_bridge"
+  "/install/arachne_sim/lib/arachne_sim/base_sim_controller"
+  "base_sim_controller"
   "/install/step_motor/lib/step_motor/motor_node"
   "/opt/ros/humble/lib/robot_state_publisher/robot_state_publisher"
   "ros2 launch arachne_hardware real_bringup.launch.py"

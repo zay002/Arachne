@@ -42,9 +42,10 @@ Open an operator console for real grasp work. It starts separate terminals for:
   1. Aubo ROS2 driver in guarded prestart mode
   2. Aubo payload + guarded remote startup + prepare checks
   3. Scout + MS42DC bringup
-  4. grasp_task_server
-  5. teach panel
-  6. raw 2D camera image viewer
+  4. Gemini335 camera
+  5. grasp_task_server
+  6. teach panel
+  7. raw 2D camera image viewer
 
 Options:
   -y, --yes             Confirm real hardware startup.
@@ -387,12 +388,32 @@ echo "Starting Scout + MS42DC bringup..."
 exec "${ROOT_DIR}/scripts/hardware/real_bringup.sh" --no-aubo
 ')"
 
+camera_script="$(write_runner "35_gemini_camera" '
+wait_for_topic "/joint_states" "Aubo joint states"
+echo "Starting Gemini335 camera..."
+exec ros2 launch arachne_sensors gemini335.launch.py \
+  publish_pointcloud:=false \
+  with_color_view:=false \
+  with_depth_view:=false \
+  with_tf:=true \
+  camera_parent_frame:=ee_camera_link \
+  "color_width:=${CAMERA_COLOR_WIDTH}" \
+  "color_height:=${CAMERA_COLOR_HEIGHT}" \
+  "color_fps:=${CAMERA_COLOR_FPS}" \
+  "depth_width:=${CAMERA_DEPTH_WIDTH}" \
+  "depth_height:=${CAMERA_DEPTH_HEIGHT}" \
+  "depth_fps:=${CAMERA_DEPTH_FPS}"
+')"
+
 server_script="$(write_runner "40_grasp_task_server" '
 wait_for_topic "/joint_states" "Aubo joint states"
 wait_for_topic "/odom" "Scout odometry"
 wait_for_topic "/arachne/hardware/gripper_status" "MS42DC status"
+wait_for_topic "/camera/color/image_raw" "Gemini335 color image"
+wait_for_topic "/camera/depth/image_raw" "Gemini335 depth image"
 echo "Starting grasp task server..."
 exec env \
+  ARACHNE_GRASP_START_CAMERA=false \
   ARACHNE_GRASP_CAMERA_COLOR_WIDTH="${CAMERA_COLOR_WIDTH}" \
   ARACHNE_GRASP_CAMERA_COLOR_HEIGHT="${CAMERA_COLOR_HEIGHT}" \
   ARACHNE_GRASP_CAMERA_COLOR_FPS="${CAMERA_COLOR_FPS}" \
@@ -429,6 +450,7 @@ exec "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/vision/raw_image_viewer.py"
 open_terminal "Arachne Aubo Driver" "${aubo_driver_script}" "${LOG_DIR}/10_aubo_driver.log"
 open_terminal "Arachne Aubo Remote Start" "${aubo_start_script}" "${LOG_DIR}/20_aubo_remote_start.log"
 open_terminal "Arachne Base + Gripper" "${base_script}" "${LOG_DIR}/30_base_gripper_bringup.log"
+open_terminal "Arachne Gemini Camera" "${camera_script}" "${LOG_DIR}/35_gemini_camera.log"
 open_terminal "Arachne Grasp Server" "${server_script}" "${LOG_DIR}/40_grasp_task_server.log"
 open_terminal "Arachne Teach Panel" "${teach_script}" "${LOG_DIR}/50_teach_panel.log"
 if [[ "${WITH_VIEWER}" == "true" ]]; then

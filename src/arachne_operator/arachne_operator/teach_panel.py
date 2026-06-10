@@ -310,6 +310,7 @@ class TeachPanelNode(Node):
         self.base_pose: Pose2D | None = None
         self.base_motion_segments: list[dict] = []
         self.active_base_motion: dict | None = None
+        self.base_motion_recording_enabled = False
         self.manual_base_velocity: tuple[float, float] | None = None
         self.manual_arm_stream_command: dict[str, object] | None = None
         self.manual_arm_stream_deadline = 0.0
@@ -950,6 +951,9 @@ class TeachPanelNode(Node):
     def _track_base_motion(self, direction: str, linear_x: float, angular_z: float) -> None:
         now = time.monotonic()
         with self.lock:
+            if not self.base_motion_recording_enabled:
+                self._close_base_motion_locked(now)
+                return
             if direction == "stop" or (abs(linear_x) < 1e-9 and abs(angular_z) < 1e-9):
                 self._close_base_motion_locked(now)
                 return
@@ -962,6 +966,22 @@ class TeachPanelNode(Node):
                 "start_stamp": datetime.now().isoformat(timespec="seconds"),
                 "_start_monotonic": now,
             }
+
+    def set_base_motion_recording(self, enabled: bool) -> None:
+        now = time.monotonic()
+        with self.lock:
+            self._close_base_motion_locked(now)
+            self.base_motion_recording_enabled = bool(enabled)
+            count = len(self.base_motion_segments)
+        state = "on" if enabled else "off"
+        self._status(f"program base recording {state}; pending base segments={count}")
+
+    def base_motion_recording_state(self) -> tuple[bool, int]:
+        with self.lock:
+            return (
+                self.base_motion_recording_enabled,
+                len(self.base_motion_segments) + (1 if self.active_base_motion is not None else 0),
+            )
 
     def _publish_manual_base_velocity(self) -> None:
         with self.lock:
@@ -2297,20 +2317,24 @@ class TeachPanelApp:
             row=0, column=7, rowspan=2, padx=4
         )
         ttk.Button(top, text="Run", command=self._play).grid(row=0, column=8, rowspan=2, padx=4)
+        self.program_record_button = ttk.Button(
+            top, text="Program Rec Off", command=self._toggle_program_recording
+        )
+        self.program_record_button.grid(row=0, column=9, rowspan=2, padx=4)
         ttk.Button(top, text="Stop", command=self.node.stop_all, style="Danger.TButton").grid(
-            row=0, column=9, rowspan=2, padx=4
+            row=0, column=10, rowspan=2, padx=4
         )
         ttk.Button(top, text="G Start", command=lambda: self.node.call_grasp_task("start")).grid(
-            row=0, column=10, rowspan=2, padx=4
+            row=0, column=11, rowspan=2, padx=4
         )
         ttk.Button(
             top,
             text="G Stop",
             command=lambda: self.node.call_grasp_task("stop"),
             style="Danger.TButton",
-        ).grid(row=0, column=11, rowspan=2, padx=4)
+        ).grid(row=0, column=12, rowspan=2, padx=4)
         ttk.Button(top, text="Restore", command=lambda: self.node.call_grasp_task("restore")).grid(
-            row=0, column=12, rowspan=2, padx=4
+            row=0, column=13, rowspan=2, padx=4
         )
 
     def _build_home_tab(self) -> None:
@@ -2348,6 +2372,7 @@ class TeachPanelApp:
             ("Teach Off", lambda: self.node.set_aubo_teach(False)),
             ("Set Home", self._set_home_from_current),
             ("Set Install", self._set_install_from_current),
+            ("Program Rec", self._toggle_program_recording),
             ("Record", self._record),
             ("Replay", self._play),
             ("Grasp Start", lambda: self.node.call_grasp_task("start")),
@@ -2709,11 +2734,14 @@ class TeachPanelApp:
 
     def _refresh(self) -> None:
         snapshot = self.node.snapshot()
-        snapshot["program"] = f"{len(self.waypoints)} nodes"
+        rec_enabled, pending_base = self.node.base_motion_recording_state()
+        rec_label = "rec on" if rec_enabled else "rec off"
+        snapshot["program"] = f"{len(self.waypoints)} nodes | {rec_label} | base pending={pending_base}"
         for key, var in self.status_vars.items():
             var.set(snapshot.get(key, "waiting"))
         for key, var in self.move_status_vars.items():
             var.set(snapshot.get(key, "waiting"))
+        self._update_program_record_button()
         self._refresh_move_joint_values()
         self._refresh_joint_tree()
         self._refresh_logs()
@@ -2953,8 +2981,20 @@ class TeachPanelApp:
 
     def _base_release(self) -> None:
         self.node.drive_base_manual("stop")
-        if self.node.pending_base_motion_count() > 0:
-            self._record()
+
+    def _toggle_program_recording(self) -> None:
+        enabled, _pending = self.node.base_motion_recording_state()
+        self.node.set_base_motion_recording(not enabled)
+        self._update_program_record_button()
+
+    def _update_program_record_button(self) -> None:
+        if not hasattr(self, "program_record_button"):
+            return
+        enabled, pending = self.node.base_motion_recording_state()
+        text = f"Program Rec {'On' if enabled else 'Off'}"
+        if pending:
+            text += f" ({pending})"
+        self.program_record_button.configure(text=text)
 
     def _record(self) -> None:
         try:
