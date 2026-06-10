@@ -12,6 +12,15 @@ from pathlib import Path
 from typing import Any
 
 
+JOINT_NAMES = (
+    "shoulder_joint",
+    "upperArm_joint",
+    "foreArm_joint",
+    "wrist1_joint",
+    "wrist2_joint",
+    "wrist3_joint",
+)
+
 JOINT_LIMITS_RAD = (
     (-2.0 * math.pi, 2.0 * math.pi),
     (-2.0 * math.pi, 2.0 * math.pi),
@@ -20,6 +29,11 @@ JOINT_LIMITS_RAD = (
     (-2.0 * math.pi, 2.0 * math.pi),
     (-2.0 * math.pi, 2.0 * math.pi),
 )
+
+DEFAULT_MAX_SPEED_RAD_S = 0.6
+DEFAULT_MAX_ACCEL_RAD_S2 = 3.0
+DEFAULT_MIN_SEGMENT_SEC = 0.18
+DEFAULT_MAX_SEGMENT_DELTA_RAD = 1.25
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:
@@ -86,6 +100,41 @@ def _validate_joints(joints: Any) -> list[str]:
     return issues
 
 
+def _as_joint_vector(value: Any, label: str) -> tuple[list[float] | None, list[str]]:
+    issues = []
+    if not isinstance(value, list) or len(value) != 6:
+        return None, [f"{label} must be a 6-element list"]
+    joints = []
+    for index, raw in enumerate(value):
+        try:
+            q = float(raw)
+        except Exception:
+            issues.append(f"{label}[{index}] is not numeric")
+            continue
+        if not math.isfinite(q):
+            issues.append(f"{label}[{index}] is not finite")
+            continue
+        low, high = JOINT_LIMITS_RAD[index]
+        if q < low or q > high:
+            issues.append(f"{label}[{index}]={q:.3f} outside coarse limit [{low:.3f},{high:.3f}]")
+        joints.append(q)
+    if issues:
+        return None, issues
+    return joints, []
+
+
+def _joint_delta(to_joints: list[float], from_joints: list[float]) -> list[float]:
+    deltas = []
+    for q_to, q_from in zip(to_joints, from_joints):
+        delta = q_to - q_from
+        while delta > math.pi:
+            delta -= 2.0 * math.pi
+        while delta < -math.pi:
+            delta += 2.0 * math.pi
+        deltas.append(delta)
+    return deltas
+
+
 def _validate_targets(targets: Any, constraints: dict[str, Any]) -> list[str]:
     issues = []
     if not isinstance(targets, list) or not targets:
@@ -115,6 +164,170 @@ def _validate_targets(targets: Any, constraints: dict[str, Any]) -> list[str]:
     return issues
 
 
+def _extract_waypoint_candidates(request: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    issues: list[str] = []
+    current, current_issues = _as_joint_vector(request.get("current_joints_rad"), "current_joints_rad")
+    issues.extend(current_issues)
+    if current is None:
+        return [], issues
+
+    raw_candidates = request.get("candidates")
+    if isinstance(raw_candidates, list) and raw_candidates:
+        candidates = []
+        for index, candidate in enumerate(raw_candidates):
+            if not isinstance(candidate, dict):
+                issues.append(f"candidate {index} is not an object")
+                continue
+            raw_waypoints = candidate.get("waypoints_rad")
+            if not isinstance(raw_waypoints, list) or not raw_waypoints:
+                issues.append(f"candidate {index} missing waypoints_rad")
+                continue
+            waypoints = [current]
+            for wp_index, raw_wp in enumerate(raw_waypoints):
+                joints, wp_issues = _as_joint_vector(raw_wp, f"candidate {index} waypoint {wp_index}")
+                issues.extend(wp_issues)
+                if joints is not None:
+                    waypoints.append(joints)
+            candidates.append(
+                {
+                    "label": str(candidate.get("label") or f"candidate_{index}"),
+                    "score": float(candidate.get("score", 0.0) or 0.0),
+                    "waypoints": waypoints,
+                    "events": candidate.get("events") if isinstance(candidate.get("events"), list) else [],
+                }
+            )
+        return candidates, issues
+
+    raw_waypoints = request.get("joint_waypoints_rad")
+    if isinstance(raw_waypoints, list) and raw_waypoints:
+        waypoints = [current]
+        for index, raw_wp in enumerate(raw_waypoints):
+            joints, wp_issues = _as_joint_vector(raw_wp, f"joint_waypoints_rad[{index}]")
+            issues.extend(wp_issues)
+            if joints is not None:
+                waypoints.append(joints)
+        return [{"label": "joint_waypoints_rad", "score": 0.0, "waypoints": waypoints, "events": []}], issues
+
+    targets = request.get("targets")
+    if isinstance(targets, list):
+        waypoints = [current]
+        events: list[dict[str, Any]] = []
+        for index, target in enumerate(targets):
+            if not isinstance(target, dict):
+                continue
+            raw_goal = target.get("joint_goal_rad") or target.get("q_goal_rad")
+            if raw_goal is None:
+                continue
+            joints, wp_issues = _as_joint_vector(raw_goal, f"target {index} joint_goal_rad")
+            issues.extend(wp_issues)
+            if joints is not None:
+                waypoints.append(joints)
+                events.append(
+                    {
+                        "waypoint_index": len(waypoints) - 1,
+                        "name": str(target.get("name") or f"target_{index}"),
+                        "phase": str(target.get("phase") or ""),
+                    }
+                )
+        if len(waypoints) > 1:
+            return [{"label": "target_joint_goals", "score": 0.0, "waypoints": waypoints, "events": events}], issues
+
+    issues.append("request has no joint candidates: provide candidates[].waypoints_rad, joint_waypoints_rad, or target joint_goal_rad")
+    return [], issues
+
+
+def _dedupe_waypoints(waypoints: list[list[float]]) -> list[list[float]]:
+    compact: list[list[float]] = []
+    for waypoint in waypoints:
+        if not compact:
+            compact.append(waypoint)
+            continue
+        if max(abs(delta) for delta in _joint_delta(waypoint, compact[-1])) < 1e-5:
+            continue
+        compact.append(waypoint)
+    return compact
+
+
+def _time_parameterize(
+    candidate: dict[str, Any], constraints: dict[str, Any]
+) -> tuple[dict[str, Any] | None, list[str]]:
+    issues: list[str] = []
+    waypoints = _dedupe_waypoints(candidate["waypoints"])
+    if len(waypoints) < 2:
+        return None, ["candidate has fewer than two distinct waypoints"]
+
+    max_speed = max(float(constraints.get("max_joint_speed_rad_s", DEFAULT_MAX_SPEED_RAD_S)), 0.05)
+    max_accel = max(float(constraints.get("max_joint_accel_rad_s2", DEFAULT_MAX_ACCEL_RAD_S2)), 0.05)
+    min_segment = max(float(constraints.get("min_segment_duration_sec", DEFAULT_MIN_SEGMENT_SEC)), 0.02)
+    max_segment_delta = max(
+        float(constraints.get("max_segment_joint_delta_rad", DEFAULT_MAX_SEGMENT_DELTA_RAD)), 0.05
+    )
+
+    frames: list[dict[str, Any]] = [
+        {
+            "time_from_start": 0.0,
+            "positions": [round(v, 8) for v in waypoints[0]],
+            "velocities": [0.0] * 6,
+            "accelerations": [0.0] * 6,
+        }
+    ]
+    segments = []
+    total_time = 0.0
+    max_seen_speed = 0.0
+    for seg_index, (q0, q1) in enumerate(zip(waypoints[:-1], waypoints[1:])):
+        delta = _joint_delta(q1, q0)
+        max_delta = max(abs(v) for v in delta)
+        if max_delta > max_segment_delta:
+            issues.append(
+                f"segment {seg_index} max joint delta {max_delta:.3f}rad exceeds {max_segment_delta:.3f}rad"
+            )
+        duration = max(min_segment, max_delta / max_speed, math.sqrt(max_delta / max_accel) * 2.0)
+        velocity = [v / duration for v in delta]
+        max_seen_speed = max(max_seen_speed, max(abs(v) for v in velocity))
+        total_time += duration
+        segments.append(
+            {
+                "index": seg_index,
+                "duration": round(duration, 4),
+                "max_delta_rad": round(max_delta, 5),
+                "max_speed_rad_s": round(max(abs(v) for v in velocity), 5),
+            }
+        )
+        frames.append(
+            {
+                "time_from_start": round(total_time, 4),
+                "positions": [round(v, 8) for v in q1],
+                "velocities": [round(v, 8) for v in velocity],
+                "accelerations": [0.0] * 6,
+            }
+        )
+    frames[-1]["velocities"] = [0.0] * 6
+
+    if issues:
+        return None, issues
+    return (
+        {
+            "joint_names": list(JOINT_NAMES),
+            "frames": frames,
+            "events": candidate.get("events", []),
+            "segments": segments,
+            "duration_sec": round(total_time, 4),
+            "limits": {
+                "max_joint_speed_rad_s": max_speed,
+                "max_joint_accel_rad_s2": max_accel,
+                "max_segment_joint_delta_rad": max_segment_delta,
+            },
+            "audit": {
+                "raw_waypoints": len(candidate["waypoints"]),
+                "distinct_waypoints": len(waypoints),
+                "max_speed_rad_s": round(max_seen_speed, 5),
+                "max_accel_rad_s2": 0.0,
+            },
+        },
+        [],
+    )
+
+
 class RemotePlannerService:
     def __init__(self, log_dir: Path) -> None:
         self.log_dir = log_dir
@@ -131,7 +344,8 @@ class RemotePlannerService:
                 "constraint_audit": True,
                 "remote_moveit": False,
                 "gpu_inference": False,
-                "trajectory_optimization": False,
+                "trajectory_optimization": True,
+                "joint_waypoint_time_parameterization": True,
             },
         }
 
@@ -141,16 +355,46 @@ class RemotePlannerService:
         issues = []
         issues.extend(_validate_joints(request.get("current_joints_rad")))
         issues.extend(_validate_targets(request.get("targets"), constraints))
-        self._write_request_log(request_id, request, issues)
+        candidates, candidate_issues = _extract_waypoint_candidates(request)
+
+        plans = []
+        rejected = [{"label": "request", "issues": candidate_issues}] if candidate_issues else []
+        for candidate in candidates:
+            trajectory, plan_issues = _time_parameterize(candidate, constraints)
+            if trajectory is None:
+                rejected.append({"label": candidate["label"], "issues": plan_issues})
+                continue
+            travel = sum(segment["max_delta_rad"] for segment in trajectory["segments"])
+            rank = travel - float(candidate.get("score", 0.0) or 0.0)
+            plans.append({"rank": rank, "label": candidate["label"], "trajectory": trajectory})
+
+        plans.sort(key=lambda item: item["rank"])
+        if not candidates:
+            issues.extend(candidate_issues)
+        ok = bool(plans) and not issues
+        selected = plans[0] if plans else None
+        self._write_request_log(request_id, request, issues, selected["trajectory"] if selected else None, rejected)
+        if ok and selected is not None:
+            return {
+                "request_id": request_id,
+                "ok": True,
+                "status": "joint_waypoint_plan",
+                "message": "Remote service selected and time-parameterized a joint waypoint candidate.",
+                "selected_candidate": selected["label"],
+                "constraint_issues": [],
+                "rejected_candidates": rejected,
+                "trajectory": selected["trajectory"],
+            }
         return {
             "request_id": request_id,
             "ok": False,
-            "status": "remote_planner_backend_not_configured",
+            "status": "missing_or_rejected_joint_candidates",
             "message": (
-                "Remote service received the request and audited safety constraints. "
-                "Install/enable a server-side planner plugin before returning executable joint paths."
+                "Remote service audited the request but could not return a safe joint trajectory. "
+                "Provide joint candidates now; enable remote MoveIt/TrajOpt later for pose-only requests."
             ),
             "constraint_issues": issues,
+            "rejected_candidates": rejected,
             "recommended_server_pipeline": [
                 "load Arachne URDF/SRDF and current joint state",
                 "build full collision scene: vehicle, basket, ground, target cloud, gripper volume",
@@ -162,11 +406,20 @@ class RemotePlannerService:
             "trajectory": None,
         }
 
-    def _write_request_log(self, request_id: str, request: dict[str, Any], issues: list[str]) -> None:
+    def _write_request_log(
+        self,
+        request_id: str,
+        request: dict[str, Any],
+        issues: list[str],
+        trajectory: dict[str, Any] | None = None,
+        rejected: list[dict[str, Any]] | None = None,
+    ) -> None:
         payload = {
             "stamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "request_id": request_id,
             "issues": issues,
+            "rejected_candidates": rejected or [],
+            "selected_trajectory": trajectory,
             "request": request,
         }
         path = self.log_dir / f"{request_id}.json"

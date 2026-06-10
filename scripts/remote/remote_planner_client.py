@@ -26,13 +26,34 @@ def _load_payload(path: str | None) -> dict[str, Any]:
     if not path:
         return {
             "request_id": uuid.uuid4().hex,
-            "current_joints_rad": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            "current_joints_rad": [0.0, -0.6, 0.9, -1.2, 0.4, 0.0],
             "targets": [
                 {
-                    "name": "example_grasp",
-                    "xyz_base": [1.0, 0.0, -0.10],
+                    "name": "approach",
+                    "xyz_base": [1.0, 0.0, 0.10],
+                    "rpy_base": [0.0, 0.0, 0.0],
+                    "phase": "approach",
+                },
+                {
+                    "name": "grasp",
+                    "xyz_base": [1.0, 0.0, -0.08],
                     "rpy_base": [0.0, 0.0, 0.0],
                     "phase": "grasp",
+                },
+            ],
+            "candidates": [
+                {
+                    "label": "example_topdown",
+                    "score": 0.1,
+                    "waypoints_rad": [
+                        [0.04, -0.72, 1.02, -1.28, 0.42, 0.02],
+                        [0.08, -0.82, 1.08, -1.34, 0.44, 0.03],
+                        [0.02, -0.62, 0.92, -1.18, 0.38, 0.0],
+                    ],
+                    "events": [
+                        {"waypoint_index": 2, "name": "gripper_close", "command": "close"},
+                        {"waypoint_index": 3, "name": "lift", "command": "hold"},
+                    ],
                 }
             ],
             "constraints": {

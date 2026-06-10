@@ -34,12 +34,14 @@ case "${ACTION}" in
       if [[ -f server.pid ]]; then
         kill \$(cat server.pid) >/dev/null 2>&1 || true
       fi
+      ps -eo pid=,args= | awk '\$2 == \"python3\" && \$3 == \"scripts/remote_planner_server.py\" {print \$1}' | xargs -r kill >/dev/null 2>&1 || true
       nohup python3 scripts/remote_planner_server.py \
         --host 127.0.0.1 \
         --port ${REMOTE_PORT} \
         --log-dir logs \
         > server.log 2>&1 &
-      echo \$! > server.pid
+      server_pid=\$!
+      echo \${server_pid} > server.pid
       sleep 0.5
       cat server.pid
     "
