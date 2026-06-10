@@ -215,7 +215,7 @@ choose_terminal() {
     echo "background"
     return 0
   fi
-  for candidate in xterm gnome-terminal xfce4-terminal; do
+  for candidate in gnome-terminal xfce4-terminal xterm; do
     if terminal_available "${candidate}"; then
       echo "${candidate}"
       return 0
@@ -231,22 +231,37 @@ open_terminal() {
   local title="$1"
   local script="$2"
   local log_file="$3"
-  local launcher
-  local background_launcher
-  launcher="set +e; bash $(q "${script}") 2>&1 | tee $(q "${log_file}"); status=\${PIPESTATUS[0]}; echo; echo '[${title}] exited with status' \${status}; echo 'log: ${log_file}'; exec bash"
-  background_launcher="set +e; bash $(q "${script}") 2>&1 | tee $(q "${log_file}"); status=\${PIPESTATUS[0]}; echo; echo '[${title}] exited with status' \${status}; echo 'log: ${log_file}'; exit \${status}"
+  local launcher_script="${LOG_DIR}/launcher_$(basename "${script}")"
+  cat >"${launcher_script}" <<EOF
+#!/usr/bin/env bash
+set +e
+echo "[${title}] starting"
+echo "runner: ${script}"
+echo "log: ${log_file}"
+echo
+bash $(q "${script}") 2>&1 | tee $(q "${log_file}")
+status=\${PIPESTATUS[0]}
+echo
+echo "[${title}] exited with status \${status}"
+echo "log: ${log_file}"
+if [[ "\${ARACHNE_TERMINAL_HOLD:-true}" == "true" ]]; then
+  exec bash
+fi
+exit "\${status}"
+EOF
+  chmod +x "${launcher_script}"
   case "${TERMINAL_KIND}" in
     gnome-terminal)
-      gnome-terminal --title="${title}" -- bash -lc "${launcher}"
+      gnome-terminal --title="${title}" -- bash "${launcher_script}"
       ;;
     xfce4-terminal)
-      xfce4-terminal --title="${title}" --command="bash -lc $(q "${launcher}")"
+      xfce4-terminal --title="${title}" --command="bash $(q "${launcher_script}")"
       ;;
     xterm)
-      xterm -T "${title}" -e bash -lc "${launcher}" &
+      xterm -T "${title}" -e bash "${launcher_script}" &
       ;;
     background)
-      bash -lc "${background_launcher}" >/dev/null 2>&1 &
+      ARACHNE_TERMINAL_HOLD=false bash "${launcher_script}" >/dev/null 2>&1 &
       BACKGROUND_PIDS+=("$!")
       echo "Started ${title} in background; log: ${log_file}"
       ;;
@@ -421,7 +436,6 @@ exec "${ROOT_DIR}/scripts/hardware/real_bringup.sh" --no-aubo
 ')"
 
 camera_script="$(write_runner "35_gemini_camera" '
-wait_for_topic "/joint_states" "Aubo joint states"
 echo "Starting Gemini335 camera..."
 exec ros2 launch arachne_sensors gemini335.launch.py \
   publish_pointcloud:=false \
