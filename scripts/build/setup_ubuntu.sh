@@ -71,6 +71,8 @@ ROS_PACKAGES=(
   "ros-${ROS_DISTRO}-position-controllers"
   "ros-${ROS_DISTRO}-moveit"
   "ros-${ROS_DISTRO}-nav2-bringup"
+  "ros-${ROS_DISTRO}-pointcloud-to-laserscan"
+  "ros-${ROS_DISTRO}-slam-toolbox"
 )
 if [[ "${ARACHNE_SETUP_ROS_DESKTOP}" == "true" ]]; then
   ROS_PACKAGES=("ros-${ROS_DISTRO}-desktop" "${ROS_PACKAGES[@]}")

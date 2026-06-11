@@ -160,9 +160,9 @@ class GraspTaskServer(Node):
         self.declare_parameter("grasp_base_offset", "0,0,0")
         self.declare_parameter(
             "extra_args",
-            "--planner-backend local --planning-key-waypoints approach,grasp,safe_mid,basket_over --vertical-approach --no-lock-grasp-orientation --tool-orientation-limit-deg 35 --real-sdk-semantic-targets-only --real-sdk-max-targets 8",
+            "--planner-backend local --planning-key-waypoints approach,grasp,safe_mid,basket_over --vertical-approach --no-lock-grasp-orientation --tool-orientation-limit-deg 45 --grasp-orientation-yaw-offsets-deg 0,15,-15,30,-30 --grasp-orientation-tilt-offsets-deg 0,8,-8 --real-gripper-require-capture --real-sdk-semantic-targets-only --real-sdk-max-targets 6",
         )
-        self.declare_parameter("preview_on_start", True)
+        self.declare_parameter("preview_on_start", False)
         self.declare_parameter("preview_runner_script", "scripts/vision/grasp_preview.sh")
         self.declare_parameter("preview_extra_args", "--planner-backend none")
         self.declare_parameter("planning_recovery_base_enabled", False)
@@ -176,11 +176,14 @@ class GraspTaskServer(Node):
         self.declare_parameter("require_safety_state_machine", False)
         self.declare_parameter("set_safety_autonomous_on_start", True)
         self.declare_parameter("set_safety_manual_on_finish", True)
-        self.declare_parameter("require_aubo_status", True)
+        self.declare_parameter("require_aubo_status", False)
         self.declare_parameter("require_joint_states", True)
-        self.declare_parameter("require_gripper_status", True)
+        self.declare_parameter("require_gripper_status", False)
         self.declare_parameter("require_odom", False)
         self.declare_parameter("require_camera_topics", False)
+        self.declare_parameter("max_grasp_attempts", 3)
+        self.declare_parameter("retry_on_gripper_miss", True)
+        self.declare_parameter("gripper_miss_retry_delay_sec", 0.8)
         self.declare_parameter("joint_states_topic", "/joint_states")
         self.declare_parameter("odom_topic", "/odom")
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
@@ -217,6 +220,7 @@ class GraspTaskServer(Node):
         self.runner_planning_failed = False
         self.runner_real_execution_started = False
         self.runner_real_execution_blocked = False
+        self.runner_gripper_capture_failed = False
         self.latest: dict[str, tuple[float, Any]] = {}
         self.state = "idle"
         self.message = "ready"
@@ -1053,7 +1057,13 @@ class GraspTaskServer(Node):
             self.preflight_checks = result.checks
         self._write_json(run_dir / "preflight.json", {"ok": result.ok, "checks": result.checks})
         if not result.ok:
-            self._finish_task("failed", "preflight failed", returncode=None)
+            message = self._preflight_failure_message(result)
+            self._write_preflight_process_log(run_dir, result)
+            self._event(
+                "preflight_failed",
+                {"failures": self._failed_required_checks(result), "message": message},
+            )
+            self._finish_task("failed", f"preflight failed: {message}", returncode=None)
             return
 
         command, env = self._runner_command()
@@ -1069,65 +1079,97 @@ class GraspTaskServer(Node):
 
         returncode: int | None = None
         executed_recovery: list[dict[str, Any]] = []
+        task_succeeded = False
+        final_failure_message = ""
         with self.lock:
             self.last_planning_recovery_steps.clear()
-        max_attempts = 1 + (
+        max_planning_attempts = 1 + (
             len(recovery_steps)
             if bool(self.get_parameter("planning_recovery_base_enabled").value)
             else 0
         )
-        for attempt in range(max_attempts):
+        max_grasp_attempts = max(int(self.get_parameter("max_grasp_attempts").value), 1)
+        retry_on_miss = bool(self.get_parameter("retry_on_gripper_miss").value)
+        retry_delay = max(float(self.get_parameter("gripper_miss_retry_delay_sec").value), 0.0)
+        for grasp_attempt in range(max_grasp_attempts):
             if self.cancel_event.is_set():
                 break
-            process_log = run_dir / ("process.log" if attempt == 0 else f"process_retry_{attempt + 1}.log")
-            self._set_state(
-                "running",
-                "grasp_preview pipeline started"
-                if attempt == 0
-                else f"grasp_preview retry {attempt + 1}/{max_attempts} started",
-            )
-            try:
-                returncode = self._run_runner_process(command, env, process_log)
-            except FileNotFoundError as exc:
-                self._event("runner_error", {"error": str(exc)})
-                self._finish_task("failed", f"runner missing: {exc}", returncode=None)
-                return
-            except Exception as exc:  # pragma: no cover - defensive around live process I/O.
-                self._event("runner_error", {"error": str(exc)})
-                self._finish_task("failed", f"runner error: {exc}", returncode=None)
-                return
-
-            with self.lock:
-                runner_success = self.runner_success_requested
-                planning_failed = self.runner_planning_failed
-                real_started = self.runner_real_execution_started
-
-            if self.cancel_event.is_set() or runner_success or returncode == 0:
-                break
-            if (
-                planning_failed
-                and not real_started
-                and bool(self.get_parameter("planning_recovery_base_enabled").value)
-                and attempt < len(recovery_steps)
-            ):
-                step = recovery_steps[attempt]
-                try:
-                    self._run_planning_recovery_step(step, attempt + 1)
-                    executed_recovery.append(step)
-                    with self.lock:
-                        self.last_planning_recovery_steps.append(dict(step))
-                    continue
-                except Exception as exc:
-                    self._event("planning_recovery_failed", {"step": step, "error": str(exc)})
+            if grasp_attempt > 0 and retry_delay > 0.0:
+                time.sleep(retry_delay)
+            for attempt in range(max_planning_attempts):
+                if self.cancel_event.is_set():
                     break
-            break
+                process_log = self._attempt_process_log_path(run_dir, grasp_attempt, attempt)
+                attempt_label = (
+                    f"grasp attempt {grasp_attempt + 1}/{max_grasp_attempts}, "
+                    f"plan try {attempt + 1}/{max_planning_attempts}"
+                )
+                self._set_state("running", f"grasp_preview pipeline started: {attempt_label}")
+                try:
+                    returncode = self._run_runner_process(command, env, process_log)
+                except FileNotFoundError as exc:
+                    self._event("runner_error", {"error": str(exc)})
+                    self._finish_task("failed", f"runner missing: {exc}", returncode=None)
+                    return
+                except Exception as exc:  # pragma: no cover - defensive around live process I/O.
+                    self._event("runner_error", {"error": str(exc)})
+                    self._finish_task("failed", f"runner error: {exc}", returncode=None)
+                    return
 
-        with self.lock:
-            runner_success = self.runner_success_requested
+                with self.lock:
+                    runner_success = self.runner_success_requested
+                    planning_failed = self.runner_planning_failed
+                    real_started = self.runner_real_execution_started
+                    gripper_miss = self.runner_gripper_capture_failed
+
+                if self.cancel_event.is_set():
+                    break
+                if gripper_miss:
+                    final_failure_message = "gripper did not capture object"
+                    break
+                if runner_success or returncode == 0:
+                    task_succeeded = True
+                    final_failure_message = ""
+                    break
+                if (
+                    planning_failed
+                    and not real_started
+                    and bool(self.get_parameter("planning_recovery_base_enabled").value)
+                    and attempt < len(recovery_steps)
+                ):
+                    step = recovery_steps[attempt]
+                    try:
+                        self._run_planning_recovery_step(step, attempt + 1)
+                        executed_recovery.append(step)
+                        with self.lock:
+                            self.last_planning_recovery_steps.append(dict(step))
+                        continue
+                    except Exception as exc:
+                        self._event("planning_recovery_failed", {"step": step, "error": str(exc)})
+                        final_failure_message = f"planning recovery failed: {exc}"
+                        break
+                final_failure_message = f"grasp task failed with return code {returncode}"
+                break
+
+            if task_succeeded or self.cancel_event.is_set():
+                break
+            with self.lock:
+                gripper_miss = self.runner_gripper_capture_failed
+            if gripper_miss and retry_on_miss and grasp_attempt < max_grasp_attempts - 1:
+                self._event(
+                    "grasp_retry",
+                    {
+                        "reason": "gripper_miss",
+                        "next_attempt": grasp_attempt + 2,
+                        "max_attempts": max_grasp_attempts,
+                    },
+                )
+                continue
+            break
 
         if (
             not self.cancel_event.is_set()
-            and not runner_success
+            and not task_succeeded
             and executed_recovery
             and bool(self.get_parameter("planning_recovery_restore_on_failure").value)
         ):
@@ -1137,14 +1179,19 @@ class GraspTaskServer(Node):
 
         if self.cancel_event.is_set():
             self._finish_task("canceled", "task canceled", returncode=returncode)
-        elif runner_success or returncode == 0:
+        elif task_succeeded:
             self._finish_task("succeeded", "grasp task complete", returncode=returncode)
         else:
             self._finish_task(
                 "failed",
-                f"grasp task failed with return code {returncode}",
+                final_failure_message or f"grasp task failed with return code {returncode}",
                 returncode=returncode,
             )
+
+    def _attempt_process_log_path(self, run_dir: Path, grasp_attempt: int, plan_attempt: int) -> Path:
+        if grasp_attempt == 0 and plan_attempt == 0:
+            return run_dir / "process.log"
+        return run_dir / f"process_attempt_{grasp_attempt + 1}_plan_{plan_attempt + 1}.log"
 
     def _run_runner_process(
         self, command: list[str], env: dict[str, str], process_log: Path
@@ -1154,6 +1201,7 @@ class GraspTaskServer(Node):
             self.runner_planning_failed = False
             self.runner_real_execution_started = False
             self.runner_real_execution_blocked = False
+            self.runner_gripper_capture_failed = False
         with process_log.open("w", encoding="utf-8") as log_file:
             self.process = subprocess.Popen(
                 command,
@@ -1176,6 +1224,53 @@ class GraspTaskServer(Node):
                 return self.process.wait()
             finally:
                 self.process = None
+
+    def _failed_required_checks(self, result: PreflightResult) -> list[dict[str, Any]]:
+        return [
+            dict(item)
+            for item in result.checks
+            if bool(item.get("required", True)) and not bool(item.get("ok", False))
+        ]
+
+    def _preflight_failure_message(self, result: PreflightResult) -> str:
+        failures = self._failed_required_checks(result)
+        if not failures:
+            return "unknown preflight failure"
+        parts = []
+        for item in failures[:4]:
+            name = str(item.get("name", "check")).strip()
+            message = str(item.get("message", "")).strip()
+            parts.append(f"{name}: {message}" if message else name)
+        if len(failures) > 4:
+            parts.append(f"+{len(failures) - 4} more")
+        return "; ".join(parts)
+
+    def _write_preflight_process_log(
+        self, run_dir: Path, result: PreflightResult
+    ) -> None:
+        process_log = run_dir / "process.log"
+        with process_log.open("w", encoding="utf-8") as log_file:
+            log_file.write("Grasp task did not start the grasp_preview runner.\n")
+            log_file.write("Reason: preflight failed before process launch.\n\n")
+            failures = self._failed_required_checks(result)
+            if failures:
+                log_file.write("Required failures:\n")
+                for item in failures:
+                    log_file.write(
+                        f"  - {item.get('name', 'check')}: {item.get('message', '')}\n"
+                    )
+                log_file.write("\n")
+            log_file.write("All preflight checks:\n")
+            for item in result.checks:
+                status = "OK" if bool(item.get("ok", False)) else "FAIL"
+                required = "required" if bool(item.get("required", True)) else "optional"
+                log_file.write(
+                    f"  [{status}] {item.get('name', 'check')} ({required}): "
+                    f"{item.get('message', '')}\n"
+                )
+            log_file.write("\n")
+            log_file.write(f"preflight.json: {run_dir / 'preflight.json'}\n")
+            log_file.write(f"summary.json: {run_dir / 'summary.json'}\n")
 
     def _restore_worker(self) -> None:
         self.cancel_event.set()
@@ -1321,7 +1416,23 @@ class GraspTaskServer(Node):
             ok, message = self._call_trigger(self.set_autonomous_client, timeout)
             result.add("safety_set_autonomous", ok, message, required=required)
 
-        self._wait_for_fresh_inputs(timeout)
+        if execute_real:
+            self._refresh_aubo_joints_from_rpc()
+
+        required_inputs: list[str] = []
+        if bool(self.get_parameter("require_aubo_status").value):
+            required_inputs.append("aubo_status")
+        if bool(self.get_parameter("require_joint_states").value):
+            required_inputs.append("aubo_joints")
+        if bool(self.get_parameter("require_gripper_status").value):
+            required_inputs.append("gripper_status")
+        if bool(self.get_parameter("require_odom").value):
+            required_inputs.append("odom")
+        if bool(self.get_parameter("require_safety_state_machine").value):
+            required_inputs.append("safety_state")
+        if bool(self.get_parameter("require_camera_topics").value):
+            required_inputs.extend(["color_image", "depth_image"])
+        self._wait_for_fresh_inputs(timeout, required_inputs)
         self._add_cached_check(
             result,
             "aubo_status",
@@ -1329,8 +1440,6 @@ class GraspTaskServer(Node):
             max_age=max(timeout + 1.0, 2.0),
             validator=lambda value: "not reachable" not in str(value).lower(),
         )
-        if execute_real:
-            self._refresh_aubo_joints_from_rpc()
         self._add_cached_check(
             result,
             "aubo_joints",
@@ -1433,11 +1542,13 @@ class GraspTaskServer(Node):
             return joints
         raise RuntimeError(f"cannot parse Aubo SDK joint positions from {value!r}")
 
-    def _wait_for_fresh_inputs(self, timeout: float) -> None:
+    def _wait_for_fresh_inputs(self, timeout: float, keys: list[str] | None = None) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline and rclpy.ok():
             with self.lock:
-                if self.latest:
+                if not keys and self.latest:
+                    return
+                if keys and all(key in self.latest for key in keys):
                     return
             time.sleep(0.05)
 
@@ -1555,6 +1666,12 @@ class GraspTaskServer(Node):
             "planning_recovery_base_enabled",
             "planning_recovery_base_sequence",
             "planning_recovery_restore_on_failure",
+            "max_grasp_attempts",
+            "retry_on_gripper_miss",
+            "gripper_miss_retry_delay_sec",
+            "require_aubo_status",
+            "require_gripper_status",
+            "require_camera_topics",
         )
         return {name: self.get_parameter(name).value for name in names}
 
@@ -1567,6 +1684,7 @@ class GraspTaskServer(Node):
         stripped = line.strip()
         if not stripped:
             return
+        lower = stripped.lower()
         match = re.search(r"Grasp preview logs:\s*(.+)$", stripped)
         if match:
             with self.lock:
@@ -1579,6 +1697,14 @@ class GraspTaskServer(Node):
             with self.lock:
                 self.runner_real_execution_started = True
         if (
+            "gripper_capture_failed" in lower
+            or "gripper capture failed" in lower
+            or "gripper did not capture" in lower
+        ):
+            with self.lock:
+                self.runner_gripper_capture_failed = True
+            self._event("gripper_capture_failed", {"line": stripped})
+        if (
             "REAL arm SDK moveJoint sequence complete" in stripped
             or "REAL arm trajectory complete" in stripped
         ):
@@ -1586,14 +1712,14 @@ class GraspTaskServer(Node):
                 self.runner_success_requested = True
             self._event("arm_sequence_complete", {"line": stripped})
             self._terminate_process("real arm sequence complete")
-        elif "real execution blocked" in stripped.lower():
+        elif "real execution blocked" in lower:
             with self.lock:
                 self.runner_real_execution_blocked = True
             self._event("real_execution_blocked", {"line": stripped})
             self._terminate_process("real execution blocked")
         elif (
-            "arm trajectory unavailable" in stripped.lower()
-            or "planning failed" in stripped.lower()
+            "arm trajectory unavailable" in lower
+            or "planning failed" in lower
         ):
             with self.lock:
                 real_started = self.runner_real_execution_started
@@ -1604,7 +1730,7 @@ class GraspTaskServer(Node):
                 self._terminate_process("planning failed before real motion")
         elif "REAL execution is armed" in stripped:
             self._event("real_execution_armed", {"line": stripped})
-        elif "grasp task failed" in stripped.lower() or "failed" in stripped.lower():
+        elif "grasp task failed" in lower or "failed" in lower:
             self._event("runner_warning", {"line": stripped})
 
     def _finish_task(self, state: str, message: str, *, returncode: int | None) -> None:

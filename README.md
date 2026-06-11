@@ -74,9 +74,9 @@ source install/setup.bash
 | Trash 分割抓取入篮预览 | `./scripts/vision/grasp_preview.sh` |
 | 真机姿态同步抓取预览 | `./scripts/vision/grasp_preview_real_sync.sh` |
 | 真机同步并执行抓取 | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
-| 抓取任务服务器 | `./scripts/vision/grasp_task_server.sh` |
-| 真机抓取总控 console（默认服务器规划） | `./scripts/hardware/real_grasp_console_remote.sh` |
-| 真机抓取总控 console（本机规划/调试） | `ARACHNE_USE_REMOTE_PLANNER_DEFAULT=false ./scripts/hardware/real_grasp_console.sh --yes --quick` |
+| 真机抓取/施教总控 console（本机规划/调试） | `./scripts/hardware/real_grasp_console.sh --yes --quick` |
+| 真机抓取/施教总控 console（远端规划） | `./scripts/hardware/real_grasp_console_remote.sh` |
+| 抓取任务服务器（底层调试） | `./scripts/vision/grasp_task_server.sh` |
 | 服务器 MoveIt 规划栈 | `./scripts/remote/remote_moveit_planner_stack.sh restart` |
 | Agent Bridge | `./scripts/agent/agent_bridge.sh` |
 | 真机环境检查 | `./scripts/hardware/check_real_hardware_env.sh` |
@@ -130,11 +130,19 @@ ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/hardwa
 ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/hardware/real_aubo_remote_start.sh
 ```
 
-日常真机启动优先使用自动入口。脚本会自动选择 Scout 和 MS42DC 的 `/dev/serial/by-id` 串口，检查 Aubo 是否处于 Running / Normal，然后启动完整 bringup：
+日常真机启动优先使用施教器总控。它会先打开施教器和 RViz，不要求 Aubo 已经 Running；Aubo 上电/启动、Gemini 相机、2D raw 画面、SLAM/Nav 和 grasp server 都可以在施教器里开关。视觉抓取优先点 `Visual Grasp`，它会自动启动 Camera、2D raw view 和 grasp server，并等待 preflight 通过后再开始任务；默认会按“娃娃机式垂直逼近”抓取，夹爪反馈判断为空抓时会重新拍摄并最多重试 3 次。`Grasp Start` 只作为底层调试入口。console 默认彩色流为 320x240、深度为 640x480，优先保证远程观察流畅。`SLAM` 会启动 C16 点云转 `/scan`、slam_toolbox、Nav2 和俯视导航 RViz：
 
 ```bash
-./scripts/hardware/real_bringup.sh
+./scripts/hardware/real_grasp_console.sh --yes --quick
 ```
+
+如果需要服务器上的 MoveIt 2/OMPL 规划，用同一个施教器总控的远端包装入口：
+
+```bash
+./scripts/hardware/real_grasp_console_remote.sh
+```
+
+底层 `real_bringup.sh`、`grasp_task_server.sh` 仍保留用于单独调试，不作为日常主入口。
 
 WSL2 用户推荐使用 [hurry-porter](https://github.com/zay002/hurry-porter) 辅助 USB 透传、串口扫描和 Waveshare USB-CAN-A 诊断。`real_bringup.sh` 找不到串口时会先尝试自动 attach CH9102/CH340 设备；如果 Windows 侧还没有共享设备，再按脚本提示手动 attach。
 
@@ -155,13 +163,13 @@ hurry waveshare-can-a recv \
 ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test.sh
 ```
 
-示教演示可直接一键启动：
+旧版示教演示仍保留用于回归，但日常请优先使用 `real_grasp_console.sh`：
 
 ```bash
 ./scripts/hardware/real_teach_demo.sh
 ```
 
-它会启动真机 bringup，等待 `/odom`、`/joint_states`、Aubo trajectory action 和夹具状态可用后打开示教面板；关闭面板时会自动停止 bringup。面板可以手动控制底盘、Aubo 末端和 MS42DC，支持 Aubo Teach On/Off、RX/RY/RZ 腕部微调、底盘长按松开后自动记录相对移动段、等待步骤、单点更新和 waypoint 复用，并将记录保存到本地 `recordings/teach/` 后一键回放。
+它会启动真机 bringup，等待 `/odom`、`/joint_states`、Aubo trajectory action 和夹具状态可用后打开示教面板；不适合作为当前抓取/SLAM/相机联调主入口。
 
 ## 项目结构
 
@@ -185,7 +193,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 | `godot/arachne_showcase` | Godot 4.x 第三人称展示前端 |
 | `docs` | 建模、控制、硬件、标定和参考资料 |
 
-`scripts/` 根目录不再放置旧式兼容脚本；请直接使用分类路径，例如 `./scripts/hardware/real_full_teach.sh` 和 `source scripts/env/arachne_env.sh`。
+`scripts/` 根目录不再放置旧式兼容脚本；请直接使用分类路径，例如 `./scripts/hardware/real_grasp_console.sh --yes --quick` 和 `source scripts/env/arachne_env.sh`。
 
 ## 文档
 

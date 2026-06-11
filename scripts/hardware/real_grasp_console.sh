@@ -23,7 +23,7 @@ USE_REMOTE_PLANNER="${ARACHNE_CONSOLE_USE_REMOTE_PLANNER:-false}"
 REMOTE_LOCAL_PORT="${ARACHNE_REMOTE_LOCAL_PORT:-8767}"
 REMOTE_PLANNER_URL="${ARACHNE_CONSOLE_REMOTE_PLANNER_URL:-${ARACHNE_REMOTE_PLANNER_URL:-http://127.0.0.1:${REMOTE_LOCAL_PORT}}}"
 REMOTE_PLANNER_TIMEOUT="${ARACHNE_CONSOLE_REMOTE_PLANNER_TIMEOUT:-${ARACHNE_REMOTE_PLANNER_TIMEOUT:-20}}"
-DEFAULT_SERVER_EXTRA_ARGS="--planner-backend local --planning-key-waypoints approach,grasp,safe_mid,basket_over --vertical-approach --no-lock-grasp-orientation --tool-orientation-limit-deg 35 --real-sdk-semantic-targets-only --real-sdk-max-targets 8"
+DEFAULT_SERVER_EXTRA_ARGS="--planner-backend local --planning-key-waypoints approach,grasp,safe_mid,basket_over --vertical-approach --no-lock-grasp-orientation --tool-orientation-limit-deg 45 --grasp-orientation-yaw-offsets-deg 0,15,-15,30,-30 --grasp-orientation-tilt-offsets-deg 0,8,-8 --real-gripper-require-capture --real-sdk-semantic-targets-only --real-sdk-max-targets 6"
 if [[ "${USE_REMOTE_PLANNER}" == "true" && -n "${REMOTE_PLANNER_URL}" ]]; then
   DEFAULT_SERVER_EXTRA_ARGS="--planner-backend remote --remote-planner-url ${REMOTE_PLANNER_URL} --remote-planner-timeout ${REMOTE_PLANNER_TIMEOUT}"
 fi
@@ -31,12 +31,18 @@ SERVER_EXTRA_ARGS="${ARACHNE_CONSOLE_SERVER_EXTRA_ARGS:-${DEFAULT_SERVER_EXTRA_A
 TEACH_WITH_CAMERA="${ARACHNE_CONSOLE_TEACH_WITH_CAMERA:-false}"
 TEACH_WITH_RVIZ="${ARACHNE_CONSOLE_TEACH_WITH_RVIZ:-true}"
 TEACH_WITH_VISUALIZATION="${ARACHNE_CONSOLE_TEACH_WITH_VISUALIZATION:-true}"
-WITH_VIEWER="${ARACHNE_CONSOLE_WITH_VIEWER:-true}"
+TEACH_EXTRA_ARGS="${ARACHNE_CONSOLE_TEACH_EXTRA_ARGS:-}"
+WITH_VIEWER="${ARACHNE_CONSOLE_WITH_VIEWER:-false}"
+AUTO_AUBO_START="${ARACHNE_CONSOLE_AUTO_AUBO_START:-false}"
+AUTO_BASE_GRIPPER="${ARACHNE_CONSOLE_AUTO_BASE_GRIPPER:-true}"
+AUTO_CAMERA="${ARACHNE_CONSOLE_AUTO_CAMERA:-false}"
+AUTO_GRASP_SERVER="${ARACHNE_CONSOLE_AUTO_GRASP_SERVER:-false}"
+AUTO_LIDAR_NAV="${ARACHNE_CONSOLE_AUTO_LIDAR_NAV:-false}"
 REQUIRE_ODOM="${ARACHNE_CONSOLE_REQUIRE_ODOM:-false}"
 REQUIRE_CAMERA_TOPICS="${ARACHNE_CONSOLE_REQUIRE_CAMERA_TOPICS:-true}"
 VIEWER_IMAGE_TOPIC="${ARACHNE_CONSOLE_VIEWER_IMAGE_TOPIC:-/camera/color/image_raw}"
-CAMERA_COLOR_WIDTH="${ARACHNE_CONSOLE_CAMERA_COLOR_WIDTH:-640}"
-CAMERA_COLOR_HEIGHT="${ARACHNE_CONSOLE_CAMERA_COLOR_HEIGHT:-480}"
+CAMERA_COLOR_WIDTH="${ARACHNE_CONSOLE_CAMERA_COLOR_WIDTH:-320}"
+CAMERA_COLOR_HEIGHT="${ARACHNE_CONSOLE_CAMERA_COLOR_HEIGHT:-240}"
 CAMERA_COLOR_FPS="${ARACHNE_CONSOLE_CAMERA_COLOR_FPS:-30.0}"
 CAMERA_DEPTH_WIDTH="${ARACHNE_CONSOLE_CAMERA_DEPTH_WIDTH:-640}"
 CAMERA_DEPTH_HEIGHT="${ARACHNE_CONSOLE_CAMERA_DEPTH_HEIGHT:-480}"
@@ -45,21 +51,17 @@ RUN_ENV_CHECK=true
 STOP_EXISTING=true
 CONFIRM=false
 QUICK=false
-TERMINAL_KIND="${ARACHNE_CONSOLE_TERMINAL:-auto}"
+TERMINAL_KIND="${ARACHNE_CONSOLE_TERMINAL:-background}"
 
 usage() {
   cat <<EOF
 Usage:
   ./scripts/hardware/real_grasp_console.sh --yes [options]
 
-Open an operator console for real grasp work. It starts separate terminals for:
-  1. Aubo ROS2 driver in guarded prestart mode
-  2. Aubo payload + guarded remote startup + prepare checks
-  3. Scout + MS42DC bringup
-  4. Gemini335 camera
-  5. grasp_task_server
-  6. teach panel
-  7. raw 2D camera image viewer
+Open the real operator console. By default this starts only the guarded Aubo
+driver, Scout/MS42DC bringup, RViz visualization, and the teach panel. Camera,
+2D viewer, SLAM/Nav, grasp server, and Aubo power/start can be controlled from
+the teach panel Runtime Services and Aubo buttons.
 
 Options:
   -y, --yes             Confirm real hardware startup.
@@ -68,6 +70,7 @@ Options:
   --no-viewer          Do not open image_view for the camera image topic.
   --quick              Skip strict env check and do not block server startup on /odom.
   --terminal KIND      auto, gnome-terminal, xfce4-terminal, xterm, or background.
+  -- ARGS...           Extra launch args forwarded to teach_panel.launch.py.
   -h, --help           Show this help.
 
 Environment:
@@ -82,7 +85,13 @@ Environment:
   ARACHNE_CONSOLE_REMOTE_PLANNER_TIMEOUT=${REMOTE_PLANNER_TIMEOUT}
   ARACHNE_CONSOLE_TEACH_WITH_CAMERA=${TEACH_WITH_CAMERA}
   ARACHNE_CONSOLE_TEACH_WITH_RVIZ=${TEACH_WITH_RVIZ}
+  ARACHNE_CONSOLE_TEACH_EXTRA_ARGS=${TEACH_EXTRA_ARGS}
   ARACHNE_CONSOLE_WITH_VIEWER=${WITH_VIEWER}
+  ARACHNE_CONSOLE_AUTO_AUBO_START=${AUTO_AUBO_START}
+  ARACHNE_CONSOLE_AUTO_BASE_GRIPPER=${AUTO_BASE_GRIPPER}
+  ARACHNE_CONSOLE_AUTO_CAMERA=${AUTO_CAMERA}
+  ARACHNE_CONSOLE_AUTO_GRASP_SERVER=${AUTO_GRASP_SERVER}
+  ARACHNE_CONSOLE_AUTO_LIDAR_NAV=${AUTO_LIDAR_NAV}
   ARACHNE_CONSOLE_REQUIRE_ODOM=${REQUIRE_ODOM}
   ARACHNE_CONSOLE_REQUIRE_CAMERA_TOPICS=${REQUIRE_CAMERA_TOPICS}
   ARACHNE_CONSOLE_VIEWER_IMAGE_TOPIC=${VIEWER_IMAGE_TOPIC}
@@ -92,7 +101,10 @@ Environment:
   ARACHNE_CONSOLE_CAMERA_DEPTH_HEIGHT=${CAMERA_DEPTH_HEIGHT}
 
 After startup, use the teach panel buttons:
-  G Start / Grasp Start  -> /arachne/grasp_task/start
+  Runtime Services    -> start/stop camera, 2D viewer, SLAM/Nav, grasp server
+  Aubo On / Start     -> power on / startup the real arm when needed
+  Visual Grasp        -> start camera/viewer/server, preflight, then grasp
+  Grasp Start         -> /arachne/grasp_task/start only
   G Stop / Grasp Stop    -> /arachne/grasp_task/stop
   Restore                -> /arachne/grasp_task/restore
 EOF
@@ -121,6 +133,11 @@ while (($#)); do
     --terminal)
       shift
       TERMINAL_KIND="${1:-auto}"
+      ;;
+    --)
+      shift
+      TEACH_EXTRA_ARGS="$*"
+      break
       ;;
     -h|--help)
       usage
@@ -262,7 +279,11 @@ EOF
       xterm -T "${title}" -e bash "${launcher_script}" &
       ;;
     background)
-      ARACHNE_TERMINAL_HOLD=false bash "${launcher_script}" >/dev/null 2>&1 &
+      if command -v setsid >/dev/null 2>&1; then
+        ARACHNE_TERMINAL_HOLD=false setsid bash "${launcher_script}" </dev/null >/dev/null 2>&1 &
+      else
+        ARACHNE_TERMINAL_HOLD=false nohup bash "${launcher_script}" </dev/null >/dev/null 2>&1 &
+      fi
       BACKGROUND_PIDS+=("$!")
       echo "Started ${title} in background; log: ${log_file}"
       ;;
@@ -289,6 +310,7 @@ SERVER_EXTRA_ARGS=$(q "${SERVER_EXTRA_ARGS}")
 TEACH_WITH_CAMERA=$(q "${TEACH_WITH_CAMERA}")
 TEACH_WITH_RVIZ=$(q "${TEACH_WITH_RVIZ}")
 TEACH_WITH_VISUALIZATION=$(q "${TEACH_WITH_VISUALIZATION}")
+TEACH_EXTRA_ARGS=$(q "${TEACH_EXTRA_ARGS}")
 REQUIRE_ODOM=$(q "${REQUIRE_ODOM}")
 REQUIRE_CAMERA_TOPICS=$(q "${REQUIRE_CAMERA_TOPICS}")
 VIEWER_IMAGE_TOPIC=$(q "${VIEWER_IMAGE_TOPIC}")
@@ -382,6 +404,13 @@ echo "  Aubo: ${AUBO_ROBOT_IP} / ${AUBO_TYPE}"
 echo "  server extra args: ${SERVER_EXTRA_ARGS}"
 echo "  remote planner: ${REMOTE_PLANNER_URL:-disabled}"
 echo "  quick mode: ${QUICK}"
+echo "  teach extra args: ${TEACH_EXTRA_ARGS:-none}"
+echo "  auto Aubo startup: ${AUTO_AUBO_START}"
+echo "  auto base+gripper: ${AUTO_BASE_GRIPPER}"
+echo "  auto camera: ${AUTO_CAMERA}"
+echo "  auto SLAM/Nav: ${AUTO_LIDAR_NAV}"
+echo "  auto grasp server: ${AUTO_GRASP_SERVER}"
+echo "  auto 2D viewer: ${WITH_VIEWER}"
 echo "  require odom before server: ${REQUIRE_ODOM}"
 echo "  require camera topics in preflight: ${REQUIRE_CAMERA_TOPICS}"
 
@@ -431,7 +460,6 @@ echo "Aubo remote startup ready."
 ')"
 
 base_script="$(write_runner "30_base_gripper_bringup" '
-wait_for_controller_active "forward_command_controller_velocity" "Aubo velocity controller"
 echo "Starting Scout + MS42DC bringup..."
 exec "${ROOT_DIR}/scripts/hardware/real_bringup.sh" --no-aubo
 ')"
@@ -475,21 +503,36 @@ exec env \
   execute_real:=true \
   confirm_execute_real:=true \
   with_rviz:=false \
-  preview_on_start:=true \
+  preview_on_start:=false \
   planning_recovery_base_enabled:=false \
   require_odom:="${REQUIRE_ODOM}" \
   require_camera_topics:="${REQUIRE_CAMERA_TOPICS}" \
+  require_aubo_status:=false \
+  require_gripper_status:=false \
+  max_grasp_attempts:=3 \
+  retry_on_gripper_miss:=true \
   extra_args:="${SERVER_EXTRA_ARGS}"
 ')"
 
 teach_script="$(write_runner "50_teach_panel" '
-wait_for_service "/arachne/grasp_task/start" "grasp task start service"
 echo "Starting teach panel..."
 exec ros2 launch arachne_operator teach_panel.launch.py \
   with_camera:="${TEACH_WITH_CAMERA}" \
   with_visualization:="${TEACH_WITH_VISUALIZATION}" \
   visualization_with_rviz:="${TEACH_WITH_RVIZ}" \
-  recording_dir:="${RECORDING_DIR}"
+  recording_dir:="${RECORDING_DIR}" \
+  workspace_root:="${ROOT_DIR}" \
+  runtime_log_root:="log/teach_panel" \
+  camera_command:="ros2 launch arachne_sensors gemini335.launch.py publish_pointcloud:=false with_color_view:=false with_depth_view:=false with_tf:=true camera_parent_frame:=ee_camera_link projection_flip_x:=true projection_flip_y:=true color_width:=${CAMERA_COLOR_WIDTH} color_height:=${CAMERA_COLOR_HEIGHT} color_fps:=${CAMERA_COLOR_FPS} depth_width:=${CAMERA_DEPTH_WIDTH} depth_height:=${CAMERA_DEPTH_HEIGHT} depth_fps:=${CAMERA_DEPTH_FPS}" \
+  camera_view_command:="\${ARACHNE_SYSTEM_PYTHON:-python3} scripts/vision/raw_image_viewer.py --topic ${VIEWER_IMAGE_TOPIC} --window \"Arachne Raw Camera\" --max-fps 15" \
+  slam_command:="scripts/hardware/real_lidar_nav.sh" \
+  grasp_server_command:="scripts/vision/grasp_task_server.sh execute_real:=true confirm_execute_real:=true with_rviz:=false preview_on_start:=false planning_recovery_base_enabled:=false require_odom:=${REQUIRE_ODOM} require_camera_topics:=${REQUIRE_CAMERA_TOPICS} require_aubo_status:=false require_gripper_status:=false max_grasp_attempts:=3 retry_on_gripper_miss:=true extra_args:=\"${SERVER_EXTRA_ARGS}\"" \
+  ${TEACH_EXTRA_ARGS}
+')"
+
+nav_script="$(write_runner "45_lidar_nav" '
+echo "Starting lidar SLAM/Nav..."
+exec "${ROOT_DIR}/scripts/hardware/real_lidar_nav.sh"
 ')"
 
 viewer_script="$(write_runner "60_grasp_viewer" '
@@ -497,27 +540,42 @@ echo "Opening raw 2D camera view: ${VIEWER_IMAGE_TOPIC}"
 wait_for_topic "${VIEWER_IMAGE_TOPIC}" "raw camera image"
 exec "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/vision/raw_image_viewer.py" \
   --topic "${VIEWER_IMAGE_TOPIC}" \
-  --window "Arachne Raw Camera"
+  --window "Arachne Raw Camera" \
+  --max-fps 15
 ')"
 
-open_terminal "Arachne Aubo Driver" "${aubo_driver_script}" "${LOG_DIR}/10_aubo_driver.log"
-open_terminal "Arachne Aubo Remote Start" "${aubo_start_script}" "${LOG_DIR}/20_aubo_remote_start.log"
-open_terminal "Arachne Base + Gripper" "${base_script}" "${LOG_DIR}/30_base_gripper_bringup.log"
-open_terminal "Arachne Gemini Camera" "${camera_script}" "${LOG_DIR}/35_gemini_camera.log"
-open_terminal "Arachne Grasp Server" "${server_script}" "${LOG_DIR}/40_grasp_task_server.log"
 open_terminal "Arachne Teach Panel" "${teach_script}" "${LOG_DIR}/50_teach_panel.log"
+open_terminal "Arachne Aubo Driver" "${aubo_driver_script}" "${LOG_DIR}/10_aubo_driver.log"
+if [[ "${AUTO_AUBO_START}" == "true" ]]; then
+  open_terminal "Arachne Aubo Remote Start" "${aubo_start_script}" "${LOG_DIR}/20_aubo_remote_start.log"
+fi
+if [[ "${AUTO_BASE_GRIPPER}" == "true" ]]; then
+  open_terminal "Arachne Base + Gripper" "${base_script}" "${LOG_DIR}/30_base_gripper_bringup.log"
+fi
+if [[ "${AUTO_CAMERA}" == "true" ]]; then
+  open_terminal "Arachne Gemini Camera" "${camera_script}" "${LOG_DIR}/35_gemini_camera.log"
+fi
+if [[ "${AUTO_LIDAR_NAV}" == "true" ]]; then
+  open_terminal "Arachne Lidar SLAM/Nav" "${nav_script}" "${LOG_DIR}/45_lidar_nav.log"
+fi
+if [[ "${AUTO_GRASP_SERVER}" == "true" ]]; then
+  open_terminal "Arachne Grasp Server" "${server_script}" "${LOG_DIR}/40_grasp_task_server.log"
+fi
 if [[ "${WITH_VIEWER}" == "true" ]]; then
   open_terminal "Arachne 2D Grasp View" "${viewer_script}" "${LOG_DIR}/60_grasp_viewer.log"
 fi
 
 cat <<EOF
 
-Console windows launched.
+Console launched.
 Logs and generated runner scripts:
   ${LOG_DIR}
 
 Teach panel grasp controls:
-  G Start / Grasp Start  -> start one grasp task
+  Runtime Services     -> start/stop camera, 2D viewer, SLAM/Nav, grasp server
+  Aubo On / Aubo Start -> power on / startup the real arm
+  Visual Grasp         -> start camera/viewer/server, preflight, then grasp
+  Grasp Start          -> start one grasp task only
   G Stop / Grasp Stop    -> stop current grasp task
   Restore                -> restore recorded base recovery motion
 

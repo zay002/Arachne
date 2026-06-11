@@ -5,6 +5,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import threading
 import time
@@ -574,6 +575,22 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--real-gripper-command-topic", default="/arachne/gripper/command", help=hidden)
     parser.add_argument("--real-gripper-settle-sec", type=float, default=0.35, help=hidden)
+    parser.add_argument("--real-gripper-status-topic", default="/arachne/hardware/gripper_status", help=hidden)
+    parser.add_argument(
+        "--real-gripper-require-capture",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=hidden,
+    )
+    parser.add_argument("--real-gripper-capture-timeout", type=float, default=1.2, help=hidden)
+    parser.add_argument("--real-gripper-capture-min-angle", type=float, default=450.0, help=hidden)
+    parser.add_argument("--real-gripper-empty-close-angle", type=float, default=350.0, help=hidden)
+    parser.add_argument(
+        "--real-gripper-capture-unknown-ok",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=hidden,
+    )
     parser.add_argument("--tool-orientation-limit-deg", type=float, default=35.0, help=hidden)
     parser.add_argument("--grasp-topdown-max-tilt-deg", type=float, default=65.0, help=hidden)
     parser.add_argument("--max-grasp-orientation-candidates", type=int, default=8, help=hidden)
@@ -787,6 +804,8 @@ class GraspPreviewNode(Node):
         self.plan_lock_time = 0.0
         self.tool_to_grasp_matrix: np.ndarray | None = None
         self.tool_to_grasp_frames: tuple[str, str] | None = None
+        self.gripper_status_lock = threading.Lock()
+        self.latest_real_gripper_status: tuple[float, str] | None = None
         self.locked_visual_last_publish = 0.0
         self.missing_frames = 0
         self.last_log_time = 0.0
@@ -805,6 +824,12 @@ class GraspPreviewNode(Node):
                 args.real_joint_states_topic,
                 self._real_joint_state_cb,
                 qos_profile_sensor_data,
+            )
+            self.create_subscription(
+                String,
+                args.real_gripper_status_topic,
+                self._real_gripper_status_cb,
+                10,
             )
         self.moveit_plan_client = (
             self.create_client(GetMotionPlan, str(args.moveit_plan_service))
@@ -945,6 +970,10 @@ class GraspPreviewNode(Node):
             if index < len(msg.position):
                 self.real_joint_positions[name] = float(msg.position[index])
         self.real_joint_state_time = time.monotonic()
+
+    def _real_gripper_status_cb(self, msg: String) -> None:
+        with self.gripper_status_lock:
+            self.latest_real_gripper_status = (time.monotonic(), str(msg.data))
 
     def _moveit_start_state_joint_values(self, q_start: np.ndarray) -> tuple[list[str], list[float]]:
         joint_values: dict[str, float] = {
@@ -1428,6 +1457,7 @@ class GraspPreviewNode(Node):
                             settle = max(float(self.args.real_gripper_settle_sec), 0.0)
                             if settle > 0.0:
                                 time.sleep(settle)
+                            self._require_real_gripper_capture_or_raise()
                     if bool(self.args.real_execute_gripper) and not opened:
                         if label == open_label:
                             self._publish_real_gripper("open")
@@ -1483,6 +1513,7 @@ class GraspPreviewNode(Node):
         self._publish_real_gripper("close")
         if settle > 0.0:
             time.sleep(settle)
+        self._require_real_gripper_capture_or_raise()
         self._send_real_follow_joint_segment(frames, close_index, open_index, "to_release")
         self._publish_real_gripper("open")
         if settle > 0.0:
@@ -1982,6 +2013,79 @@ class GraspPreviewNode(Node):
         msg.data = command
         self.real_gripper_pub.publish(msg)
         self.get_logger().warn(f"REAL gripper command: {command}")
+
+    def _latest_gripper_status(self) -> tuple[float, str] | None:
+        with self.gripper_status_lock:
+            return self.latest_real_gripper_status
+
+    def _wait_real_gripper_capture(self) -> tuple[bool, str]:
+        if not bool(self.args.real_gripper_require_capture):
+            return True, "capture check disabled"
+        timeout = max(float(self.args.real_gripper_capture_timeout), 0.0)
+        deadline = time.monotonic() + timeout
+        last_status = ""
+        last_decision: tuple[bool | None, str] = (None, "waiting for gripper feedback")
+        while rclpy.ok() and not self.stopping and time.monotonic() <= deadline:
+            self._publish_real_gripper("status")
+            time.sleep(0.12)
+            item = self._latest_gripper_status()
+            if item is None:
+                continue
+            age = time.monotonic() - item[0]
+            if age > max(timeout, 0.5) + 0.5:
+                continue
+            last_status = item[1]
+            decision, message = self._classify_real_gripper_capture(last_status)
+            last_decision = (decision, message)
+            if decision is not None:
+                return bool(decision), message
+        decision, message = last_decision
+        if decision is not None:
+            return bool(decision), message
+        if bool(self.args.real_gripper_capture_unknown_ok):
+            return True, f"capture feedback unknown; assuming captured: {last_status or message}"
+        return False, f"capture feedback unavailable: {last_status or message}"
+
+    def _classify_real_gripper_capture(self, status: str) -> tuple[bool | None, str]:
+        text = str(status).strip()
+        if not text:
+            return None, "empty gripper status"
+        if "feedback_timeout" in text or "feedback_bad_checksum" in text:
+            return None, text
+        reached = self._status_number(text, "reached")
+        speed = self._status_number(text, "speed")
+        angle = self._status_number(text, "angle")
+        if angle is None and reached is None and speed is None:
+            return None, text
+        min_angle = float(self.args.real_gripper_capture_min_angle)
+        empty_angle = float(self.args.real_gripper_empty_close_angle)
+        if reached == 0 and speed == 0:
+            return True, f"gripper early-stop capture: {text}"
+        if angle is not None and angle >= min_angle:
+            return True, f"gripper stopped before empty-close angle: {text}"
+        if reached == 1 and angle is not None and angle <= empty_angle:
+            return False, f"gripper_capture_failed: empty close detected: {text}"
+        if speed is not None and speed > 0:
+            return None, f"gripper still moving: {text}"
+        return None, text
+
+    def _status_number(self, text: str, name: str) -> float | None:
+        match = re.search(rf"\b{name}=(-?\d+(?:\.\d+)?)", text)
+        if match is None:
+            return None
+        try:
+            return float(match.group(1))
+        except ValueError:
+            return None
+
+    def _require_real_gripper_capture_or_raise(self) -> None:
+        ok, message = self._wait_real_gripper_capture()
+        if ok:
+            self.get_logger().warn(f"REAL gripper capture check ok: {message}")
+            return
+        self.get_logger().error(message)
+        self._publish_real_gripper("open")
+        raise RuntimeError(message)
 
     def _draw_locked_detection(self, image: np.ndarray, preview: GraspPreview) -> None:
         self._draw_detection_overlay(image, preview.detection, "LOCKED")

@@ -50,7 +50,7 @@ scripts/sim        Gazebo 仿真验证
 scripts/godot      Godot 展示前端
 ```
 
-日常直接使用分类路径，例如 `source scripts/env/arachne_env.sh`、`./scripts/hardware/real_full_teach.sh --yes`、`./scripts/vision/gemini_yolo_live.sh`。新增脚本也应放进对应子目录，并同步更新 README 和 manual。
+日常直接使用分类路径，例如 `source scripts/env/arachne_env.sh`、`./scripts/hardware/real_grasp_console.sh --yes --quick`、`./scripts/vision/gemini_yolo_live.sh`。新增脚本也应放进对应子目录，并同步更新 README 和 manual。
 
 ## 2. 真机测试前检查
 
@@ -200,11 +200,19 @@ ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES \
 
 `grasp_task_server` 是真实抓取的常驻入口。服务启动一次后，每次调用 `/arachne/grasp_task/start` 都会执行一轮完整流程：同步真机姿态 -> YOLO trash 分割 -> depth ROI 定位 -> MoveIt 规划 -> Aubo SDK 运动和夹具开合 -> 投放 -> 回 home。重复抓取时不需要重启 server。
 
-现场优先使用一键总控 console。它会读取本地 `.env.local`，启动服务器上的 MoveIt 2 + OMPL 规划栈，建立本地 SSH tunnel，然后启动 Jetson 上的真机 console：
+现场优先使用施教器总控 console。这个入口会先打开施教器和 RViz，不再等待 Aubo 完全上电或等待 grasp server；相机、2D raw 画面、SLAM/Nav、grasp server 都在施教器 `Home -> Runtime Services` 里按需启动/停止，Aubo 上电/启动也在施教器按钮里完成。
+
+本机规划/调试：
 
 ```bash
 cd /home/jetson/zhaoyang/Arachne
 source scripts/env/arachne_env.sh
+./scripts/hardware/real_grasp_console.sh --yes --quick
+```
+
+如果要使用远端 MoveIt 2 + OMPL 规划，使用 remote wrapper。它会读取本地 `.env.local`，启动服务器规划栈，建立本地 SSH tunnel，然后进入同一个施教器总控：
+
+```bash
 ./scripts/hardware/real_grasp_console_remote.sh
 ```
 
@@ -224,7 +232,7 @@ cp .env.local.example .env.local
 ./scripts/hardware/real_grasp_console_remote.sh restart
 ```
 
-`real_grasp_console_remote.sh` 默认等价于 `--yes --quick --terminal background`。Aubo driver、Aubo 远程启动、Scout/MS42DC、Gemini 相机和 grasp server 都在后台跑，避免一次弹出大量终端；施教器和 raw 2D 相机画面按节点正常显示。RViz 统一使用 `src/arachne_description/rviz/arachne_lidar_fusion.rviz` 这类融合配置时，只保留一个整车 TF/RobotModel 源，避免 mock/teach visualization 双 `robot_state_publisher` 抢同名 TF。后台日志集中在 `log/real_grasp_console/latest/`。
+`real_grasp_console_remote.sh` 默认等价于 `--yes --quick --terminal background`。console 只负责拉起底层守护和施教器，避免一次弹出大量终端；具体功能从施教器 Runtime Services 里启动。console 后台日志在 `log/real_grasp_console/latest/`，施教器自己启动的服务日志在 `log/teach_panel/latest/`。
 
 如果需要现场看某个后台进程输出：
 
@@ -259,7 +267,7 @@ ARACHNE_USE_REMOTE_PLANNER_DEFAULT=false ./scripts/hardware/real_grasp_console.s
 tail -f log/real_grasp_console/latest/*.log
 ```
 
-执行一轮抓取可以直接按施教器里的 `G Start` / `Grasp Start`。命令行等价操作是：
+执行一轮视觉抓取推荐直接按施教器里的 `Visual Grasp`。它会自动启动相机、raw 画面和 grasp server，并等待 preflight 通过。命令行底层调试入口是：
 
 ```bash
 ros2 service call /arachne/grasp_task/start std_srvs/srv/Trigger "{}"
@@ -284,7 +292,7 @@ ros2 service call /arachne/grasp_task/status std_srvs/srv/Trigger "{}"
 tail -f log/grasp_tasks/*/process.log
 ```
 
-`start` 返回 `success=True` 只表示后台任务已启动，不表示抓取已完成。等状态进入 `succeeded`、`failed` 或 `canceled` 后，重新摆放目标，再按一次 `G Start` 或再次调用 start 服务。
+`start` 返回 `success=True` 只表示后台任务已启动，不表示抓取已完成。等状态进入 `succeeded`、`failed` 或 `canceled` 后，重新摆放目标，再按一次 `Visual Grasp` 或再次调用 start 服务。
 
 首次同步新代码后构建一次：
 
@@ -295,7 +303,7 @@ colcon build --packages-select arachne_operator arachne_agent_bridge --symlink-i
 source install/setup.bash
 ```
 
-总控脚本默认打开 `/camera/color/image_raw` 的 raw 2D 画面，方便持续观察末端和物体，不依赖标注图刷新。server 空闲时仍会启动纯感知预览进程并发布 `/arachne/grasp_preview/annotated_image` 供日志/调试使用；真正执行抓取时 YOLO 完成一次目标锁定后暂停重检测，但 raw 画面会继续动态刷新。
+日常视觉抓取直接点击施教器顶部或 `Home` 页里的 `Visual Grasp`。它会自动启动 Gemini Camera、2D Raw View 和 Grasp Server，等待相机 color/depth、Aubo、夹具等 preflight 通过后再开始抓取；默认使用娃娃机式垂直逼近，close 后通过 MS42DC 反馈判断是否空抓，空抓时会重新拍摄并最多重试 3 次。`Grasp Start` 是底层服务调试入口，不会自动拉起依赖服务。raw 画面订阅 `/camera/color/image_raw`，抓取开始后可以继续动态观察末端运动；YOLO 在目标锁定后会暂停重复检测，但 raw 画面不依赖标注图刷新。`real_grasp_console.sh` 默认使用 320x240 彩色流保证远程桌面流畅，深度仍保持 640x480；如需高分辨率彩色流，可设置 `ARACHNE_CONSOLE_CAMERA_COLOR_WIDTH=640 ARACHNE_CONSOLE_CAMERA_COLOR_HEIGHT=480`。
 
 示教器可以和 server 同时开着，但不能同时下发机械臂动作。示教器空闲时不占控制权；只有 `teach_on/teach_off` 或手动 jog 正在执行时，才会写入 `/tmp/arachne_aubo_control_owner`。真实抓取发 `moveJoint` 前也会独占这个 owner，并写 `/tmp/arachne_aubo_teach_mode=1` 暂停 ROS driver 的 `servoJoint` 保持。若 preflight 提示 `aubo_control_owner` 或 `aubo_teach_gate` busy，先停止手动 jog 或发送 teach off，再重新 start。
 
@@ -574,30 +582,31 @@ xdg-open frames.pdf
 ```bash
 cd /home/jetson/zhaoyang/Arachne
 source scripts/env/arachne_env.sh
-./scripts/hardware/real_full_teach.sh --yes
+./scripts/hardware/real_grasp_console.sh --yes --quick
 ```
 
-这个脚本会自动完成：
+这个入口会自动完成：
 
-1. 检查 ROS、串口、Aubo 网络和 vendor 链接。
-2. 启动 Aubo ROS2 driver。
-3. 远程执行 Aubo `poweron` 和 `startup`。
-4. 写入 Aubo 负载参数。
-5. 验证 Aubo hold 控制。
-6. 启动 Scout 底盘和 MS42DC 夹具 bringup。
-7. 打开施教器，并同时启动 RViz 可视化。
-8. 施教器退出后自动停止后台 bringup 进程。
+1. 读取 `.env.local` 和真机默认参数。
+2. 停掉旧的 real stack 残留进程。
+3. 启动施教器和 RViz 可视化。
+4. 启动 Aubo ROS2 driver 的 guarded prestart。
+5. 启动 Scout 底盘和 MS42DC 夹具 bringup。
+6. 把相机、2D raw 画面、SLAM/Nav、grasp server 的启停交给施教器 Runtime Services。
 
-如果要保留 bringup 进程：
+默认不会自动远程执行 Aubo `poweron/startup`，施教器不需要等机械臂完全上电才能打开。需要远程上电时，在施教器里点 `Aubo On` / `Aubo Start`；如果确实要恢复旧的自动上电流程：
 
 ```bash
-./scripts/hardware/real_full_teach.sh --yes --keep-running
+ARACHNE_CONSOLE_AUTO_AUBO_START=true ./scripts/hardware/real_grasp_console.sh --yes --quick
 ```
 
-如果要把录制文件放到指定目录：
+如果启动时就自动打开相机、2D 画面或 grasp server：
 
 ```bash
-./scripts/hardware/real_full_teach.sh --yes -- recording_dir:=recordings/teach_demo
+ARACHNE_CONSOLE_AUTO_CAMERA=true \
+ARACHNE_CONSOLE_WITH_VIEWER=true \
+ARACHNE_CONSOLE_AUTO_GRASP_SERVER=true \
+./scripts/hardware/real_grasp_console.sh --yes --quick
 ```
 
 ## 5. 施教器操作要点
@@ -611,10 +620,15 @@ source scripts/env/arachne_env.sh
 - 单关节：可长按 J1-J6 单独点动。
 - 目标移动：可输入指定关节角度或指定 TCP 的 X/Y/Z 位置。
 - Home / Install：顶部、`Home` 页和 `Move` 页面都有长按移动按钮。
+- Aubo On / Aubo Start / Aubo Off：施教器内远程上电、启动和断电，不要求面板启动前机械臂已经 Running。
+- Runtime Services：在 `Home` 页启动/停止 Gemini Camera、2D Raw View、SLAM/Nav、Grasp Server。Quick Control 里的 `Visual Grasp` 是推荐抓取入口，会自动启动相机、raw 画面和 grasp server 并等待 preflight；`Camera` 只启动相机驱动和 raw 画面。raw viewer 默认限制到 15 FPS，console 默认彩色流为 320x240、深度为 640x480，避免远程桌面卡顿。
 - Grasp Start / Grasp Stop / Restore：调用常驻 grasp server 执行抓取、停止任务、恢复规划恢复时的小幅底盘移动。
 - 预设配置：`Configure` 页面可设置 Home / Install 位姿，并保存/加载本地配置。
 - 录制回放：`Program` 页面录制 waypoint、wait、保存、加载、回放。
+- 日志：面板状态和硬件状态变化写入 `log/teach_panel/latest/events.jsonl`；施教器启动的服务各自写入 `log/teach_panel/latest/<service>.log`。
 - 窗口缩放：各页面支持滚动，小窗口或远程桌面下不会裁掉底部控件。
+
+SLAM/Nav 按钮会启动 `real_lidar_nav.sh`，链路是 `LSlidar C16 /lslidar_point_cloud -> pointcloud_to_laserscan /scan -> slam_toolbox map->odom -> Nav2`。同时会打开 `arachne_nav_topdown.rviz` 的俯视窗口，固定坐标系为 `map`，显示 `/map`、`/scan`、局部/全局 costmap 和规划路径。使用 RViz 顶部 `Nav2 Goal` 工具可以给小车定点导航；若刚启动还没有地图，先让小车在安全范围内慢速移动几步，让 SLAM 建出足够环境轮廓。
 
 默认 Home 和 Install 位姿：
 
@@ -678,7 +692,7 @@ recordings/teach/teach_panel_config.json
 如果要启动时加载其它配置文件：
 
 ```bash
-./scripts/hardware/real_full_teach.sh --yes -- \
+./scripts/hardware/real_grasp_console.sh --yes --quick -- \
   teach_config_path:=recordings/teach/my_teach_config.json
 ```
 
@@ -713,7 +727,7 @@ arm motion blocked by safety zone: ... enters rear rack keepout ...
 如果后置架实际安装位置和模型有偏差，可以启动时微调安全区：
 
 ```bash
-./scripts/hardware/real_full_teach.sh --yes -- \
+./scripts/hardware/real_grasp_console.sh --yes --quick -- \
   rear_rack_keepout_min_xyz:="-0.43,-0.24,0.03" \
   rear_rack_keepout_max_xyz:="0.11,0.24,0.84"
 ```
@@ -741,7 +755,7 @@ cog  = 0.039927,0.045067,0.143233 m
 - `scripts/env/arachne_real_defaults.sh`
 - `recordings/teach/teach_panel_config.json`
 
-`real_full_teach.sh` 和 `real_full_acceptance.sh` 会先读取共享 defaults，再在启动流程中写入该 payload。若更换充电枪、相机或夹具，需要调整：
+`real_grasp_console.sh`、`real_full_teach.sh` 和 `real_full_acceptance.sh` 都会读取共享 defaults；当启用自动 Aubo startup 或运行验收流程时，会按这里的 payload 写入控制器。若更换充电枪、相机或夹具，需要调整：
 
 ```bash
 cd /home/jetson/zhaoyang/Arachne
@@ -756,7 +770,8 @@ ARACHNE_CONFIRM_AUBO_PAYLOAD=YES python3 scripts/hardware/real_aubo_payload.py \
 ```bash
 ARACHNE_AUBO_PAYLOAD_MASS=0.818 \
 ARACHNE_AUBO_PAYLOAD_COG=0.039927,0.045067,0.143233 \
-./scripts/hardware/real_full_teach.sh --yes
+ARACHNE_CONSOLE_AUTO_AUBO_START=true \
+./scripts/hardware/real_grasp_console.sh --yes --quick
 ```
 
 说明：
@@ -859,10 +874,11 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 
 ## 10. 日志位置
 
-一键施教日志：
+施教器总控日志：
 
 ```text
-/home/jetson/zhaoyang/Arachne/log/real_full_teach/YYYYMMDD_HHMMSS/
+/home/jetson/zhaoyang/Arachne/log/real_grasp_console/latest/
+/home/jetson/zhaoyang/Arachne/log/teach_panel/latest/
 ```
 
 一键验收日志：
@@ -970,7 +986,7 @@ ros2 topic info -v /joint_states
 然后重新启动：
 
 ```bash
-./scripts/hardware/real_full_teach.sh --yes
+./scripts/hardware/real_grasp_console.sh --yes --quick
 ```
 
 ### XYZ 运动时姿态不应变化

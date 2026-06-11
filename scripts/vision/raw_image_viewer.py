@@ -7,16 +7,20 @@ import time
 import cv2
 import numpy as np
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 
 
 class RawImageViewer(Node):
-    def __init__(self, topic: str, window: str) -> None:
+    def __init__(self, topic: str, window: str, max_fps: float) -> None:
         super().__init__("arachne_raw_image_viewer")
         self.topic = topic
         self.window = window
+        self.max_period = 1.0 / max(float(max_fps), 1.0)
         self.latest: Image | None = None
+        self.latest_serial = 0
+        self.displayed_serial = -1
         self.window_created = False
         self.frame_count = 0
         self.last_frame_time = 0.0
@@ -25,27 +29,52 @@ class RawImageViewer(Node):
 
     def _image_cb(self, msg: Image) -> None:
         self.latest = msg
+        self.latest_serial += 1
 
     def spin_ui_once(self) -> bool:
-        if self.latest is not None:
+        now = time.monotonic()
+        if not self.window_created:
+            cv2.namedWindow(self.window, cv2.WINDOW_NORMAL)
+            self.window_created = True
+            self._show_waiting_image("waiting for image...")
+        if (
+            self.latest is not None
+            and self.latest_serial != self.displayed_serial
+            and now - self.last_frame_time >= self.max_period
+        ):
             try:
                 image = self._decode(self.latest)
-                if not self.window_created:
-                    cv2.namedWindow(self.window, cv2.WINDOW_NORMAL)
-                    self.window_created = True
                 cv2.imshow(self.window, image)
+                self.displayed_serial = self.latest_serial
                 self.frame_count += 1
                 if self.frame_count == 1:
                     self.get_logger().info(
                         f"first frame displayed: {image.shape[1]}x{image.shape[0]}"
                     )
-                self.last_frame_time = time.monotonic()
+                self.last_frame_time = now
             except Exception as exc:
                 self.get_logger().warn(f"failed to display image: {exc}", throttle_duration_sec=2.0)
-        key = cv2.waitKey(1 if self.window_created else 20) & 0xFF
+        elif self.frame_count == 0 and now - self.last_frame_time >= 1.0:
+            self._show_waiting_image(f"waiting for {self.topic}")
+            self.last_frame_time = now
+        key = cv2.waitKey(10) & 0xFF
         if key in (ord("q"), 27):
             return False
         return True
+
+    def _show_waiting_image(self, text: str) -> None:
+        image = np.zeros((360, 640, 3), dtype=np.uint8)
+        cv2.putText(
+            image,
+            text,
+            (32, 185),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (80, 220, 120),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.imshow(self.window, image)
 
     def _decode(self, msg: Image) -> np.ndarray:
         height = int(msg.height)
@@ -76,20 +105,24 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--topic", default="/camera/color/image_raw")
     parser.add_argument("--window", default="Arachne Raw Camera")
+    parser.add_argument("--max-fps", type=float, default=20.0)
     args = parser.parse_args()
 
     rclpy.init()
-    node = RawImageViewer(args.topic, args.window)
+    node = RawImageViewer(args.topic, args.window, args.max_fps)
     try:
         while rclpy.ok() and node.spin_ui_once():
             rclpy.spin_once(node, timeout_sec=0.02)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
     finally:
         node.destroy_node()
         try:
             cv2.destroyAllWindows()
         except cv2.error:
             pass
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

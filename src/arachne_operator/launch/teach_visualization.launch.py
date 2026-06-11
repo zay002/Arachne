@@ -49,7 +49,13 @@ def launch_setup(context, *args, **kwargs):
             executable="robot_state_publisher",
             name="arachne_teach_robot_state_publisher",
             parameters=[{"robot_description": robot_description}],
-            remappings=[("joint_states", visualization_joint_states)],
+            remappings=[
+                ("joint_states", visualization_joint_states),
+                (
+                    "robot_description",
+                    LaunchConfiguration("display_robot_description_topic"),
+                ),
+            ],
             output="screen",
         ),
         Node(
@@ -70,6 +76,10 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "visualization_joint_states_topic",
                 default_value="/arachne/teach_visualization/joint_states",
+            ),
+            DeclareLaunchArgument(
+                "display_robot_description_topic",
+                default_value="/arachne/display/robot_description",
             ),
             DeclareLaunchArgument("with_rviz", default_value="true"),
             DeclareLaunchArgument(

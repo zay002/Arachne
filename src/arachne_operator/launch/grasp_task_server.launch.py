@@ -34,11 +34,14 @@ def generate_launch_description():
                     "--planner-backend local "
                     "--planning-key-waypoints approach,grasp,safe_mid,basket_over "
                     "--vertical-approach --no-lock-grasp-orientation "
-                    "--tool-orientation-limit-deg 35 "
-                    "--real-sdk-semantic-targets-only --real-sdk-max-targets 8"
+                    "--tool-orientation-limit-deg 45 "
+                    "--grasp-orientation-yaw-offsets-deg 0,15,-15,30,-30 "
+                    "--grasp-orientation-tilt-offsets-deg 0,8,-8 "
+                    "--real-gripper-require-capture "
+                    "--real-sdk-semantic-targets-only --real-sdk-max-targets 6"
                 ),
             ),
-            DeclareLaunchArgument("preview_on_start", default_value="true"),
+            DeclareLaunchArgument("preview_on_start", default_value="false"),
             DeclareLaunchArgument("preview_extra_args", default_value="--planner-backend none"),
             DeclareLaunchArgument("planning_recovery_base_enabled", default_value="false"),
             DeclareLaunchArgument(
@@ -48,8 +51,13 @@ def generate_launch_description():
             DeclareLaunchArgument("planning_recovery_restore_on_failure", default_value="true"),
             DeclareLaunchArgument("log_root", default_value="log/grasp_tasks"),
             DeclareLaunchArgument("require_safety_state_machine", default_value="false"),
+            DeclareLaunchArgument("require_aubo_status", default_value="false"),
+            DeclareLaunchArgument("require_gripper_status", default_value="false"),
             DeclareLaunchArgument("require_odom", default_value="false"),
             DeclareLaunchArgument("require_camera_topics", default_value="false"),
+            DeclareLaunchArgument("max_grasp_attempts", default_value="3"),
+            DeclareLaunchArgument("retry_on_gripper_miss", default_value="true"),
+            DeclareLaunchArgument("gripper_miss_retry_delay_sec", default_value="0.8"),
             DeclareLaunchArgument("set_safety_autonomous_on_start", default_value="true"),
             DeclareLaunchArgument("set_safety_manual_on_finish", default_value="true"),
             DeclareLaunchArgument("cmd_vel_topic", default_value="/cmd_vel"),
@@ -123,11 +131,26 @@ def generate_launch_description():
                         "require_safety_state_machine": ParameterValue(
                             LaunchConfiguration("require_safety_state_machine"), value_type=bool
                         ),
+                        "require_aubo_status": ParameterValue(
+                            LaunchConfiguration("require_aubo_status"), value_type=bool
+                        ),
+                        "require_gripper_status": ParameterValue(
+                            LaunchConfiguration("require_gripper_status"), value_type=bool
+                        ),
                         "require_odom": ParameterValue(
                             LaunchConfiguration("require_odom"), value_type=bool
                         ),
                         "require_camera_topics": ParameterValue(
                             LaunchConfiguration("require_camera_topics"), value_type=bool
+                        ),
+                        "max_grasp_attempts": ParameterValue(
+                            LaunchConfiguration("max_grasp_attempts"), value_type=int
+                        ),
+                        "retry_on_gripper_miss": ParameterValue(
+                            LaunchConfiguration("retry_on_gripper_miss"), value_type=bool
+                        ),
+                        "gripper_miss_retry_delay_sec": ParameterValue(
+                            LaunchConfiguration("gripper_miss_retry_delay_sec"), value_type=float
                         ),
                         "set_safety_autonomous_on_start": ParameterValue(
                             LaunchConfiguration("set_safety_autonomous_on_start"),

@@ -26,6 +26,10 @@ PATTERNS=(
   "/opt/ros/humble/lib/robot_state_publisher/robot_state_publisher"
   "ros2 launch arachne_hardware real_bringup.launch.py"
   "ros2 launch arachne_operator teach_panel.launch.py"
+  "/install/arachne_operator/lib/arachne_operator/teach_panel"
+  "rviz2.*arachne_lidar_fusion.rviz"
+  "rviz2.*arachne_nav_topdown.rviz"
+  "rviz2.*arachne_model.rviz"
   "ros2 launch arachne_operator grasp_task_server.launch.py"
   "/install/arachne_operator/lib/arachne_operator/grasp_task_server"
   "/scripts/hardware/real_grasp_console.sh"
@@ -64,6 +68,14 @@ sleep "${GRACE_SEC}"
 for pid in "${PIDS[@]}"; do
   if kill -0 "${pid}" 2>/dev/null; then
     kill "${pid}" 2>/dev/null || true
+  fi
+done
+
+sleep 0.5
+
+for pid in "${PIDS[@]}"; do
+  if kill -0 "${pid}" 2>/dev/null; then
+    kill -KILL "${pid}" 2>/dev/null || true
   fi
 done
 

@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import math
 import os
+import signal
+import shlex
 import socket
+import subprocess
 import threading
 import time
 from dataclasses import asdict, dataclass, fields, field
@@ -52,6 +55,12 @@ DEFAULT_REAR_RACK_KEEPOUT_MAX_XYZ = "0.09,0.22,0.82"
 DEFAULT_TEACH_CONFIG_PATH = "recordings/teach/teach_panel_config.json"
 DEFAULT_AUBO_TEACH_FLAG_PATH = "/tmp/arachne_aubo_teach_mode"
 DEFAULT_AUBO_CONTROL_OWNER_PATH = "/tmp/arachne_aubo_control_owner"
+MANAGED_SERVICE_COMMAND_PARAMS = {
+    "camera": "camera_command",
+    "viewer": "camera_view_command",
+    "slam": "slam_command",
+    "grasp_server": "grasp_server_command",
+}
 
 
 def _control_owner_payload(owner: str) -> str:
@@ -385,11 +394,43 @@ class TeachPanelNode(Node):
         self.declare_parameter("recording_dir", "recordings/teach")
         self.declare_parameter("teach_config_path", DEFAULT_TEACH_CONFIG_PATH)
         self.declare_parameter("teach_config_autoload", True)
+        self.declare_parameter("workspace_root", "")
+        self.declare_parameter("runtime_log_root", "log/teach_panel")
+        self.declare_parameter("service_stop_timeout_sec", 4.0)
+        self.declare_parameter(
+            "camera_command",
+            (
+                "ros2 launch arachne_sensors gemini335.launch.py "
+                "publish_pointcloud:=false with_color_view:=false with_depth_view:=false "
+                "with_tf:=true camera_parent_frame:=ee_camera_link "
+                "projection_flip_x:=true projection_flip_y:=true"
+            ),
+        )
+        self.declare_parameter(
+            "camera_view_command",
+            (
+                "${ARACHNE_SYSTEM_PYTHON:-python3} scripts/vision/raw_image_viewer.py "
+                "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 15"
+            ),
+        )
+        self.declare_parameter("slam_command", "scripts/hardware/real_lidar_nav.sh")
+        self.declare_parameter(
+            "grasp_server_command",
+            (
+                "scripts/vision/grasp_task_server.sh "
+                "execute_real:=true confirm_execute_real:=true with_rviz:=false "
+                "preview_on_start:=false planning_recovery_base_enabled:=false "
+                "require_odom:=false require_camera_topics:=true "
+                "require_aubo_status:=false require_gripper_status:=false "
+                "max_grasp_attempts:=3 retry_on_gripper_miss:=true"
+            ),
+        )
         self.declare_parameter("grasp_task_state_topic", "/arachne/grasp_task/state")
         self.declare_parameter("grasp_task_start_service", "/arachne/grasp_task/start")
         self.declare_parameter("grasp_task_stop_service", "/arachne/grasp_task/stop")
         self.declare_parameter("grasp_task_restore_service", "/arachne/grasp_task/restore")
         self.declare_parameter("grasp_task_status_service", "/arachne/grasp_task/status")
+        self.declare_parameter("grasp_task_preflight_service", "/arachne/grasp_task/preflight")
 
         self.arm_state_joint_names = _parse_names(str(self.get_parameter("arm_state_joint_names").value))
         self.arm_command_joint_names = _parse_names(
@@ -439,6 +480,9 @@ class TeachPanelNode(Node):
             ),
             "status": self.create_client(
                 Trigger, str(self.get_parameter("grasp_task_status_service").value)
+            ),
+            "preflight": self.create_client(
+                Trigger, str(self.get_parameter("grasp_task_preflight_service").value)
             ),
         }
 
@@ -492,13 +536,70 @@ class TeachPanelNode(Node):
         self.replay_thread: threading.Thread | None = None
         self._active_goal_handle = None
         self._last_manual_arm_stream_status = 0.0
+        self.workspace_root = self._resolve_workspace_root()
+        self.runtime_log_dir = self._make_runtime_log_dir()
+        self.event_log_path = self.runtime_log_dir / "events.jsonl"
+        self.managed_processes: dict[str, subprocess.Popen] = {}
+        self.managed_process_logs: dict[str, Path] = {}
+        self.managed_process_log_handles: dict[str, Any] = {}
+        self.last_logged_hardware_status: dict[str, str] = {}
         if bool(self.get_parameter("teach_config_autoload").value):
             self.load_teach_config(status=False)
         publish_rate = max(float(self.get_parameter("base_manual_publish_rate").value), 1.0)
         self.create_timer(1.0 / publish_rate, self._publish_manual_base_velocity)
         arm_velocity_rate = max(float(self.get_parameter("arm_velocity_publish_rate").value), 1.0)
         self.create_timer(1.0 / arm_velocity_rate, self._publish_manual_arm_velocity)
-        self._status("ready")
+        self._status(f"ready; logs={self.runtime_log_dir}")
+
+    def _resolve_workspace_root(self) -> Path:
+        configured = str(self.get_parameter("workspace_root").value).strip()
+        if configured:
+            return Path(configured).expanduser().resolve()
+        for parent in Path(__file__).resolve().parents:
+            if (parent / "scripts/env/arachne_env.sh").exists():
+                return parent
+        return Path.cwd().resolve()
+
+    def _workspace_path(self, path: str | Path) -> Path:
+        resolved = Path(str(path)).expanduser()
+        if not resolved.is_absolute():
+            resolved = self.workspace_root / resolved
+        return resolved
+
+    def _make_runtime_log_dir(self) -> Path:
+        root = self._workspace_path(str(self.get_parameter("runtime_log_root").value))
+        directory = root / datetime.now().strftime("%Y%m%d_%H%M%S")
+        directory.mkdir(parents=True, exist_ok=True)
+        latest = root / "latest"
+        try:
+            latest.unlink(missing_ok=True)
+            latest.symlink_to(directory)
+        except OSError:
+            pass
+        return directory
+
+    def _write_event(self, kind: str, message: str, **fields: Any) -> None:
+        path = getattr(self, "event_log_path", None)
+        if path is None:
+            return
+        payload = {
+            "stamp": datetime.now().isoformat(timespec="milliseconds"),
+            "kind": kind,
+            "message": str(message),
+            **fields,
+        }
+        try:
+            with Path(path).open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+        except OSError as exc:
+            self.get_logger().warning(f"teach event log write failed: {exc}")
+
+    def _log_hardware_status_change(self, key: str, value: str) -> None:
+        previous = self.last_logged_hardware_status.get(key)
+        if previous == value:
+            return
+        self.last_logged_hardware_status[key] = value
+        self._write_event("hardware_status", value, key=key)
 
     def _odom_callback(self, msg: Odometry) -> None:
         pose = Pose2D(msg.pose.pose.position.x, msg.pose.pose.position.y, _yaw_from_odom(msg))
@@ -547,10 +648,12 @@ class TeachPanelNode(Node):
 
     def _status_callback(self, key: str):
         def callback(msg: String) -> None:
+            data = msg.data
             with self.lock:
-                self.hardware_status[key] = msg.data
+                self.hardware_status[key] = data
                 if key == "Aubo":
-                    self._update_aubo_teach_state_locked(msg.data)
+                    self._update_aubo_teach_state_locked(data)
+            self._log_hardware_status_change(key, data)
 
         return callback
 
@@ -570,6 +673,7 @@ class TeachPanelNode(Node):
             self.hardware_status["Gripper"] = data
             if first in ("open", "close", "stop"):
                 self.gripper_state = first
+        self._log_hardware_status_change("Gripper", data)
 
     def _grasp_task_state_callback(self, msg: String) -> None:
         data = msg.data.strip()
@@ -583,12 +687,17 @@ class TeachPanelNode(Node):
             pass
         with self.lock:
             self.hardware_status["Grasp"] = label
+        self._log_hardware_status_change("Grasp", label)
 
     def snapshot(self) -> dict[str, str]:
         with self.lock:
             base = self.base_pose
             tool = self.tool_position
             arm_ready = self._current_arm_vector_locked() is not None
+            managed = {
+                key: self._managed_process_status_locked(key)
+                for key in MANAGED_SERVICE_COMMAND_PARAMS
+            }
             return {
                 "base": (
                     f"x={base.x:.3f} y={base.y:.3f} yaw={math.degrees(base.yaw):.1f}deg"
@@ -605,6 +714,11 @@ class TeachPanelNode(Node):
                 "teach": "on" if self.aubo_teach_gate_active else "off",
                 "grasp_task": self.hardware_status.get("Grasp", "waiting"),
                 "status": self.last_status,
+                "camera": managed["camera"],
+                "viewer": managed["viewer"],
+                "slam": managed["slam"],
+                "grasp_server": managed["grasp_server"],
+                "log_dir": str(self.runtime_log_dir),
                 **self.hardware_status,
             }
 
@@ -624,16 +738,14 @@ class TeachPanelNode(Node):
             return list(self.log_lines)
 
     def recording_dir(self) -> Path:
-        directory = Path(str(self.get_parameter("recording_dir").value))
-        if not directory.is_absolute():
-            directory = Path.cwd() / directory
+        directory = self._workspace_path(str(self.get_parameter("recording_dir").value))
         directory.mkdir(parents=True, exist_ok=True)
         return directory
 
     def teach_config_path(self, path: str | Path | None = None) -> Path:
-        config_path = Path(str(path if path is not None else self.get_parameter("teach_config_path").value))
-        if not config_path.is_absolute():
-            config_path = Path.cwd() / config_path
+        config_path = self._workspace_path(
+            str(path if path is not None else self.get_parameter("teach_config_path").value)
+        )
         config_path.parent.mkdir(parents=True, exist_ok=True)
         return config_path
 
@@ -1139,6 +1251,65 @@ class TeachPanelNode(Node):
             return
         self._start_worker(lambda: self._call_grasp_task_worker(command))
 
+    def visual_grasp_start(self) -> None:
+        self._start_worker(self._visual_grasp_start_worker)
+
+    def _visual_grasp_start_worker(self) -> None:
+        self.drive_base_manual("stop")
+        self.stop_arm_velocity_hold()
+        if self._aubo_teach_gate_may_be_active():
+            self._publish_aubo_teach_command("teach_off")
+            ready = self.aubo_teach_ready_event.wait(
+                max(float(self.get_parameter("aubo_teach_exit_wait_sec").value), 0.0)
+            )
+            if not ready or self._aubo_teach_gate_may_be_active():
+                self._status("visual grasp blocked: Aubo teach mode still active", warn=True)
+                return
+
+        self._status("visual grasp: starting camera, raw view, and grasp server")
+        self._start_managed_process_worker("camera")
+        time.sleep(0.8)
+        self._start_managed_process_worker("viewer")
+        self._start_managed_process_worker("grasp_server")
+
+        preflight = self.grasp_task_clients.get("preflight")
+        if preflight is None:
+            self._status("visual grasp blocked: missing preflight client", warn=True)
+            return
+        service_name = getattr(preflight, "srv_name", "preflight")
+        if not preflight.wait_for_service(timeout_sec=15.0):
+            self._status(f"visual grasp blocked: preflight unavailable: {service_name}", warn=True)
+            return
+
+        deadline = time.monotonic() + 30.0
+        last_message = ""
+        while time.monotonic() < deadline:
+            future = preflight.call_async(Trigger.Request())
+            if not self._wait_service_future(future, 5.0):
+                last_message = f"preflight timeout: {service_name}"
+                self._status(f"visual grasp: {last_message}", warn=True)
+                time.sleep(0.5)
+                continue
+            response = future.result()
+            success = bool(response.success) if response is not None else False
+            message = response.message if response is not None else "empty response"
+            if success:
+                self._status("visual grasp: preflight ok, starting task")
+                self._call_grasp_task_worker("start")
+                return
+
+            failures = self._required_preflight_failures(message)
+            last_message = self._format_preflight_failures(failures, message)
+            failure_names = {str(item.get("name", "")) for item in failures}
+            if failure_names and failure_names <= {"color_image", "depth_image"}:
+                self._status(f"visual grasp: waiting for camera/depth ({last_message})")
+                time.sleep(0.8)
+                continue
+            self._status(f"visual grasp blocked: {last_message}", warn=True)
+            return
+
+        self._status(f"visual grasp blocked: preflight never became ready ({last_message})", warn=True)
+
     def _call_grasp_task_worker(self, command: str) -> None:
         client = self.grasp_task_clients.get(command)
         if client is None:
@@ -1198,6 +1369,36 @@ class TeachPanelNode(Node):
         except json.JSONDecodeError:
             pass
         return text[:180]
+
+    def _required_preflight_failures(self, message: str) -> list[dict[str, Any]]:
+        try:
+            payload = json.loads(str(message))
+        except json.JSONDecodeError:
+            return [{"name": "preflight", "message": str(message), "required": True}]
+        checks = payload.get("checks", [])
+        if not isinstance(checks, list):
+            return [{"name": "preflight", "message": str(message), "required": True}]
+        failures: list[dict[str, Any]] = []
+        for item in checks:
+            if not isinstance(item, dict):
+                continue
+            if bool(item.get("required", True)) and not bool(item.get("ok", False)):
+                failures.append(item)
+        return failures
+
+    def _format_preflight_failures(
+        self, failures: list[dict[str, Any]], fallback: str
+    ) -> str:
+        if not failures:
+            return self._short_grasp_task_message(fallback)
+        parts = []
+        for item in failures[:4]:
+            name = str(item.get("name", "check")).strip()
+            message = str(item.get("message", "")).strip()
+            parts.append(f"{name}: {message}" if message else name)
+        if len(failures) > 4:
+            parts.append(f"+{len(failures) - 4} more")
+        return "; ".join(parts)
 
     def jog_arm(self, axis: str, sign: float) -> None:
         self.cancel_event.clear()
@@ -2622,6 +2823,162 @@ class TeachPanelNode(Node):
     def _start_worker(self, target) -> None:
         threading.Thread(target=target, daemon=True).start()
 
+    def _managed_process_status_locked(self, name: str) -> str:
+        process = self.managed_processes.get(name)
+        if process is None:
+            return "stopped"
+        result = process.poll()
+        if result is None:
+            return f"running pid={process.pid}"
+        return f"exited {result}"
+
+    def start_managed_process(self, name: str) -> None:
+        if name not in MANAGED_SERVICE_COMMAND_PARAMS:
+            self._status(f"service start ignored unknown service: {name}", warn=True)
+            return
+        self._start_worker(lambda: self._start_managed_process_worker(name))
+
+    def start_camera_stack(self) -> None:
+        self.start_managed_process("camera")
+
+        def delayed_viewer() -> None:
+            time.sleep(0.8)
+            self.start_managed_process("viewer")
+
+        self._start_worker(delayed_viewer)
+
+    def stop_managed_process(self, name: str) -> None:
+        if name not in MANAGED_SERVICE_COMMAND_PARAMS:
+            self._status(f"service stop ignored unknown service: {name}", warn=True)
+            return
+        self._start_worker(lambda: self._stop_managed_process_worker(name))
+
+    def toggle_managed_process(self, name: str) -> None:
+        with self.lock:
+            process = self.managed_processes.get(name)
+            running = process is not None and process.poll() is None
+        if running:
+            self.stop_managed_process(name)
+        else:
+            self.start_managed_process(name)
+
+    def stop_all_managed_processes(self) -> None:
+        for name in list(MANAGED_SERVICE_COMMAND_PARAMS):
+            self._stop_managed_process_worker(name, quiet=True)
+
+    def _start_managed_process_worker(self, name: str) -> None:
+        command_param = MANAGED_SERVICE_COMMAND_PARAMS[name]
+        command = str(self.get_parameter(command_param).value).strip()
+        if not command:
+            self._status(f"service {name} has empty command", warn=True)
+            return
+        already_message = ""
+        with self.lock:
+            existing = self.managed_processes.get(name)
+            if existing is not None and existing.poll() is None:
+                already_message = f"service {name} already running pid={existing.pid}"
+        if already_message:
+            self._status(already_message)
+            return
+
+        log_path = self.runtime_log_dir / f"{name}.log"
+        shell_command = "\n".join(
+            [
+                "set -euo pipefail",
+                f"cd {shlex.quote(str(self.workspace_root))}",
+                "set +u",
+                "source scripts/env/arachne_env.sh",
+                "[[ -f install/setup.bash ]] && source install/setup.bash",
+                "[[ -f scripts/env/arachne_real_defaults.sh ]] && source scripts/env/arachne_real_defaults.sh",
+                "set -u",
+                f"exec {command}",
+            ]
+        )
+        try:
+            handle = log_path.open("a", encoding="utf-8")
+            handle.write(
+                f"\n[{datetime.now().isoformat(timespec='seconds')}] start {name}: {command}\n"
+            )
+            handle.flush()
+            process = subprocess.Popen(
+                ["bash", "-lc", shell_command],
+                cwd=str(self.workspace_root),
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                text=True,
+            )
+        except Exception as exc:
+            try:
+                handle.close()  # type: ignore[possibly-undefined]
+            except Exception:
+                pass
+            self._status(f"service {name} start failed: {exc}", warn=True)
+            return
+
+        with self.lock:
+            old_handle = self.managed_process_log_handles.pop(name, None)
+            if old_handle is not None:
+                try:
+                    old_handle.close()
+                except OSError:
+                    pass
+            self.managed_processes[name] = process
+            self.managed_process_logs[name] = log_path
+            self.managed_process_log_handles[name] = handle
+            self.hardware_status[f"Svc:{name}"] = f"running pid={process.pid}"
+        self._write_event(
+            "service_start",
+            f"{name} running pid={process.pid}",
+            service=name,
+            command=command,
+            log=str(log_path),
+            pid=process.pid,
+        )
+        self._status(f"service {name} started pid={process.pid}; log={log_path}")
+
+    def _stop_managed_process_worker(self, name: str, *, quiet: bool = False) -> None:
+        timeout_sec = max(float(self.get_parameter("service_stop_timeout_sec").value), 0.5)
+        with self.lock:
+            process = self.managed_processes.get(name)
+        if process is None:
+            if not quiet:
+                self._status(f"service {name} already stopped")
+            return
+
+        result = process.poll()
+        if result is None:
+            if not quiet:
+                self._status(f"service {name} stopping pid={process.pid}")
+            try:
+                os.killpg(process.pid, signal.SIGINT)
+                process.wait(timeout=timeout_sec)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                    process.wait(timeout=2.0)
+                except Exception as exc:
+                    if not quiet:
+                        self._status(f"service {name} terminate failed: {exc}", warn=True)
+            except ProcessLookupError:
+                pass
+            except Exception as exc:
+                if not quiet:
+                    self._status(f"service {name} stop failed: {exc}", warn=True)
+        result = process.poll()
+        with self.lock:
+            self.managed_processes.pop(name, None)
+            self.hardware_status[f"Svc:{name}"] = f"stopped ({result})"
+            handle = self.managed_process_log_handles.pop(name, None)
+        if handle is not None:
+            try:
+                handle.close()
+            except OSError:
+                pass
+        self._write_event("service_stop", f"{name} stopped result={result}", service=name)
+        if not quiet:
+            self._status(f"service {name} stopped result={result}")
+
     def _start_manual_arm_worker(self, target) -> None:
         def runner() -> None:
             if not self.manual_arm_command_lock.acquire(blocking=False):
@@ -2803,6 +3160,7 @@ class TeachPanelNode(Node):
             self.last_status = text
             self.log_lines.append(f"{stamp} {'WARN' if warn else 'INFO'} {text}")
             self.log_lines = self.log_lines[-300:]
+        self._write_event("status", text, level="warn" if warn else "info")
         msg = String()
         msg.data = text
         self.status_pub.publish(msg)
@@ -2974,7 +3332,7 @@ class TeachPanelApp:
         ttk.Button(top, text="Stop", command=self.node.stop_all, style="Danger.TButton").grid(
             row=0, column=10, rowspan=2, padx=4
         )
-        ttk.Button(top, text="G Start", command=lambda: self.node.call_grasp_task("start")).grid(
+        ttk.Button(top, text="Visual Grasp", command=self.node.visual_grasp_start).grid(
             row=0, column=11, rowspan=2, padx=4
         )
         ttk.Button(
@@ -3014,7 +3372,20 @@ class TeachPanelApp:
         overview.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(0, 8))
         overview.columnconfigure(1, weight=1)
         for row, key in enumerate(
-            ("base", "tool", "arm", "gripper", "teach", "grasp_task", "program")
+            (
+                "base",
+                "tool",
+                "arm",
+                "gripper",
+                "teach",
+                "grasp_task",
+                "camera",
+                "viewer",
+                "slam",
+                "grasp_server",
+                "program",
+                "log_dir",
+            )
         ):
             ttk.Label(overview, text=key, style="State.TLabel", width=10).grid(
                 row=row, column=0, sticky="w", padx=6, pady=4
@@ -3045,9 +3416,14 @@ class TeachPanelApp:
             ("Program Rec", self._toggle_program_recording),
             ("Record", self._record),
             ("Replay", self._play),
+            ("Visual Grasp", self.node.visual_grasp_start),
             ("Grasp Start", lambda: self.node.call_grasp_task("start")),
             ("Grasp Stop", lambda: self.node.call_grasp_task("stop")),
             ("Restore", lambda: self.node.call_grasp_task("restore")),
+            ("Camera", self.node.start_camera_stack),
+            ("2D View", lambda: self.node.toggle_managed_process("viewer")),
+            ("SLAM", lambda: self.node.toggle_managed_process("slam")),
+            ("GraspSrv", lambda: self.node.toggle_managed_process("grasp_server")),
             ("Open", lambda: self.node.publish_gripper("open")),
             ("Close", lambda: self.node.publish_gripper("close")),
             ("Save Config", self._save_config),
@@ -3061,6 +3437,39 @@ class TeachPanelApp:
             )
         for column in range(3):
             quick.columnconfigure(column, weight=1)
+
+        services = ttk.LabelFrame(tab, text="Runtime Services")
+        services.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        services.columnconfigure(1, weight=1)
+        for row, (key, label) in enumerate(
+            (
+                ("camera", "Gemini Camera"),
+                ("viewer", "2D Raw View"),
+                ("slam", "SLAM / Nav"),
+                ("grasp_server", "Grasp Server"),
+            )
+        ):
+            ttk.Label(services, text=label, style="State.TLabel", width=16).grid(
+                row=row, column=0, sticky="w", padx=6, pady=4
+            )
+            var = self.status_vars.get(key)
+            if var is None:
+                var = tk.StringVar(value="stopped")
+                self.status_vars[key] = var
+            ttk.Label(services, textvariable=var).grid(
+                row=row, column=1, sticky="ew", padx=6, pady=4
+            )
+            ttk.Button(
+                services,
+                text="Start",
+                command=lambda name=key: self.node.start_managed_process(name),
+            ).grid(row=row, column=2, sticky="ew", padx=4, pady=4)
+            ttk.Button(
+                services,
+                text="Stop",
+                command=lambda name=key: self.node.stop_managed_process(name),
+                style="Danger.TButton",
+            ).grid(row=row, column=3, sticky="ew", padx=4, pady=4)
 
         joints = ttk.LabelFrame(tab, text="Monitor and Joint")
         joints.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
@@ -3862,6 +4271,7 @@ def main() -> None:
         TeachPanelApp(node).run()
     finally:
         node.stop_all()
+        node.stop_all_managed_processes()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

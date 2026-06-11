@@ -14,6 +14,10 @@ def _as_bool(value: str) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _launch_bool(context, name: str) -> str:
+    return "True" if _as_bool(LaunchConfiguration(name).perform(context)) else "False"
+
+
 def launch_setup(context, *args, **kwargs):
     description_share = Path(get_package_share_directory("arachne_description"))
     nav_share = Path(get_package_share_directory("arachne_nav"))
@@ -21,6 +25,7 @@ def launch_setup(context, *args, **kwargs):
     model_path = description_share / "urdf" / "arachne.urdf.xacro"
     params_path = Path(LaunchConfiguration("params_file").perform(context))
     map_path = nav_share / "maps" / "empty.yaml"
+    rviz_config = Path(LaunchConfiguration("rviz_config").perform(context))
 
     robot_description = xacro.process_file(
         str(model_path),
@@ -43,9 +48,43 @@ def launch_setup(context, *args, **kwargs):
                 "params_file": str(params_path),
                 "use_sim_time": "False",
                 "autostart": "True",
-                "use_composition": LaunchConfiguration("use_composition").perform(context),
+                "use_composition": _launch_bool(context, "use_composition"),
                 "log_level": LaunchConfiguration("log_level").perform(context),
             }.items(),
+        ),
+        Node(
+            package="pointcloud_to_laserscan",
+            executable="pointcloud_to_laserscan_node",
+            name="lslidar_pointcloud_to_scan",
+            remappings=[
+                ("cloud_in", LaunchConfiguration("pointcloud_topic")),
+                ("scan", LaunchConfiguration("scan_topic")),
+            ],
+            parameters=[
+                {
+                    "target_frame": LaunchConfiguration("laser_target_frame"),
+                    "transform_tolerance": 0.2,
+                    "min_height": -0.35,
+                    "max_height": 0.35,
+                    "angle_min": -3.14159,
+                    "angle_max": 3.14159,
+                    "angle_increment": 0.0087,
+                    "scan_time": 0.10,
+                    "range_min": 0.15,
+                    "range_max": 18.0,
+                    "use_inf": True,
+                }
+            ],
+            condition=IfCondition(LaunchConfiguration("with_pointcloud_to_scan")),
+            output="screen",
+        ),
+        Node(
+            package="rviz2",
+            executable="rviz2",
+            name="arachne_nav_topdown_rviz",
+            arguments=["-d", str(rviz_config)],
+            condition=IfCondition(LaunchConfiguration("with_rviz")),
+            output="screen",
         ),
     ]
 
@@ -70,9 +109,18 @@ def generate_launch_description():
                 "params_file",
                 default_value=str(nav_share / "config" / "nav2_params.yaml"),
             ),
+            DeclareLaunchArgument(
+                "rviz_config",
+                default_value=str(nav_share / "rviz" / "arachne_nav_topdown.rviz"),
+            ),
             DeclareLaunchArgument("with_lslidar_driver", default_value="false"),
+            DeclareLaunchArgument("with_pointcloud_to_scan", default_value="true"),
             DeclareLaunchArgument("with_robot_state_publisher", default_value="false"),
-            DeclareLaunchArgument("use_composition", default_value="true"),
+            DeclareLaunchArgument("with_rviz", default_value="true"),
+            DeclareLaunchArgument("pointcloud_topic", default_value="/lslidar_point_cloud"),
+            DeclareLaunchArgument("scan_topic", default_value="/scan"),
+            DeclareLaunchArgument("laser_target_frame", default_value="lidar_link"),
+            DeclareLaunchArgument("use_composition", default_value="True"),
             DeclareLaunchArgument("log_level", default_value="warn"),
             OpaqueFunction(function=launch_setup),
         ]
