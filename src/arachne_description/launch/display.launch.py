@@ -267,7 +267,7 @@ def generate_launch_description():
             DeclareLaunchArgument("rear_rack_xyz", default_value="-0.16 0.0 0.105"),
             DeclareLaunchArgument("rear_rack_rpy", default_value="0.0 0.0 1.57079632679"),
             DeclareLaunchArgument("lidar_xyz", default_value="0.0 0.035 0.6223"),
-            DeclareLaunchArgument("lidar_rpy", default_value="0.0 0.0 -1.57079632679"),
+            DeclareLaunchArgument("lidar_rpy", default_value="0.0 0.0 3.14159265359"),
             DeclareLaunchArgument("ee_camera_xyz", default_value="0.0 0.0 0.0"),
             DeclareLaunchArgument("ee_camera_rpy", default_value="0.0 0.0 0.0"),
             DeclareLaunchArgument(
