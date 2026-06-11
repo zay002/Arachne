@@ -271,13 +271,20 @@ class Gemini335V4L2Node(Node):
                             self.depth_process = None
                 if self.stop_event.is_set():
                     return
-                if process.returncode != 0:
+                data = np.fromfile(self.depth_raw_path, dtype=np.uint16)
+                if process.returncode != 0 and data.size < frame_pixels:
                     detail = stderr.decode(errors="ignore").strip()
                     suffix = f": {detail}" if detail else ""
                     self._warn_depth(f"Gemini335 depth capture failed{suffix}")
                     self._sleep_depth_period(start, period)
                     continue
-                data = np.fromfile(self.depth_raw_path, dtype=np.uint16)
+                if process.returncode != 0:
+                    detail = stderr.decode(errors="ignore").strip()
+                    suffix = f": {detail}" if detail else ""
+                    self._warn_depth(
+                        "Gemini335 depth capture returned non-zero but produced frames; "
+                        f"publishing latest frame{suffix}"
+                    )
             except OSError as exc:
                 self._warn_depth(f"Gemini335 depth capture IO error: {exc}")
                 self._sleep_depth_period(start, period)
