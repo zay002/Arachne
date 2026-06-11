@@ -407,6 +407,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--allow-colliding-best-effort", action="store_true", help=hidden)
     parser.add_argument("--release-tool-tilt-deg", type=float, default=12.0, help=hidden)
     parser.add_argument("--transit-height", type=float, default=0.36, help=hidden)
+    parser.add_argument("--safe-mid-lift-height", type=float, default=0.50, help=hidden)
     parser.add_argument("--transit-arc-height", type=float, default=0.16, help=hidden)
     parser.add_argument("--arc-samples", type=int, default=24, help=hidden)
     parser.add_argument("--line-samples", type=int, default=6, help=hidden)
@@ -4142,14 +4143,16 @@ class GraspPreviewNode(Node):
         pregrasp_base = base_grasp_path[0]
         grasp_base = base_grasp_path[1]
         lift_base = base_grasp_path[2]
+        safe_mid_lift = max(float(self.args.safe_mid_lift_height), 0.0)
         transit_z = max(
             float(self.args.transit_height),
-            lift_base[2] + 0.04,
+            grasp_base[2] + safe_mid_lift,
+            lift_base[2],
             self.basket_approach_base[2],
         )
         safe_mid_base = (
-            0.5 * (lift_base[0] + self.basket_approach_base[0]),
-            0.5 * (lift_base[1] + self.basket_approach_base[1]),
+            lift_base[0],
+            lift_base[1],
             transit_z,
         )
         waypoints = [
