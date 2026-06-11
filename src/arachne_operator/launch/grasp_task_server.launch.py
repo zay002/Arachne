@@ -33,7 +33,8 @@ def generate_launch_description():
                 default_value=(
                     "--planner-backend local "
                     "--planning-key-waypoints approach,grasp,safe_mid,basket_over "
-                    "--vertical-approach --lock-grasp-orientation "
+                    "--vertical-approach --no-lock-grasp-orientation "
+                    "--tool-orientation-limit-deg 35 "
                     "--real-sdk-semantic-targets-only --real-sdk-max-targets 8"
                 ),
             ),

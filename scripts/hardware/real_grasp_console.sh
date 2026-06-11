@@ -23,7 +23,7 @@ USE_REMOTE_PLANNER="${ARACHNE_CONSOLE_USE_REMOTE_PLANNER:-false}"
 REMOTE_LOCAL_PORT="${ARACHNE_REMOTE_LOCAL_PORT:-8767}"
 REMOTE_PLANNER_URL="${ARACHNE_CONSOLE_REMOTE_PLANNER_URL:-${ARACHNE_REMOTE_PLANNER_URL:-http://127.0.0.1:${REMOTE_LOCAL_PORT}}}"
 REMOTE_PLANNER_TIMEOUT="${ARACHNE_CONSOLE_REMOTE_PLANNER_TIMEOUT:-${ARACHNE_REMOTE_PLANNER_TIMEOUT:-20}}"
-DEFAULT_SERVER_EXTRA_ARGS="--planner-backend local --planning-key-waypoints approach,grasp,safe_mid,basket_over --vertical-approach --lock-grasp-orientation --real-sdk-semantic-targets-only --real-sdk-max-targets 8"
+DEFAULT_SERVER_EXTRA_ARGS="--planner-backend local --planning-key-waypoints approach,grasp,safe_mid,basket_over --vertical-approach --no-lock-grasp-orientation --tool-orientation-limit-deg 35 --real-sdk-semantic-targets-only --real-sdk-max-targets 8"
 if [[ "${USE_REMOTE_PLANNER}" == "true" && -n "${REMOTE_PLANNER_URL}" ]]; then
   DEFAULT_SERVER_EXTRA_ARGS="--planner-backend remote --remote-planner-url ${REMOTE_PLANNER_URL} --remote-planner-timeout ${REMOTE_PLANNER_TIMEOUT}"
 fi

@@ -349,6 +349,9 @@ class TeachPanelNode(Node):
         self.declare_parameter("aubo_sdk_move_duration_sec", 0.0)
         self.declare_parameter("aubo_sdk_goal_tolerance_rad", 0.04)
         self.declare_parameter("aubo_sdk_arrival_timeout_padding_sec", 3.0)
+        self.declare_parameter("aubo_sdk_lifecycle_power_timeout_sec", 45.0)
+        self.declare_parameter("aubo_sdk_lifecycle_startup_timeout_sec", 45.0)
+        self.declare_parameter("aubo_sdk_lifecycle_poll_sec", 0.5)
         self.declare_parameter("aubo_sdk_teach_flag_path", DEFAULT_AUBO_TEACH_FLAG_PATH)
         self.declare_parameter("aubo_sdk_control_owner_path", DEFAULT_AUBO_CONTROL_OWNER_PATH)
         self.declare_parameter("aubo_sdk_control_owner_name", "teach_panel")
@@ -1009,6 +1012,105 @@ class TeachPanelNode(Node):
         msg = String()
         msg.data = command
         self.aubo_teach_pub.publish(msg)
+
+    def command_aubo_lifecycle(self, command: str) -> None:
+        command = str(command).strip().lower()
+        if command not in {"power_on", "startup", "power_off"}:
+            self._status(f"aubo lifecycle ignored unknown command: {command}", warn=True)
+            return
+        self._start_worker(lambda: self._aubo_lifecycle_worker(command))
+
+    def _aubo_lifecycle_worker(self, command: str) -> None:
+        self.drive_base_manual("stop")
+        self.stop_arm_velocity_hold()
+        if command == "power_off":
+            self.cancel_event.set()
+        else:
+            self.cancel_event.clear()
+        ip = str(self.get_parameter("aubo_sdk_ip").value)
+        port = int(self.get_parameter("aubo_sdk_rpc_port").value)
+        timeout = max(float(self.get_parameter("aubo_sdk_rpc_timeout_sec").value), 0.1)
+        power_timeout = max(
+            float(self.get_parameter("aubo_sdk_lifecycle_power_timeout_sec").value), 1.0
+        )
+        startup_timeout = max(
+            float(self.get_parameter("aubo_sdk_lifecycle_startup_timeout_sec").value), 1.0
+        )
+        poll = max(float(self.get_parameter("aubo_sdk_lifecycle_poll_sec").value), 0.05)
+        try:
+            with AuboDirectJsonRpc(ip, port, timeout) as rpc:
+                mode = str(rpc.robot_call("RobotState.getRobotModeType"))
+                safety = str(rpc.robot_call("RobotState.getSafetyModeType"))
+                self._status(f"Aubo lifecycle {command}: mode={mode} safety={safety}")
+                if command == "power_on":
+                    if mode in {"Idle", "Running"}:
+                        self._status(f"Aubo already {mode}")
+                        return
+                    self._publish_aubo_zero_velocity("before power_on")
+                    result = rpc.robot_call("RobotManage.poweron")
+                    self._status(f"Aubo power_on result={result}")
+                    self._sdk_wait_mode(rpc, {"Idle", "Running"}, power_timeout, poll, "power_on")
+                    return
+
+                if command == "startup":
+                    self._publish_aubo_zero_velocity("before startup")
+                    if mode not in {"Idle", "Running"}:
+                        result = rpc.robot_call("RobotManage.poweron")
+                        self._status(f"Aubo power_on result={result}")
+                        self._sdk_wait_mode(rpc, {"Idle", "Running"}, power_timeout, poll, "power_on")
+                    mode = str(rpc.robot_call("RobotState.getRobotModeType"))
+                    if mode != "Running":
+                        result = rpc.robot_call("RobotManage.startup")
+                        self._status(f"Aubo startup result={result}")
+                        self._sdk_wait_mode(rpc, {"Running"}, startup_timeout, poll, "startup")
+                    self._publish_aubo_zero_velocity("after startup")
+                    self._status("Aubo startup complete")
+                    return
+
+                self._sdk_stop_joint(rpc, "power_off", warn_only=True)
+                result = self._aubo_power_off_call(rpc)
+                self._status(f"Aubo power_off result={result}")
+        except Exception as exc:
+            self._status(f"Aubo lifecycle {command} failed: {exc}", warn=True)
+
+    def _publish_aubo_zero_velocity(self, reason: str) -> None:
+        msg = Float64MultiArray()
+        msg.data = [0.0] * len(self.arm_command_joint_names)
+        self.arm_velocity_pub.publish(msg)
+        self._status(f"Aubo zero velocity hold: {reason}")
+
+    def _aubo_power_off_call(self, rpc: AuboDirectJsonRpc) -> Any:
+        last_error: Exception | None = None
+        for method in ("RobotManage.poweroff", "RobotManage.powerOff"):
+            try:
+                return rpc.robot_call(method)
+            except Exception as exc:
+                last_error = exc
+        raise RuntimeError(f"power_off RPC unavailable: {last_error}")
+
+    def _sdk_wait_mode(
+        self,
+        rpc: AuboDirectJsonRpc,
+        expected: set[str],
+        timeout_sec: float,
+        poll_sec: float,
+        label: str,
+    ) -> str:
+        deadline = time.monotonic() + max(float(timeout_sec), 0.0)
+        last_mode = ""
+        last_safety = ""
+        while time.monotonic() < deadline and not self.cancel_event.is_set():
+            last_mode = str(rpc.robot_call("RobotState.getRobotModeType"))
+            last_safety = str(rpc.robot_call("RobotState.getSafetyModeType"))
+            if last_mode in expected:
+                self._status(f"Aubo {label} reached {last_mode}")
+                return last_mode
+            time.sleep(max(float(poll_sec), 0.05))
+        if self.cancel_event.is_set():
+            raise RuntimeError(f"Aubo {label} cancelled")
+        raise TimeoutError(
+            f"Aubo {label} timeout: mode={last_mode or 'unknown'} safety={last_safety or 'unknown'}"
+        )
 
     def _aubo_teach_gate_may_be_active(self) -> bool:
         with self.lock:
@@ -2884,6 +2986,23 @@ class TeachPanelApp:
         ttk.Button(top, text="Restore", command=lambda: self.node.call_grasp_task("restore")).grid(
             row=0, column=13, rowspan=2, padx=4
         )
+        ttk.Button(top, text="Aubo On", command=lambda: self.node.command_aubo_lifecycle("power_on")).grid(
+            row=0, column=14, rowspan=2, padx=4
+        )
+        ttk.Button(top, text="Aubo Start", command=lambda: self.node.command_aubo_lifecycle("startup")).grid(
+            row=0, column=15, rowspan=2, padx=4
+        )
+        ttk.Button(top, text="Aubo Off", command=self._confirm_aubo_power_off, style="Danger.TButton").grid(
+            row=0, column=16, rowspan=2, padx=4
+        )
+
+    def _confirm_aubo_power_off(self) -> None:
+        if not messagebox.askyesno(
+            "Aubo Power Off",
+            "Power off the real Aubo arm now?\n\nConfirm the arm is supported and the workspace is safe.",
+        ):
+            return
+        self.node.command_aubo_lifecycle("power_off")
 
     def _build_home_tab(self) -> None:
         tab = self._add_scrollable_tab("Home")
@@ -2916,6 +3035,9 @@ class TeachPanelApp:
             row=0, column=2, sticky="ew", padx=5, pady=5
         )
         buttons = (
+            ("Aubo On", lambda: self.node.command_aubo_lifecycle("power_on")),
+            ("Aubo Start", lambda: self.node.command_aubo_lifecycle("startup")),
+            ("Aubo Off", self._confirm_aubo_power_off),
             ("Teach On", lambda: self.node.set_aubo_teach(True)),
             ("Teach Off", lambda: self.node.set_aubo_teach(False)),
             ("Set Home", self._set_home_from_current),
@@ -3204,6 +3326,15 @@ class TeachPanelApp:
         )
         ttk.Button(frame, text="Teach Off", command=lambda: self.node.set_aubo_teach(False)).grid(
             row=6, column=2, padx=4, pady=(8, 4), sticky="ew"
+        )
+        ttk.Button(frame, text="Power On", command=lambda: self.node.command_aubo_lifecycle("power_on")).grid(
+            row=7, column=0, padx=4, pady=4, sticky="ew"
+        )
+        ttk.Button(frame, text="Startup", command=lambda: self.node.command_aubo_lifecycle("startup")).grid(
+            row=7, column=1, padx=4, pady=4, sticky="ew"
+        )
+        ttk.Button(frame, text="Power Off", command=self._confirm_aubo_power_off, style="Danger.TButton").grid(
+            row=7, column=2, padx=4, pady=4, sticky="ew"
         )
 
     def _build_joint_target_controls(self, parent: ttk.Frame) -> None:

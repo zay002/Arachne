@@ -388,7 +388,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--lock-grasp-orientation",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help=hidden,
     )
     parser.add_argument("--pointcloud-grasp-min-points", type=int, default=24, help=hidden)
@@ -407,9 +407,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--rear-rack-keepout-max-base", default="0.09,0.22,0.82", help=hidden)
     parser.add_argument("--basket-clearance", type=float, default=0.04, help=hidden)
     parser.add_argument("--gripper-radius", type=float, default=0.055, help=hidden)
-    parser.add_argument("--arm-collision-radius", type=float, default=0.075, help=hidden)
-    parser.add_argument("--arm-collision-samples-per-link", type=int, default=8, help=hidden)
-    parser.add_argument("--collision-margin", type=float, default=0.035, help=hidden)
+    parser.add_argument("--arm-collision-radius", type=float, default=0.035, help=hidden)
+    parser.add_argument("--arm-collision-samples-per-link", type=int, default=6, help=hidden)
+    parser.add_argument("--collision-margin", type=float, default=0.015, help=hidden)
+    parser.add_argument("--rear-rack-collision-margin", type=float, default=0.005, help=hidden)
     parser.add_argument("--ground-min-z-base", type=float, default=-0.22, help=hidden)
     parser.add_argument("--ground-clearance", type=float, default=0.02, help=hidden)
     parser.add_argument("--tool-ground-clearance", type=float, default=0.015, help=hidden)
@@ -464,7 +465,7 @@ def _parse_args() -> argparse.Namespace:
         help=hidden,
     )
     parser.add_argument("--local-position-tolerance", type=float, default=0.035, help=hidden)
-    parser.add_argument("--local-orientation-tolerance", type=float, default=0.22, help=hidden)
+    parser.add_argument("--local-orientation-tolerance", type=float, default=0.35, help=hidden)
     parser.add_argument(
         "--moveit-local-first",
         action=argparse.BooleanOptionalAction,
@@ -573,11 +574,11 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--real-gripper-command-topic", default="/arachne/gripper/command", help=hidden)
     parser.add_argument("--real-gripper-settle-sec", type=float, default=0.35, help=hidden)
-    parser.add_argument("--tool-orientation-limit-deg", type=float, default=90.0, help=hidden)
+    parser.add_argument("--tool-orientation-limit-deg", type=float, default=35.0, help=hidden)
     parser.add_argument("--grasp-topdown-max-tilt-deg", type=float, default=65.0, help=hidden)
-    parser.add_argument("--max-grasp-orientation-candidates", type=int, default=24, help=hidden)
-    parser.add_argument("--grasp-orientation-yaw-offsets-deg", default="0,30,-30,60,-60,90,-90,180", help=hidden)
-    parser.add_argument("--transit-orientation-yaw-offsets-deg", default="0,45,-45,90,-90", help=hidden)
+    parser.add_argument("--max-grasp-orientation-candidates", type=int, default=8, help=hidden)
+    parser.add_argument("--grasp-orientation-yaw-offsets-deg", default="0,20,-20,35,-35", help=hidden)
+    parser.add_argument("--transit-orientation-yaw-offsets-deg", default="0,25,-25,35,-35", help=hidden)
     parser.add_argument("--grasp-orientation-tilt-offsets-deg", default="0,15,-15", help=hidden)
     parser.add_argument("--moveit-use-orientation-path-constraint", action="store_true", help=hidden)
     parser.add_argument("--moveit-max-tool0-reach", type=float, default=1.03, help=hidden)
@@ -869,13 +870,17 @@ class GraspPreviewNode(Node):
     def _make_collision_boxes(self) -> list[CollisionBox]:
         margin = max(float(self.args.collision_margin), 0.0)
 
-        def padded(size: tuple[float, float, float]) -> tuple[float, float, float]:
-            return tuple(float(value) + 2.0 * margin for value in size)  # type: ignore[return-value]
+        def padded(
+            size: tuple[float, float, float], margin_m: float = margin
+        ) -> tuple[float, float, float]:
+            pad = max(float(margin_m), 0.0)
+            return tuple(float(value) + 2.0 * pad for value in size)  # type: ignore[return-value]
 
         def box_from_min_max(
             name: str,
             minimum: tuple[float, float, float],
             maximum: tuple[float, float, float],
+            margin_m: float = margin,
         ) -> CollisionBox | None:
             mins = np.asarray(minimum, dtype=np.float64)
             maxs = np.asarray(maximum, dtype=np.float64)
@@ -883,13 +888,16 @@ class GraspPreviewNode(Node):
                 return None
             center = tuple(float(value) for value in (mins + maxs) * 0.5)
             size = tuple(float(value) for value in (maxs - mins))
-            return CollisionBox(name, center, padded(size))
+            return CollisionBox(name, center, padded(size, margin_m))
 
         basket_box = box_from_min_max(
             "front_basket_keepout", self.basket_keepout_min, self.basket_keepout_max
         )
         rear_box = box_from_min_max(
-            "rear_sensor_rack", self.rear_rack_keepout_min, self.rear_rack_keepout_max
+            "rear_sensor_rack",
+            self.rear_rack_keepout_min,
+            self.rear_rack_keepout_max,
+            max(float(self.args.rear_rack_collision_margin), 0.0),
         )
         boxes = [
             CollisionBox("scout_base_main", (0.0, 0.0, 0.008), padded((0.925, 0.380, 0.210))),
@@ -3815,6 +3823,9 @@ class GraspPreviewNode(Node):
                         candidate = self._orthonormalize_rotation(
                             shape_nominal @ self._rpy_matrix(roll, pitch, yaw)
                         )
+                        candidate = self._limit_rotation_from_reference(
+                            current_rotation_base, candidate, limit_rad
+                        )
                         if not self._is_topdown_grasp_orientation(candidate):
                             continue
                         if not any(
@@ -3827,7 +3838,7 @@ class GraspPreviewNode(Node):
         for yaw in yaw_offsets:
             for roll, pitch in tilt_offsets:
                 candidate = nominal @ self._rpy_matrix(roll, pitch, yaw)
-                if phase == "current":
+                if phase in {"current", "grasp", "carry", "release"}:
                     candidate = self._limit_rotation_from_reference(
                         current_rotation_base, candidate, limit_rad
                     )
@@ -3847,6 +3858,8 @@ class GraspPreviewNode(Node):
                         and len(candidates) >= self._max_grasp_orientation_candidates()
                     ):
                         return candidates
+        if not candidates and phase in {"grasp", "carry", "release"}:
+            candidates.append(self._orthonormalize_rotation(np.asarray(current_rotation_base, dtype=float)))
         return candidates
 
     def _target_orientation_phase(self, target_name: str, progress: float) -> str:
@@ -5041,6 +5054,8 @@ class GraspPreviewNode(Node):
             "grasp_strategy": {
                 "vertical_approach": bool(self.args.vertical_approach),
                 "lock_grasp_orientation": bool(self.args.lock_grasp_orientation),
+                "tool_orientation_limit_deg": float(self.args.tool_orientation_limit_deg),
+                "max_grasp_orientation_candidates": int(self.args.max_grasp_orientation_candidates),
                 "local_strict_ik": bool(self.args.local_strict_ik),
                 "real_sdk_semantic_targets_only": bool(self.args.real_sdk_semantic_targets_only),
                 "safe_mid_lift_height_m": float(self.args.safe_mid_lift_height),
@@ -5063,6 +5078,9 @@ class GraspPreviewNode(Node):
                 "ground_min_z_base": float(self.args.ground_min_z_base),
                 "ground_clearance": float(self.args.ground_clearance),
                 "tool_ground_clearance": float(self.args.tool_ground_clearance),
+                "arm_collision_radius": float(self.args.arm_collision_radius),
+                "collision_margin": float(self.args.collision_margin),
+                "rear_rack_collision_margin": float(self.args.rear_rack_collision_margin),
                 "grasp_topdown_max_tilt_deg": float(self.args.grasp_topdown_max_tilt_deg),
             },
             "gripper_preview": {

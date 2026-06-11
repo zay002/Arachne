@@ -160,7 +160,7 @@ class GraspTaskServer(Node):
         self.declare_parameter("grasp_base_offset", "0,0,0")
         self.declare_parameter(
             "extra_args",
-            "--planner-backend local --planning-key-waypoints approach,grasp,safe_mid,basket_over --vertical-approach --lock-grasp-orientation --real-sdk-semantic-targets-only --real-sdk-max-targets 8",
+            "--planner-backend local --planning-key-waypoints approach,grasp,safe_mid,basket_over --vertical-approach --no-lock-grasp-orientation --tool-orientation-limit-deg 35 --real-sdk-semantic-targets-only --real-sdk-max-targets 8",
         )
         self.declare_parameter("preview_on_start", True)
         self.declare_parameter("preview_runner_script", "scripts/vision/grasp_preview.sh")
