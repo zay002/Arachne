@@ -69,7 +69,7 @@ source install/setup.bash
 | Gazebo 自主拾取验证 | `./scripts/sim/gazebo_autopick_demo.sh` |
 | Godot 展示前端 | `./scripts/godot/godot_showcase.sh` |
 | Gemini335 YOLO 实时标注 | `./scripts/vision/gemini_yolo_live.sh` |
-| C16 雷达驱动 | `ros2 launch lslidar_c16_decoder lslidar_c16_launch.py` |
+| C16 雷达驱动 | `ros2 launch lslidar_driver lslidar_cx_launch.py` |
 | C16 + 整车融合 RViz | `rviz2 -d src/arachne_description/rviz/arachne_lidar_fusion.rviz` |
 | Trash 分割抓取入篮预览 | `./scripts/vision/grasp_preview.sh` |
 | 真机姿态同步抓取预览 | `./scripts/vision/grasp_preview_real_sync.sh` |
@@ -101,7 +101,7 @@ Arachne 的真机层尽量复用官方或厂家 ROS 路线，并在本仓库内�
 | MS42DC | `ms42dc_direct_serial_driver` | `/arachne/gripper/command` 到 Type-C 串口帧；夹具控制板为 CH91xx/CH343 系列，当前实机按 CH9012 路线处理，推荐别名 `/dev/motor_serial` |
 | Aubo i5 | `AuboRobot/aubo_ros2_driver` | TCP/IP + ros2_control，按机器人 IP 启动 |
 | Gemini335 | `arachne_sensors` | 末端 RGB-D 相机，用于目标分割、mask/depth ROI、抓取位姿估计和示教观测 |
-| 镭神智能 C16 | `third_party/LS-LIDAR-C16ROS2` + `arachne_description` | UDP `2368/2369`，默认设备 IP `192.168.1.200`；点云发布到 `/lslidar_point_cloud`，frame 为 `lidar_link`，融合 RViz 使用 `lidar_link` 作为固定坐标 |
+| 镭神智能 C16 | `third_party/Lslidar_ROS2_driver_C16_V4` + `arachne_description` | 官方 C16_V4 驱动，UDP `2368/2369`，默认设备 IP `192.168.1.200`；点云发布到 `/lslidar_point_cloud`，frame 为 `lidar_link`，融合 RViz 使用 `lidar_link` 作为固定坐标，当前 `distance_unit=0.4` |
 
 准备真机相关 ROS 包：
 
@@ -162,7 +162,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 | --- | --- |
 | `src/arachne_description` | 统一机器人模型、RViz 配置、夹爪变体和传感器坐标系 |
 | `src/arachne_sensors` | Gemini335 RGB-D 相机节点和传感器 launch |
-| `third_party/LS-LIDAR-C16ROS2` | 镭神 C16 ROS2 驱动，本仓库已打 Humble 兼容补丁并接入 `lidar_link` |
+| `third_party/Lslidar_ROS2_driver_C16_V4` | 镭神官方 C16_V4 ROS2 驱动，按 `lidar_link`、`/lslidar_point_cloud`、`distance_unit=0.4` 接入 |
 | `src/arachne_demo` | Switch Pro 手柄、Gazebo 展厅、自主拾取验证 |
 | `src/arachne_hardware` | 真机 bringup、Scout/MS42DC wrapper、安全状态和命令门控 |
 | `src/arachne_control` | ros2_control 控制器命名、mock 控制器和硬件 profile |

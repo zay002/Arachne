@@ -87,6 +87,8 @@ class Gemini335V4L2Node(Node):
         self.declare_parameter("depth_capture_timeout_sec", 4.0)
         self.declare_parameter("depth_frame_id", "camera_depth_optical_frame")
         self.declare_parameter("depth_scale", 0.001)
+        self.declare_parameter("pointcloud_min_depth_m", 0.05)
+        self.declare_parameter("pointcloud_max_depth_m", 2.0)
         self.declare_parameter("publish_depth", True)
         self.declare_parameter("publish_depth_color", True)
         self.declare_parameter("publish_pointcloud", True)
@@ -118,6 +120,13 @@ class Gemini335V4L2Node(Node):
         )
         self.depth_frame_id = str(self.get_parameter("depth_frame_id").value)
         self.depth_scale = float(self.get_parameter("depth_scale").value)
+        self.pointcloud_min_depth_m = max(
+            float(self.get_parameter("pointcloud_min_depth_m").value), 0.0
+        )
+        self.pointcloud_max_depth_m = max(
+            float(self.get_parameter("pointcloud_max_depth_m").value),
+            self.pointcloud_min_depth_m,
+        )
         self.pointcloud_decimation = max(int(self.get_parameter("pointcloud_decimation").value), 1)
         self.pointcloud_period = 1.0 / max(float(self.get_parameter("pointcloud_rate").value), 0.1)
         self.camera_fx = float(self.get_parameter("camera_fx").value)
@@ -377,8 +386,9 @@ class Gemini335V4L2Node(Node):
         cy = self.depth_info.k[5]
         sampled = depth[0:h:step, 0:w:step].astype(np.float32)
         vv, uu = np.mgrid[0:h:step, 0:w:step]
-        mask = sampled > 0.0
-        z = sampled[mask] * self.depth_scale
+        z_all = sampled * self.depth_scale
+        mask = (z_all >= self.pointcloud_min_depth_m) & (z_all <= self.pointcloud_max_depth_m)
+        z = z_all[mask]
         u = uu[mask].astype(np.float32)
         v = vv[mask].astype(np.float32)
         pixel_x = cx - u if self.projection_flip_x else u - cx

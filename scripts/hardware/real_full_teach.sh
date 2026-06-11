@@ -15,7 +15,10 @@ AUBO_PAYLOAD_INERTIA="${ARACHNE_AUBO_PAYLOAD_INERTIA}"
 TEACH_WITH_CAMERA="${ARACHNE_TEACH_WITH_CAMERA:-true}"
 TEACH_CAMERA_COLOR_VIEW="${ARACHNE_TEACH_CAMERA_COLOR_VIEW:-true}"
 TEACH_CAMERA_DEPTH_VIEW="${ARACHNE_TEACH_CAMERA_DEPTH_VIEW:-false}"
+TEACH_CAMERA_PUBLISH_DEPTH="${ARACHNE_TEACH_CAMERA_PUBLISH_DEPTH:-false}"
+TEACH_CAMERA_PUBLISH_DEPTH_COLOR="${ARACHNE_TEACH_CAMERA_PUBLISH_DEPTH_COLOR:-false}"
 TEACH_CAMERA_POINTCLOUD="${ARACHNE_TEACH_CAMERA_POINTCLOUD:-false}"
+TEACH_CAMERA_COLOR_FOURCC="${ARACHNE_TEACH_CAMERA_COLOR_FOURCC:-YUYV}"
 TEACH_CAMERA_PROJECTION_FLIP_X="${ARACHNE_TEACH_CAMERA_PROJECTION_FLIP_X:-true}"
 TEACH_CAMERA_PROJECTION_FLIP_Y="${ARACHNE_TEACH_CAMERA_PROJECTION_FLIP_Y:-true}"
 AUBO_ARM_VELOCITY_COMMAND_TOPIC="${ARACHNE_AUBO_ARM_VELOCITY_COMMAND_TOPIC:-/arachne/aubo/joint_velocity_command}"
@@ -57,7 +60,10 @@ Environment:
   ARACHNE_TEACH_WITH_CAMERA=${TEACH_WITH_CAMERA}
   ARACHNE_TEACH_CAMERA_COLOR_VIEW=${TEACH_CAMERA_COLOR_VIEW}
   ARACHNE_TEACH_CAMERA_DEPTH_VIEW=${TEACH_CAMERA_DEPTH_VIEW}
+  ARACHNE_TEACH_CAMERA_PUBLISH_DEPTH=${TEACH_CAMERA_PUBLISH_DEPTH}
+  ARACHNE_TEACH_CAMERA_PUBLISH_DEPTH_COLOR=${TEACH_CAMERA_PUBLISH_DEPTH_COLOR}
   ARACHNE_TEACH_CAMERA_POINTCLOUD=${TEACH_CAMERA_POINTCLOUD}
+  ARACHNE_TEACH_CAMERA_COLOR_FOURCC=${TEACH_CAMERA_COLOR_FOURCC}
   ARACHNE_TEACH_CAMERA_PROJECTION_FLIP_X=${TEACH_CAMERA_PROJECTION_FLIP_X}
   ARACHNE_TEACH_CAMERA_PROJECTION_FLIP_Y=${TEACH_CAMERA_PROJECTION_FLIP_Y}
   ARACHNE_AUBO_ARM_VELOCITY_COMMAND_TOPIC=${AUBO_ARM_VELOCITY_COMMAND_TOPIC}
@@ -270,7 +276,7 @@ echo "Arachne full real teach startup"
 echo "  workspace: ${ROOT_DIR}"
 echo "  Aubo IP/model: ${AUBO_ROBOT_IP} / ${AUBO_TYPE}"
 echo "  Aubo payload: mass=${AUBO_PAYLOAD_MASS}kg cog=${AUBO_PAYLOAD_COG}"
-echo "  camera: enabled=${TEACH_WITH_CAMERA} color_view=${TEACH_CAMERA_COLOR_VIEW} depth_view=${TEACH_CAMERA_DEPTH_VIEW} pointcloud=${TEACH_CAMERA_POINTCLOUD} projection_flip_x=${TEACH_CAMERA_PROJECTION_FLIP_X} projection_flip_y=${TEACH_CAMERA_PROJECTION_FLIP_Y}"
+echo "  camera: enabled=${TEACH_WITH_CAMERA} color_view=${TEACH_CAMERA_COLOR_VIEW} depth_view=${TEACH_CAMERA_DEPTH_VIEW} publish_depth=${TEACH_CAMERA_PUBLISH_DEPTH} publish_depth_color=${TEACH_CAMERA_PUBLISH_DEPTH_COLOR} pointcloud=${TEACH_CAMERA_POINTCLOUD} color_fourcc=${TEACH_CAMERA_COLOR_FOURCC} projection_flip_x=${TEACH_CAMERA_PROJECTION_FLIP_X} projection_flip_y=${TEACH_CAMERA_PROJECTION_FLIP_Y}"
 echo "  recording dir: ${RECORDING_DIR}"
 echo "  logs: ${LOG_DIR}"
 
@@ -332,8 +338,11 @@ if [[ "${has_recording_dir}" == "true" ]]; then
     "${LOG_DIR}/07_teach_panel.log" \
     ros2 launch arachne_operator teach_panel.launch.py \
       with_camera:="${TEACH_WITH_CAMERA}" \
+      camera_color_fourcc:="${TEACH_CAMERA_COLOR_FOURCC}" \
       camera_with_color_view:="${TEACH_CAMERA_COLOR_VIEW}" \
       camera_with_depth_view:="${TEACH_CAMERA_DEPTH_VIEW}" \
+      camera_publish_depth:="${TEACH_CAMERA_PUBLISH_DEPTH}" \
+      camera_publish_depth_color:="${TEACH_CAMERA_PUBLISH_DEPTH_COLOR}" \
       camera_publish_pointcloud:="${TEACH_CAMERA_POINTCLOUD}" \
       camera_projection_flip_x:="${TEACH_CAMERA_PROJECTION_FLIP_X}" \
       camera_projection_flip_y:="${TEACH_CAMERA_PROJECTION_FLIP_Y}" \
@@ -344,8 +353,11 @@ else
     "${LOG_DIR}/07_teach_panel.log" \
     ros2 launch arachne_operator teach_panel.launch.py \
       with_camera:="${TEACH_WITH_CAMERA}" \
+      camera_color_fourcc:="${TEACH_CAMERA_COLOR_FOURCC}" \
       camera_with_color_view:="${TEACH_CAMERA_COLOR_VIEW}" \
       camera_with_depth_view:="${TEACH_CAMERA_DEPTH_VIEW}" \
+      camera_publish_depth:="${TEACH_CAMERA_PUBLISH_DEPTH}" \
+      camera_publish_depth_color:="${TEACH_CAMERA_PUBLISH_DEPTH_COLOR}" \
       camera_publish_pointcloud:="${TEACH_CAMERA_POINTCLOUD}" \
       camera_projection_flip_x:="${TEACH_CAMERA_PROJECTION_FLIP_X}" \
       camera_projection_flip_y:="${TEACH_CAMERA_PROJECTION_FLIP_Y}" \

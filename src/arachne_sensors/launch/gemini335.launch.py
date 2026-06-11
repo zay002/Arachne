@@ -46,6 +46,12 @@ def generate_launch_description():
                 "depth_scale": ParameterValue(
                     LaunchConfiguration("depth_scale"), value_type=float
                 ),
+                "pointcloud_min_depth_m": ParameterValue(
+                    LaunchConfiguration("pointcloud_min_depth_m"), value_type=float
+                ),
+                "pointcloud_max_depth_m": ParameterValue(
+                    LaunchConfiguration("pointcloud_max_depth_m"), value_type=float
+                ),
                 "publish_depth": ParameterValue(
                     LaunchConfiguration("publish_depth"), value_type=bool
                 ),
@@ -161,6 +167,8 @@ def generate_launch_description():
             DeclareLaunchArgument("depth_capture_timeout_sec", default_value="4.0"),
             DeclareLaunchArgument("depth_frame_id", default_value="camera_depth_optical_frame"),
             DeclareLaunchArgument("depth_scale", default_value="0.001"),
+            DeclareLaunchArgument("pointcloud_min_depth_m", default_value="0.05"),
+            DeclareLaunchArgument("pointcloud_max_depth_m", default_value="2.0"),
             DeclareLaunchArgument("publish_depth", default_value="true"),
             DeclareLaunchArgument("publish_depth_color", default_value="true"),
             DeclareLaunchArgument("publish_pointcloud", default_value="true"),

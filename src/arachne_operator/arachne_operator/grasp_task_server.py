@@ -458,6 +458,7 @@ class GraspTaskServer(Node):
         env = os.environ.copy()
         env["ARACHNE_GRASP_START_MOVEIT"] = "false"
         env["ARACHNE_GRASP_START_MODEL"] = "false"
+        env["ARACHNE_GRASP_START_CAMERA"] = "false"
         env["ARACHNE_GRASP_WITH_RVIZ"] = "false"
         env["ARACHNE_GRASP_DISPLAY_FRAME_PREFIX"] = ""
         env["ARACHNE_GRASP_CAMERA_PARENT_FRAME"] = "ee_camera_link"

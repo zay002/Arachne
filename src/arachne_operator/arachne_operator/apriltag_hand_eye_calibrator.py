@@ -18,6 +18,11 @@ from sensor_msgs.msg import CameraInfo, Image
 from std_srvs.srv import Trigger
 import tf2_ros
 
+try:
+    from pupil_apriltags import Detector as PupilAprilTagDetector
+except Exception:  # pragma: no cover - optional runtime dependency
+    PupilAprilTagDetector = None
+
 
 def _rotation_matrix_to_quaternion(matrix: np.ndarray) -> tuple[float, float, float, float]:
     m = matrix
@@ -164,9 +169,15 @@ class AprilTagHandEyeCalibrator(Node):
         self.declare_parameter("board_width_m", 0.420)
         self.declare_parameter("board_height_m", 0.297)
         self.declare_parameter("min_board_matches", 24)
-        self.declare_parameter("tag_size_m", 0.08)
+        self.declare_parameter("tag_family", "tagStandard41h12")
+        self.declare_parameter("tag_size_m", 0.070)
+        self.declare_parameter("tag_pitch_m", 0.100)
         self.declare_parameter("tag_id", -1)
         self.declare_parameter("dictionary", "DICT_APRILTAG_36h11")
+        self.declare_parameter("enable_board_template_fallback", False)
+        self.declare_parameter("min_target_distance_m", 0.05)
+        self.declare_parameter("max_target_distance_m", 3.0)
+        self.declare_parameter("max_reprojection_error_px", 8.0)
         self.declare_parameter("output_dir", "log/calibration/hand_eye")
 
         self.image_topic = str(self.get_parameter("image_topic").value)
@@ -177,8 +188,18 @@ class AprilTagHandEyeCalibrator(Node):
         self.board_width_m = float(self.get_parameter("board_width_m").value)
         self.board_height_m = float(self.get_parameter("board_height_m").value)
         self.min_board_matches = int(self.get_parameter("min_board_matches").value)
+        self.tag_family = str(self.get_parameter("tag_family").value).strip()
         self.tag_size_m = float(self.get_parameter("tag_size_m").value)
+        self.tag_pitch_m = float(self.get_parameter("tag_pitch_m").value)
         self.tag_id = int(self.get_parameter("tag_id").value)
+        self.enable_board_template_fallback = bool(
+            self.get_parameter("enable_board_template_fallback").value
+        )
+        self.min_target_distance_m = float(self.get_parameter("min_target_distance_m").value)
+        self.max_target_distance_m = float(self.get_parameter("max_target_distance_m").value)
+        self.max_reprojection_error_px = float(
+            self.get_parameter("max_reprojection_error_px").value
+        )
         self.output_dir = self._resolve_output_dir(str(self.get_parameter("output_dir").value))
 
         self.camera_matrix: np.ndarray | None = None
@@ -187,12 +208,31 @@ class AprilTagHandEyeCalibrator(Node):
         self.latest_detection: Detection | None = None
         self.samples: list[Sample] = []
 
-        self.dictionary = self._make_dictionary(str(self.get_parameter("dictionary").value))
-        self.detector = self._make_detector(self.dictionary)
+        self.apriltag_detector: Any = None
+        if self.tag_family:
+            if PupilAprilTagDetector is None:
+                raise RuntimeError(
+                    "tagStandard41h12 requires pupil-apriltags. "
+                    "Install it with: python3 -m pip install --user pupil-apriltags"
+                )
+            self.apriltag_detector = PupilAprilTagDetector(
+                families=self.tag_family,
+                nthreads=4,
+                quad_decimate=1.0,
+                quad_sigma=0.0,
+                refine_edges=True,
+                decode_sharpening=0.25,
+            )
+            self.dictionary = None
+            self.detector = None
+        else:
+            self.dictionary = self._make_dictionary(str(self.get_parameter("dictionary").value))
+            self.detector = self._make_detector(self.dictionary)
         self.orb = cv2.ORB_create(nfeatures=2500)
         self.board_gray: np.ndarray | None = None
         self.board_keypoints: Any = None
         self.board_descriptors: np.ndarray | None = None
+        self.board_tag_object_corners: dict[int, np.ndarray] = {}
         self._load_board_template()
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -207,7 +247,11 @@ class AprilTagHandEyeCalibrator(Node):
             "AprilTag hand-eye calibrator ready: "
             f"image={self.image_topic} camera_info={self.camera_info_topic} "
             f"base={self.base_frame} gripper={self.gripper_frame} "
-            f"tag_size={self.tag_size_m:.3f}m tag_id={self.tag_id} "
+            f"tag_family={self.tag_family or 'opencv'} "
+            f"tag_size={self.tag_size_m:.3f}m tag_pitch={self.tag_pitch_m:.3f}m "
+            f"tag_id={self.tag_id} "
+            f"dictionary={self.get_parameter('dictionary').value} "
+            f"template_fallback={self.enable_board_template_fallback} "
             f"board={self.board_image_path}"
         )
 
@@ -221,14 +265,75 @@ class AprilTagHandEyeCalibrator(Node):
             self.get_logger().warn(f"failed to read board image, template fallback disabled: {path}")
             return
         self.board_gray = image
+        self._load_apriltag_board_reference(image)
         keypoints, descriptors = self.orb.detectAndCompute(image, None)
         self.board_keypoints = keypoints
         self.board_descriptors = descriptors
         count = 0 if keypoints is None else len(keypoints)
         self.get_logger().info(
             f"loaded board template {path} size={image.shape[1]}x{image.shape[0]} "
-            f"features={count} physical={self.board_width_m:.3f}x{self.board_height_m:.3f}m"
+            f"features={count} apriltag_ids={sorted(self.board_tag_object_corners)} "
+            f"physical={self.board_width_m:.3f}x{self.board_height_m:.3f}m"
         )
+
+    def _load_apriltag_board_reference(self, image: np.ndarray) -> None:
+        if self.apriltag_detector is None:
+            return
+        detections = list(self.apriltag_detector.detect(image, estimate_tag_pose=False))
+        if not detections:
+            self.get_logger().warn(
+                f"no {self.tag_family} tags detected in board reference; board PnP disabled"
+            )
+            return
+        centers = np.asarray([det.center for det in detections], dtype=np.float64)
+        y_sorted = sorted(float(value) for value in centers[:, 1])
+        row_values: list[list[float]] = []
+        for value in y_sorted:
+            if not row_values or abs(value - float(np.mean(row_values[-1]))) > 0.35 * self._reference_pitch_px(centers):
+                row_values.append([value])
+            else:
+                row_values[-1].append(value)
+        row_centers = [float(np.mean(row)) for row in row_values]
+        rows: list[list[Any]] = [[] for _ in row_centers]
+        for det in detections:
+            row_index = min(
+                range(len(row_centers)), key=lambda index: abs(float(det.center[1]) - row_centers[index])
+            )
+            rows[row_index].append(det)
+        half = self.tag_size_m * 0.5
+        row_count = len(rows)
+        loaded = 0
+        for row_index, row in enumerate(rows):
+            row.sort(key=lambda det: float(det.center[0]))
+            col_count = len(row)
+            for col_index, det in enumerate(row):
+                center_x = (col_index - (col_count - 1) * 0.5) * self.tag_pitch_m
+                center_y = (row_index - (row_count - 1) * 0.5) * self.tag_pitch_m
+                self.board_tag_object_corners[int(det.tag_id)] = np.asarray(
+                    [
+                        [center_x - half, center_y + half, 0.0],
+                        [center_x + half, center_y + half, 0.0],
+                        [center_x + half, center_y - half, 0.0],
+                        [center_x - half, center_y - half, 0.0],
+                    ],
+                    dtype=np.float64,
+                )
+                loaded += 1
+        self.get_logger().info(
+            f"loaded {loaded} {self.tag_family} board tags from reference "
+            f"rows={row_count} pitch={self.tag_pitch_m:.3f}m tag={self.tag_size_m:.3f}m"
+        )
+
+    def _reference_pitch_px(self, centers: np.ndarray) -> float:
+        if len(centers) < 2:
+            return 100.0
+        distances = []
+        for index, point in enumerate(centers):
+            delta = centers[index + 1 :] - point
+            if len(delta):
+                distances.extend(float(np.linalg.norm(value)) for value in delta)
+        distances = [value for value in distances if value > 1.0]
+        return min(distances) if distances else 100.0
 
     def _resolve_output_dir(self, value: str) -> Path:
         path = Path(value).expanduser()
@@ -296,12 +401,20 @@ class AprilTagHandEyeCalibrator(Node):
 
     def _detect_tag(self, image: np.ndarray) -> Detection | None:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        if self.apriltag_detector is not None:
+            detection = self._detect_apriltag_board(gray)
+            if detection is not None:
+                return detection
+            if self.tag_id >= 0 or not self.enable_board_template_fallback:
+                return None
         if hasattr(cv2.aruco, "ArucoDetector"):
             corners, ids, _ = self.detector.detectMarkers(gray)
         else:
             dictionary, parameters = self.detector
             corners, ids, _ = cv2.aruco.detectMarkers(gray, dictionary, parameters=parameters)
         if ids is None or len(ids) == 0:
+            if self.tag_id >= 0 or not self.enable_board_template_fallback:
+                return None
             return self._detect_board_template(gray)
         flat_ids = ids.reshape(-1)
         selected = 0
@@ -328,8 +441,85 @@ class AprilTagHandEyeCalibrator(Node):
         )
         reproj = projected.reshape(-1, 2)
         error = float(np.mean(np.linalg.norm(reproj - image_points, axis=1)))
+        distance = float(np.linalg.norm(tvec.reshape(3)))
+        if not self._valid_detection_geometry(distance, error):
+            return None
         return Detection(
             tag_id=tag_id,
+            target_to_camera=_make_transform(rotation, tvec.reshape(3)),
+            reprojection_error_px=error,
+        )
+
+    def _detect_apriltag_board(self, gray: np.ndarray) -> Detection | None:
+        if self.apriltag_detector is None or not self.board_tag_object_corners:
+            return None
+        detections = list(self.apriltag_detector.detect(gray, estimate_tag_pose=False))
+        object_points: list[np.ndarray] = []
+        image_points: list[np.ndarray] = []
+        used_ids = []
+        for det in detections:
+            tag_id = int(det.tag_id)
+            if self.tag_id >= 0 and tag_id != self.tag_id:
+                continue
+            corners = self.board_tag_object_corners.get(tag_id)
+            if corners is None:
+                continue
+            object_points.extend(corners)
+            image_points.extend(np.asarray(det.corners, dtype=np.float64))
+            used_ids.append(tag_id)
+        if len(object_points) < 4:
+            return None
+        object_array = np.asarray(object_points, dtype=np.float64)
+        image_array = np.asarray(image_points, dtype=np.float64)
+        if len(object_array) == 4:
+            ok, rvec, tvec = cv2.solvePnP(
+                object_array,
+                image_array,
+                self.camera_matrix,
+                self.dist_coeffs,
+                flags=cv2.SOLVEPNP_IPPE_SQUARE,
+            )
+            inlier_object = object_array
+            inlier_image = image_array
+        else:
+            ok, rvec, tvec, inliers = cv2.solvePnPRansac(
+                object_array,
+                image_array,
+                self.camera_matrix,
+                self.dist_coeffs,
+                iterationsCount=100,
+                reprojectionError=4.0,
+                confidence=0.995,
+                flags=cv2.SOLVEPNP_ITERATIVE,
+            )
+            if not ok or inliers is None or len(inliers) < 4:
+                return None
+            inlier_object = object_array[inliers.reshape(-1)]
+            inlier_image = image_array[inliers.reshape(-1)]
+            ok, rvec, tvec = cv2.solvePnP(
+                inlier_object,
+                inlier_image,
+                self.camera_matrix,
+                self.dist_coeffs,
+                rvec,
+                tvec,
+                useExtrinsicGuess=True,
+                flags=cv2.SOLVEPNP_ITERATIVE,
+            )
+        if not ok:
+            return None
+        rotation, _ = cv2.Rodrigues(rvec)
+        projected, _ = cv2.projectPoints(
+            inlier_object, rvec, tvec, self.camera_matrix, self.dist_coeffs
+        )
+        reproj = projected.reshape(-1, 2)
+        error = float(np.mean(np.linalg.norm(reproj - inlier_image, axis=1)))
+        distance = float(np.linalg.norm(tvec.reshape(3)))
+        if not self._valid_detection_geometry(distance, error):
+            return None
+        tag_label = used_ids[0] if len(used_ids) == 1 else -1
+        return Detection(
+            tag_id=tag_label,
             target_to_camera=_make_transform(rotation, tvec.reshape(3)),
             reprojection_error_px=error,
         )
@@ -394,11 +584,23 @@ class AprilTagHandEyeCalibrator(Node):
         )
         reproj = projected.reshape(-1, 2)
         error = float(np.mean(np.linalg.norm(reproj - inlier_image, axis=1)))
+        distance = float(np.linalg.norm(tvec.reshape(3)))
+        if not self._valid_detection_geometry(distance, error):
+            return None
         return Detection(
             tag_id=-1,
             target_to_camera=_make_transform(rotation, tvec.reshape(3)),
             reprojection_error_px=error,
         )
+
+    def _valid_detection_geometry(self, distance_m: float, reprojection_error_px: float) -> bool:
+        if not np.isfinite(distance_m) or not np.isfinite(reprojection_error_px):
+            return False
+        if distance_m < self.min_target_distance_m or distance_m > self.max_target_distance_m:
+            return False
+        if reprojection_error_px > self.max_reprojection_error_px:
+            return False
+        return True
 
     def _tag_object_points(self) -> np.ndarray:
         half = self.tag_size_m * 0.5
@@ -477,18 +679,20 @@ class AprilTagHandEyeCalibrator(Node):
             r_target_to_camera.append(sample.target_to_camera[:3, :3])
             t_target_to_camera.append(sample.target_to_camera[:3, 3])
 
-        r_camera_to_gripper, t_camera_to_gripper = cv2.calibrateHandEye(
+        candidates = self._solve_hand_eye_candidates(
             r_gripper_to_base,
             t_gripper_to_base,
             r_target_to_camera,
             t_target_to_camera,
-            method=cv2.CALIB_HAND_EYE_TSAI,
         )
-        camera_to_gripper = _make_transform(
-            np.asarray(r_camera_to_gripper, dtype=np.float64),
-            np.asarray(t_camera_to_gripper, dtype=np.float64).reshape(3),
-        )
-        gripper_to_camera = _invert_transform(camera_to_gripper)
+        valid_candidates = [candidate for candidate in candidates if candidate.get("valid")]
+        if not valid_candidates:
+            response.success = False
+            response.message = "hand-eye solve failed: no valid candidate"
+            return response
+        selected = min(valid_candidates, key=lambda item: float(item["consistency_score"]))
+        camera_to_gripper = np.asarray(selected["camera_to_gripper_matrix"], dtype=np.float64)
+        gripper_to_camera = np.asarray(selected["gripper_to_camera_matrix"], dtype=np.float64)
         result = {
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "base_frame": self.base_frame,
@@ -498,11 +702,15 @@ class AprilTagHandEyeCalibrator(Node):
             "board_width_m": self.board_width_m,
             "board_height_m": self.board_height_m,
             "tag_size_m": self.tag_size_m,
+            "tag_pitch_m": self.tag_pitch_m,
             "tag_id": self.tag_id,
+            "tag_family": self.tag_family,
             "sample_count": len(self.samples),
             "mean_reprojection_error_px": float(
                 np.mean([sample.reprojection_error_px for sample in self.samples])
             ),
+            "selected_method": selected["method"],
+            "hand_eye_candidates": candidates,
             "camera_to_gripper": _transform_to_dict(camera_to_gripper),
             "gripper_to_camera": _transform_to_dict(gripper_to_camera),
             "samples": [
@@ -529,6 +737,121 @@ class AprilTagHandEyeCalibrator(Node):
         )
         self.get_logger().info(response.message)
         return response
+
+    def _solve_hand_eye_candidates(
+        self,
+        r_gripper_to_base: list[np.ndarray],
+        t_gripper_to_base: list[np.ndarray],
+        r_target_to_camera: list[np.ndarray],
+        t_target_to_camera: list[np.ndarray],
+    ) -> list[dict[str, Any]]:
+        methods = [
+            ("TSAI", cv2.CALIB_HAND_EYE_TSAI),
+            ("PARK", cv2.CALIB_HAND_EYE_PARK),
+            ("HORAUD", cv2.CALIB_HAND_EYE_HORAUD),
+            ("ANDREFF", cv2.CALIB_HAND_EYE_ANDREFF),
+            ("DANIILIDIS", cv2.CALIB_HAND_EYE_DANIILIDIS),
+        ]
+        candidates: list[dict[str, Any]] = []
+        base_to_gripper = [
+            _make_transform(rotation, translation)
+            for rotation, translation in zip(r_gripper_to_base, t_gripper_to_base)
+        ]
+        target_to_camera = [
+            _make_transform(rotation, translation)
+            for rotation, translation in zip(r_target_to_camera, t_target_to_camera)
+        ]
+        for name, method in methods:
+            try:
+                r_camera_to_gripper, t_camera_to_gripper = cv2.calibrateHandEye(
+                    r_gripper_to_base,
+                    t_gripper_to_base,
+                    r_target_to_camera,
+                    t_target_to_camera,
+                    method=method,
+                )
+                camera_to_gripper = _make_transform(
+                    np.asarray(r_camera_to_gripper, dtype=np.float64),
+                    np.asarray(t_camera_to_gripper, dtype=np.float64).reshape(3),
+                )
+                gripper_to_camera = _invert_transform(camera_to_gripper)
+                translation_norm = float(np.linalg.norm(gripper_to_camera[:3, 3]))
+                det = float(np.linalg.det(camera_to_gripper[:3, :3]))
+                consistency = self._hand_eye_consistency(
+                    base_to_gripper, target_to_camera, gripper_to_camera
+                )
+                valid = (
+                    np.all(np.isfinite(camera_to_gripper))
+                    and 0.8 <= det <= 1.2
+                    and 0.02 <= translation_norm <= 2.0
+                    and np.isfinite(consistency["score"])
+                )
+                candidates.append(
+                    {
+                        "method": name,
+                        "valid": bool(valid),
+                        "determinant": det,
+                        "translation_norm_m": translation_norm,
+                        "consistency_score": float(consistency["score"]),
+                        "consistency_translation_mean_m": float(
+                            consistency["translation_mean_m"]
+                        ),
+                        "consistency_rotation_mean_rad": float(
+                            consistency["rotation_mean_rad"]
+                        ),
+                        "camera_to_gripper": _transform_to_dict(camera_to_gripper),
+                        "gripper_to_camera": _transform_to_dict(gripper_to_camera),
+                        "camera_to_gripper_matrix": camera_to_gripper.tolist(),
+                        "gripper_to_camera_matrix": gripper_to_camera.tolist(),
+                    }
+                )
+            except Exception as exc:
+                candidates.append(
+                    {
+                        "method": name,
+                        "valid": False,
+                        "error": str(exc),
+                        "consistency_score": float("inf"),
+                    }
+                )
+        return candidates
+
+    def _hand_eye_consistency(
+        self,
+        base_to_gripper: list[np.ndarray],
+        target_to_camera: list[np.ndarray],
+        gripper_to_camera: np.ndarray,
+    ) -> dict[str, float]:
+        base_to_target = [
+            base_to_gripper_sample @ gripper_to_camera @ _invert_transform(target_to_camera_sample)
+            for base_to_gripper_sample, target_to_camera_sample in zip(
+                base_to_gripper, target_to_camera
+            )
+        ]
+        if len(base_to_target) < 2:
+            return {
+                "score": float("inf"),
+                "translation_mean_m": float("inf"),
+                "rotation_mean_rad": float("inf"),
+            }
+        reference = base_to_target[0]
+        translation_errors = []
+        rotation_errors = []
+        for transform in base_to_target[1:]:
+            delta = _invert_transform(reference) @ transform
+            translation_errors.append(float(np.linalg.norm(delta[:3, 3])))
+            rotation_errors.append(self._rotation_angle(delta[:3, :3]))
+        translation_mean = float(np.mean(translation_errors))
+        rotation_mean = float(np.mean(rotation_errors))
+        return {
+            "score": translation_mean + 0.25 * rotation_mean,
+            "translation_mean_m": translation_mean,
+            "rotation_mean_rad": rotation_mean,
+        }
+
+    def _rotation_angle(self, rotation: np.ndarray) -> float:
+        value = (float(np.trace(rotation)) - 1.0) * 0.5
+        return float(math.acos(min(1.0, max(-1.0, value))))
 
 
 def main() -> None:

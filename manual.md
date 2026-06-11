@@ -527,7 +527,7 @@ ros2 launch arachne_operator teach_panel.launch.py \
 ```bash
 cd /home/jetson/zhaoyang/Arachne
 source scripts/env/arachne_env.sh
-ros2 launch lslidar_c16_decoder lslidar_c16_launch.py
+ros2 launch lslidar_driver lslidar_cx_launch.py
 ```
 
 终端 4，打开融合 RViz：
@@ -538,7 +538,7 @@ source scripts/env/arachne_env.sh
 rviz2 -d src/arachne_description/rviz/arachne_lidar_fusion.rviz
 ```
 
-当前 C16 配置位于 `third_party/LS-LIDAR-C16ROS2/lslidar_c16/lslidar_c16_decoder/params/lslidar_c16.yaml`：`device_ip=192.168.1.200`、`msop_port=2368`、`difop_port=2369`、`frame_id=lidar_link`、`distance_unit=0.5`。融合 RViz 固定坐标为 `lidar_link`，即“雷达图中放入整车模型”；如果现场比例不对，优先调整 `distance_unit`，不是缩放车模。
+当前 C16 配置位于 `third_party/Lslidar_ROS2_driver_C16_V4/lslidar_driver/params/lslidar_cx.yaml`：`device_ip=192.168.1.200`、`msop_port=2368`、`difop_port=2369`、`frame_id=lidar_link`、`topic_name=/lslidar_point_cloud`、`distance_unit=0.4`。融合 RViz 固定坐标为 `lidar_link`，即“雷达图中放入整车模型”；如果现场比例不对，优先调整 `distance_unit`，不是缩放车模。
 
 这个模式适合检查：
 
