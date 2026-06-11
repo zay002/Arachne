@@ -28,7 +28,15 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("aubo_control_owner_name", default_value="grasp_task_server"),
             DeclareLaunchArgument("grasp_base_offset", default_value="0,0,0"),
-            DeclareLaunchArgument("extra_args", default_value=""),
+            DeclareLaunchArgument(
+                "extra_args",
+                default_value=(
+                    "--planner-backend local "
+                    "--planning-key-waypoints approach,grasp,safe_mid,basket_over "
+                    "--vertical-approach --lock-grasp-orientation "
+                    "--real-sdk-semantic-targets-only --real-sdk-max-targets 8"
+                ),
+            ),
             DeclareLaunchArgument("preview_on_start", default_value="true"),
             DeclareLaunchArgument("preview_extra_args", default_value="--planner-backend none"),
             DeclareLaunchArgument("planning_recovery_base_enabled", default_value="false"),

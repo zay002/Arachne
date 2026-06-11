@@ -384,6 +384,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--grasp-tcp-offset-m", type=float, default=0.0, help=hidden)
     parser.add_argument("--grasp-base-offset", default="0,0,0", help=hidden)
     parser.add_argument("--disable-pointcloud-grasp-shape", action="store_true", help=hidden)
+    parser.add_argument("--vertical-approach", action=argparse.BooleanOptionalAction, default=True, help=hidden)
+    parser.add_argument(
+        "--lock-grasp-orientation",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=hidden,
+    )
     parser.add_argument("--pointcloud-grasp-min-points", type=int, default=24, help=hidden)
     parser.add_argument("--pointcloud-axis-confidence-threshold", type=float, default=0.10, help=hidden)
     parser.add_argument("--visual-axis-confidence-threshold", type=float, default=0.12, help=hidden)
@@ -396,6 +403,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--basket-approach-base", default="0.545,0.0,0.34", help=hidden)
     parser.add_argument("--basket-keepout-min-base", default="0.4215,-0.11,-0.1235", help=hidden)
     parser.add_argument("--basket-keepout-max-base", default="0.6655,0.11,0.0635", help=hidden)
+    parser.add_argument("--rear-rack-keepout-min-base", default="-0.41,-0.22,0.04", help=hidden)
+    parser.add_argument("--rear-rack-keepout-max-base", default="0.09,0.22,0.82", help=hidden)
     parser.add_argument("--basket-clearance", type=float, default=0.04, help=hidden)
     parser.add_argument("--gripper-radius", type=float, default=0.055, help=hidden)
     parser.add_argument("--arm-collision-radius", type=float, default=0.075, help=hidden)
@@ -418,7 +427,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--trajectory-joint-tolerance", type=float, default=0.004, help=hidden)
     parser.add_argument("--trajectory-max-duration", type=float, default=90.0, help=hidden)
     parser.add_argument("--planning-key-waypoints", default="approach,grasp,safe_mid,basket_over", help=hidden)
-    parser.add_argument("--planner-backend", choices=("moveit", "remote", "local", "none"), default="moveit", help=hidden)
+    parser.add_argument("--planner-backend", choices=("moveit", "remote", "local", "none"), default="local", help=hidden)
     parser.add_argument(
         "--remote-planner-url",
         default=os.environ.get("ARACHNE_REMOTE_PLANNER_URL", "http://127.0.0.1:8767"),
@@ -448,6 +457,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--moveit-grasp-fallback-position-tolerance", type=float, default=0.12, help=hidden)
     parser.add_argument("--moveit-grasp-fallback-orientation-tolerance", type=float, default=0.65, help=hidden)
     parser.add_argument("--moveit-pose-goal-on-ik-failure", action=argparse.BooleanOptionalAction, default=True, help=hidden)
+    parser.add_argument(
+        "--local-strict-ik",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=hidden,
+    )
+    parser.add_argument("--local-position-tolerance", type=float, default=0.035, help=hidden)
+    parser.add_argument("--local-orientation-tolerance", type=float, default=0.22, help=hidden)
     parser.add_argument(
         "--moveit-local-first",
         action=argparse.BooleanOptionalAction,
@@ -518,7 +535,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--real-sdk-goal-tolerance-rad", type=float, default=0.045, help=hidden)
     parser.add_argument("--real-sdk-arrival-timeout-padding", type=float, default=5.0, help=hidden)
     parser.add_argument("--real-sdk-max-segment-joint-delta", type=float, default=0.55, help=hidden)
-    parser.add_argument("--real-sdk-max-targets", type=int, default=18, help=hidden)
+    parser.add_argument("--real-sdk-max-targets", type=int, default=8, help=hidden)
+    parser.add_argument("--real-sdk-semantic-targets-only", action=argparse.BooleanOptionalAction, default=True, help=hidden)
     parser.add_argument(
         "--real-return-home",
         dest="real_return_home",
@@ -727,6 +745,8 @@ class GraspPreviewNode(Node):
         self.basket_approach_base = _xyz(args.basket_approach_base)
         self.basket_keepout_min = _xyz(args.basket_keepout_min_base)
         self.basket_keepout_max = _xyz(args.basket_keepout_max_base)
+        self.rear_rack_keepout_min = _xyz(args.rear_rack_keepout_min_base)
+        self.rear_rack_keepout_max = _xyz(args.rear_rack_keepout_max_base)
         self._clamp_basket_points_above_keepout()
         self.collision_boxes = self._make_collision_boxes()
         self.kinematics = AuboI5Kinematics()
@@ -822,6 +842,8 @@ class GraspPreviewNode(Node):
             "grasp preview ready: "
             f"model={self.model_path} classes={args.classes or 'all'} "
             f"inference_device={self._yolo_device()} "
+            f"planner={args.planner_backend} vertical_approach={bool(args.vertical_approach)} "
+            f"lock_orientation={bool(args.lock_grasp_orientation)} "
             "markers=/arachne/grasp_preview/markers "
             "roi_cloud=/arachne/grasp_preview/roi_cloud "
             f"restart_topic={args.restart_search_topic}"
@@ -850,26 +872,39 @@ class GraspPreviewNode(Node):
         def padded(size: tuple[float, float, float]) -> tuple[float, float, float]:
             return tuple(float(value) + 2.0 * margin for value in size)  # type: ignore[return-value]
 
-        basket_center = (
-            0.5 * (self.basket_keepout_min[0] + self.basket_keepout_max[0]),
-            0.5 * (self.basket_keepout_min[1] + self.basket_keepout_max[1]),
-            0.5 * (self.basket_keepout_min[2] + self.basket_keepout_max[2]),
+        def box_from_min_max(
+            name: str,
+            minimum: tuple[float, float, float],
+            maximum: tuple[float, float, float],
+        ) -> CollisionBox | None:
+            mins = np.asarray(minimum, dtype=np.float64)
+            maxs = np.asarray(maximum, dtype=np.float64)
+            if bool(np.any(maxs <= mins)):
+                return None
+            center = tuple(float(value) for value in (mins + maxs) * 0.5)
+            size = tuple(float(value) for value in (maxs - mins))
+            return CollisionBox(name, center, padded(size))
+
+        basket_box = box_from_min_max(
+            "front_basket_keepout", self.basket_keepout_min, self.basket_keepout_max
         )
-        basket_size = (
-            self.basket_keepout_max[0] - self.basket_keepout_min[0],
-            self.basket_keepout_max[1] - self.basket_keepout_min[1],
-            self.basket_keepout_max[2] - self.basket_keepout_min[2],
+        rear_box = box_from_min_max(
+            "rear_sensor_rack", self.rear_rack_keepout_min, self.rear_rack_keepout_max
         )
-        return [
+        boxes = [
             CollisionBox("scout_base_main", (0.0, 0.0, 0.008), padded((0.925, 0.380, 0.210))),
             CollisionBox(
                 "scout_base_center_ridge",
                 (0.0, 0.0, 0.210 / 6.0),
                 padded((0.925 / 6.0, 0.380 * 1.65, 0.210 / 3.0)),
             ),
-            CollisionBox("front_basket_keepout", basket_center, padded(basket_size)),
             CollisionBox("arm_mount", (0.22, 0.0, 0.155 - 0.025), padded((0.26, 0.22, 0.05))),
         ]
+        if basket_box is not None:
+            boxes.append(basket_box)
+        if rear_box is not None:
+            boxes.append(rear_box)
+        return boxes
 
     def _color_cb(self, msg: Image) -> None:
         self.latest_color = msg
@@ -1554,20 +1589,23 @@ class GraspPreviewNode(Node):
 
         max_delta = max(float(self.args.real_sdk_max_segment_joint_delta), 0.05)
         max_targets = max(int(self.args.real_sdk_max_targets), 2)
-        last_q = np.asarray(frames[0].positions, dtype=float)
-        safe_mid_index = semantic_indices.get("safe_mid", open_index)
-        for index, frame in enumerate(frames[1:], start=1):
-            if index in selected:
-                last_q = np.asarray(frame.positions, dtype=float)
-                continue
-            if close_index < index < safe_mid_index:
-                continue
-            delta = float(np.max(np.abs(self._joint_delta(np.asarray(frame.positions, dtype=float), last_q))))
-            if delta >= max_delta:
-                selected[index] = f"segment_{len(selected) + 1}"
-                last_q = np.asarray(frame.positions, dtype=float)
-            if len(selected) >= max_targets:
-                break
+        if not bool(self.args.real_sdk_semantic_targets_only):
+            last_q = np.asarray(frames[0].positions, dtype=float)
+            safe_mid_index = semantic_indices.get("safe_mid", open_index)
+            for index, frame in enumerate(frames[1:], start=1):
+                if index in selected:
+                    last_q = np.asarray(frame.positions, dtype=float)
+                    continue
+                if close_index < index < safe_mid_index:
+                    continue
+                delta = float(
+                    np.max(np.abs(self._joint_delta(np.asarray(frame.positions, dtype=float), last_q)))
+                )
+                if delta >= max_delta:
+                    selected[index] = f"segment_{len(selected) + 1}"
+                    last_q = np.asarray(frame.positions, dtype=float)
+                if len(selected) >= max_targets:
+                    break
 
         if (len(frames) - 1) not in selected:
             selected[len(frames) - 1] = "final"
@@ -3670,6 +3708,17 @@ class GraspPreviewNode(Node):
                     return [], f"collision blocked at {hit_name or 'vehicle'} progress={progress:.2f}"
             if not ok:
                 failures += 1
+            if bool(self.args.local_strict_ik):
+                position_limit = max(float(self.args.local_position_tolerance), 0.001)
+                orientation_limit = max(float(self.args.local_orientation_tolerance), 0.01)
+                if (not ok) or position_error > position_limit or orientation_error > orientation_limit:
+                    x, y, z = point
+                    return (
+                        [],
+                        f"local ik rejected at {target_name} xyz=({x:.3f},{y:.3f},{z:.3f}) "
+                        f"pos_err={position_error:.3f}m/{position_limit:.3f}m "
+                        f"ori_err={orientation_error:.3f}rad/{orientation_limit:.3f}rad",
+                    )
             max_position_error = max(max_position_error, float(position_error))
             max_orientation_error = max(max_orientation_error, float(orientation_error))
             if np.max(np.abs(q_unwrapped - q_waypoints[-1])) > 1e-5:
@@ -3728,6 +3777,8 @@ class GraspPreviewNode(Node):
         shape_hints = self._pointcloud_shape_orientation_hints(pointcloud_shape)
 
         phase = self._target_orientation_phase(target_name, progress)
+        if bool(self.args.lock_grasp_orientation) and phase in {"grasp", "carry", "release"}:
+            return [self._orthonormalize_rotation(np.asarray(current_rotation_base, dtype=float))]
         if phase == "current":
             nominal = current_rotation_base
         elif phase == "grasp":
@@ -3959,6 +4010,11 @@ class GraspPreviewNode(Node):
             self._transform_matrix_point(base_from_aubo, transform[:3, 3])
             for _name, transform in self.kinematics.link_transforms(np.asarray(q, dtype=float))
         ]
+        tool_to_grasp, _message = self._tool_to_grasp_matrix()
+        if tool_to_grasp is not None:
+            tool_in_aubo = self.kinematics.fk(np.asarray(q, dtype=float))
+            grasp_in_base = np.asarray(base_from_aubo, dtype=float) @ tool_in_aubo @ tool_to_grasp
+            link_points.append(tuple(float(value) for value in grasp_in_base[:3, 3]))
         samples_per_link = max(int(self.args.arm_collision_samples_per_link), 2)
         radius = max(float(self.args.arm_collision_radius), 0.0)
         ground_threshold = (
@@ -4140,9 +4196,32 @@ class GraspPreviewNode(Node):
         if start_base is None:
             start_base = self._transform_point(transform, (0.0, 0.0, 0.0))
         observe_base = start_base
-        pregrasp_base = base_grasp_path[0]
+        raw_pregrasp_base = base_grasp_path[0]
         grasp_base = base_grasp_path[1]
-        lift_base = base_grasp_path[2]
+        raw_lift_base = base_grasp_path[2]
+        if bool(self.args.vertical_approach):
+            min_grasp_z = (
+                float(self.args.ground_min_z_base)
+                + max(float(self.args.tool_ground_clearance), 0.0)
+                + 0.015
+            )
+            if grasp_base[2] < min_grasp_z:
+                grasp_base = (grasp_base[0], grasp_base[1], min_grasp_z)
+            approach_height = max(float(self.args.approach_distance), 0.08)
+            lift_height = max(float(self.args.lift_distance), 0.08)
+            approach_z = max(
+                grasp_base[2] + approach_height,
+                float(self.args.ground_min_z_base) + 0.18,
+            )
+            pregrasp_base = (grasp_base[0], grasp_base[1], approach_z)
+            lift_base = (
+                grasp_base[0],
+                grasp_base[1],
+                max(grasp_base[2] + lift_height, approach_z),
+            )
+        else:
+            pregrasp_base = raw_pregrasp_base
+            lift_base = raw_lift_base
         safe_mid_lift = max(float(self.args.safe_mid_lift_height), 0.0)
         transit_z = max(
             float(self.args.transit_height),
@@ -4715,7 +4794,20 @@ class GraspPreviewNode(Node):
         keepout.scale.z = max_z - min_z
         markers.append(keepout)
 
-        label = self._marker(header, "basket_label", 31, Marker.TEXT_VIEW_FACING, _color(1.0, 1.0, 1.0))
+        rear_keepout = self._marker(
+            header, "rear_rack_keepout", 31, Marker.CUBE, _color(1.0, 0.35, 0.0, 0.14)
+        )
+        min_x, min_y, min_z = self.rear_rack_keepout_min
+        max_x, max_y, max_z = self.rear_rack_keepout_max
+        rear_keepout.pose.position = _point(
+            ((min_x + max_x) * 0.5, (min_y + max_y) * 0.5, (min_z + max_z) * 0.5)
+        )
+        rear_keepout.scale.x = max_x - min_x
+        rear_keepout.scale.y = max_y - min_y
+        rear_keepout.scale.z = max_z - min_z
+        markers.append(rear_keepout)
+
+        label = self._marker(header, "basket_label", 32, Marker.TEXT_VIEW_FACING, _color(1.0, 1.0, 1.0))
         label.pose.position = _point((self.basket_release_base[0], self.basket_release_base[1], self.basket_release_base[2] + 0.08))
         label.scale.z = 0.055
         label.text = "release over basket\nkeepout clear" if preview.basket_safe else "basket collision risk"
@@ -4946,6 +5038,13 @@ class GraspPreviewNode(Node):
             ),
             "path_playback_rate_hz": max(float(self.args.playback_rate), 1.0),
             "planner_backend": str(self.args.planner_backend),
+            "grasp_strategy": {
+                "vertical_approach": bool(self.args.vertical_approach),
+                "lock_grasp_orientation": bool(self.args.lock_grasp_orientation),
+                "local_strict_ik": bool(self.args.local_strict_ik),
+                "real_sdk_semantic_targets_only": bool(self.args.real_sdk_semantic_targets_only),
+                "safe_mid_lift_height_m": float(self.args.safe_mid_lift_height),
+            },
             "moveit_plan_service": str(self.args.moveit_plan_service),
             "moveit_planners": [
                 token.strip()
@@ -5028,6 +5127,8 @@ class GraspPreviewNode(Node):
             "basket_release_base": self.basket_release_base,
             "basket_keepout_min_base": self.basket_keepout_min,
             "basket_keepout_max_base": self.basket_keepout_max,
+            "rear_rack_keepout_min_base": self.rear_rack_keepout_min,
+            "rear_rack_keepout_max_base": self.rear_rack_keepout_max,
             "basket_safe": preview.basket_safe,
             "roi_points": len(preview.roi_points),
         }
