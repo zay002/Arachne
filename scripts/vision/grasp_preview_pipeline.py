@@ -2580,6 +2580,9 @@ class GraspPreviewNode(Node):
         current_rotation_base = self._current_end_effector_rotation_base()
 
         for index, (target_name, target_base, progress) in enumerate(targets):
+            position_tolerance, orientation_tolerance, use_orientation_constraint = (
+                self._remote_moveit_goal_options(target_name)
+            )
             target_rotations_base = self._target_orientation_candidates_base(
                 target_base,
                 progress,
@@ -2629,7 +2632,10 @@ class GraspPreviewNode(Node):
                         ],
                     }
                 )
-                max_alternatives = 6 if target_name == "grasp" else 3
+                if not use_orientation_constraint:
+                    max_alternatives = 1
+                else:
+                    max_alternatives = 6 if target_name == "grasp" else 3
                 if len(alternatives) >= max_alternatives:
                     break
             if not alternatives:
@@ -2641,7 +2647,11 @@ class GraspPreviewNode(Node):
                     + " | ".join(failure_messages[-6:]),
                 )
             reached_targets.append(target_name)
-            notes.append(f"{target_name}:remote_pose_alternatives={len(alternatives)}")
+            orientation_note = "pose" if use_orientation_constraint else "position_only"
+            notes.append(
+                f"{target_name}:remote_{orientation_note}_alternatives={len(alternatives)}"
+                f":pos_tol={position_tolerance:.3f}:ori_tol={orientation_tolerance:.3f}"
+            )
             current_rotation_base = np.asarray(target_rotations_base[0], dtype=float)
             first = alternatives[0]
             moveit_targets.append(
@@ -2649,8 +2659,9 @@ class GraspPreviewNode(Node):
                     "name": target_name,
                     "tool0_xyz_aubo": first["tool0_xyz_aubo"],
                     "tool0_quat_aubo": first["tool0_quat_aubo"],
-                    "position_tolerance": float(self.args.moveit_position_tolerance),
-                    "orientation_tolerance": float(self.args.moveit_ik_orientation_tolerance),
+                    "position_tolerance": position_tolerance,
+                    "orientation_tolerance": orientation_tolerance,
+                    "use_orientation_constraint": use_orientation_constraint,
                     "alternatives": alternatives,
                 }
             )
@@ -2707,6 +2718,32 @@ class GraspPreviewNode(Node):
             f"targets={','.join(reached_targets)} "
             f"frames={len(frames)} duration={frames[-1].time_from_start:.2f}s "
             f"ik={';'.join(notes)} status={response.get('status')}",
+        )
+
+    def _remote_moveit_goal_options(self, target_name: str) -> tuple[float, float, bool]:
+        name = str(target_name).strip()
+        if name == "grasp":
+            return (
+                max(float(self.args.moveit_position_tolerance), 0.002),
+                max(float(self.args.moveit_ik_orientation_tolerance), 0.01),
+                True,
+            )
+        if name == "approach":
+            return (
+                max(float(self.args.moveit_soft_waypoint_position_tolerance), 0.0),
+                max(float(self.args.moveit_soft_waypoint_orientation_tolerance), 0.01),
+                True,
+            )
+        if name in {"safe_mid", "lift", "basket_over", "drop"}:
+            return (
+                max(float(self.args.moveit_soft_waypoint_position_tolerance), 0.0),
+                max(float(self.args.moveit_release_orientation_tolerance), 0.01),
+                False,
+            )
+        return (
+            max(float(self.args.moveit_local_fallback_position_tolerance), 0.0),
+            max(float(self.args.moveit_local_fallback_orientation_tolerance), 0.01),
+            True,
         )
 
     def _remote_planner_post(self, payload: dict[str, object]) -> dict[str, object]:

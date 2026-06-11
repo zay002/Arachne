@@ -1775,7 +1775,7 @@ class TeachPanelNode(Node):
     def _replay_worker(self, waypoints: list[TeachWaypoint]) -> None:
         self._status(f"replay started: {len(waypoints)} waypoints")
         try:
-            if not self._ensure_aubo_motion_ready():
+            if self._replay_has_arm_targets(waypoints) and not self._ensure_aubo_motion_ready():
                 raise RuntimeError("Aubo teach mode is still active")
             replay_gripper = self.gripper_state
             previous_arm_joints: list[float] | None = None
@@ -1791,13 +1791,32 @@ class TeachPanelNode(Node):
 
                 if waypoint.base_motion:
                     self._replay_base_motion(waypoint.base_motion, waypoint.label)
-                if previous_arm_joints is None:
-                    previous_arm_joints = self._current_arm_vector()
-                if previous_arm_joints is None:
-                    raise RuntimeError(f"missing arm joint state before {waypoint.label}")
-                if not self._replay_arm_waypoint(previous_arm_joints, waypoint.arm_joints, waypoint.label):
-                    raise RuntimeError(f"arm waypoint failed: {waypoint.label}")
-                previous_arm_joints = [float(value) for value in waypoint.arm_joints]
+                if self._valid_arm_target(waypoint.arm_joints):
+                    if previous_arm_joints is None:
+                        previous_arm_joints = self._current_arm_vector()
+                    if previous_arm_joints is None:
+                        raise RuntimeError(f"missing arm joint state before {waypoint.label}")
+                    target_arm_joints = [float(value) for value in waypoint.arm_joints]
+                    arm_delta = self._max_arm_delta(previous_arm_joints, target_arm_joints)
+                    skip_tolerance = max(
+                        float(self.get_parameter("arm_goal_tolerance").value) * 0.5,
+                        1e-4,
+                    )
+                    if arm_delta > skip_tolerance:
+                        if not self._replay_arm_waypoint(
+                            previous_arm_joints, target_arm_joints, waypoint.label
+                        ):
+                            raise RuntimeError(f"arm waypoint failed: {waypoint.label}")
+                    else:
+                        self._status(
+                            f"arm replay skipped: unchanged target for {waypoint.label}"
+                        )
+                    previous_arm_joints = target_arm_joints
+                elif waypoint.arm_joints:
+                    self._status(
+                        f"arm replay skipped: invalid joint target for {waypoint.label}",
+                        warn=True,
+                    )
                 if waypoint.gripper in ("open", "close") and waypoint.gripper != replay_gripper:
                     self.publish_gripper(waypoint.gripper)
                     replay_gripper = waypoint.gripper
@@ -1811,6 +1830,34 @@ class TeachPanelNode(Node):
         except Exception as exc:
             self.set_base_velocity(0.0, 0.0)
             self._status(f"replay failed: {exc}", warn=True)
+
+    def _replay_has_arm_targets(self, waypoints: list[TeachWaypoint]) -> bool:
+        return any(
+            waypoint.kind != "wait" and self._valid_arm_target(waypoint.arm_joints)
+            for waypoint in waypoints
+        )
+
+    def _valid_arm_target(self, target: list[float]) -> bool:
+        if not isinstance(target, list):
+            return False
+        if len(target) != len(self.arm_command_joint_names):
+            return False
+        try:
+            values = [float(value) for value in target]
+        except (TypeError, ValueError):
+            return False
+        return all(math.isfinite(value) for value in values)
+
+    def _max_arm_delta(self, start: list[float], target: list[float]) -> float:
+        if len(start) != len(target):
+            return math.inf
+        return max(
+            (
+                abs(_angle_diff(float(target_value), float(start_value)))
+                for start_value, target_value in zip(start, target)
+            ),
+            default=0.0,
+        )
 
     def _replay_base_motion(self, segments: list[dict], label: str) -> None:
         max_duration = float(self.get_parameter("base_motion_max_segment_sec").value)

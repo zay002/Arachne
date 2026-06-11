@@ -68,6 +68,7 @@ class RemoteMoveItPlanner(Node):
                 "remote_moveit": True,
                 "ompl": True,
                 "joint_waypoint_time_parameterization": True,
+                "position_only_transit_goals": True,
             },
         }
 
@@ -222,10 +223,17 @@ class RemoteMoveItPlanner(Node):
         error_code = getattr(motion_response, "error_code", None)
         error_value = int(getattr(error_code, "val", 99999))
         if error_value != 1:
+            mode = "pose"
+            if not self._target_bool(target.get("use_orientation_constraint"), True):
+                mode = "position_only"
             return {
                 "ok": False,
                 "status": "moveit_failed",
-                "message": f"{target.get('name', '')} error_code={error_value}",
+                "message": (
+                    f"{target.get('name', '')} error_code={error_value} mode={mode} "
+                    f"pos_tol={float(target.get('position_tolerance', 0.015)):.3f} "
+                    f"ori_tol={float(target.get('orientation_tolerance', 0.35)):.3f}"
+                ),
             }
         trajectory = motion_response.trajectory.joint_trajectory
         name_to_index = {name: i for i, name in enumerate(trajectory.joint_names)}
@@ -249,6 +257,7 @@ class RemoteMoveItPlanner(Node):
     def _pose_constraint(self, target: dict[str, Any], xyz: list[float], quat: list[float]) -> Constraints:
         tolerance_pos = max(float(target.get("position_tolerance", 0.015)), 0.002)
         tolerance_ori = max(float(target.get("orientation_tolerance", 0.35)), 0.01)
+        use_orientation = self._target_bool(target.get("use_orientation_constraint"), True)
         constraints = Constraints()
         constraints.name = str(target.get("name") or "remote_pose_goal")
 
@@ -268,15 +277,16 @@ class RemoteMoveItPlanner(Node):
         pos.weight = 1.0
         constraints.position_constraints = [pos]
 
-        ori = OrientationConstraint()
-        ori.header.frame_id = "aubo_base_link"
-        ori.link_name = "tool0"
-        ori.orientation = pose.pose.orientation
-        ori.absolute_x_axis_tolerance = tolerance_ori
-        ori.absolute_y_axis_tolerance = tolerance_ori
-        ori.absolute_z_axis_tolerance = tolerance_ori
-        ori.weight = 1.0
-        constraints.orientation_constraints = [ori]
+        if use_orientation:
+            ori = OrientationConstraint()
+            ori.header.frame_id = "aubo_base_link"
+            ori.link_name = "tool0"
+            ori.orientation = pose.pose.orientation
+            ori.absolute_x_axis_tolerance = tolerance_ori
+            ori.absolute_y_axis_tolerance = tolerance_ori
+            ori.absolute_z_axis_tolerance = tolerance_ori
+            ori.weight = 1.0
+            constraints.orientation_constraints = [ori]
         return constraints
 
     def _trajectory(self, frames: list[dict[str, Any]], segments: list[dict[str, Any]]) -> dict[str, Any]:
@@ -317,6 +327,15 @@ class RemoteMoveItPlanner(Node):
         if not isinstance(value, list) or len(value) != length:
             raise ValueError(f"{label} must be a {length}-element list")
         return [float(v) for v in value]
+
+    def _target_bool(self, value: Any, default: bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        if value is None:
+            return default
+        return bool(value)
 
 
 def make_handler(planner: RemoteMoveItPlanner):
