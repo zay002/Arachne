@@ -342,6 +342,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--lost-frame-threshold", type=int, default=5, help=hidden)
     parser.add_argument("--locked-visual-rate", type=float, default=10.0, help=hidden)
     parser.add_argument("--restart-search-topic", default="/arachne/grasp_preview/restart_search")
+    parser.add_argument("--detection-topic", default="/arachne/perception/taco_instances", help=hidden)
     parser.add_argument("--joint-states-topic", default="/arachne/display/joint_states", help=hidden)
     parser.add_argument("--color-topic", default="/camera/color/image_raw", help=hidden)
     parser.add_argument("--depth-topic", default="/camera/depth/image_raw", help=hidden)
@@ -859,6 +860,7 @@ class GraspPreviewNode(Node):
         self.image_pub = self.create_publisher(
             Image, "/arachne/grasp_preview/annotated_image", 10
         )
+        self.detection_pub = self.create_publisher(String, str(args.detection_topic), 10)
         self.arm_preview_pub = self.create_publisher(
             JointState, "/arachne/grasp_preview/joint_states", 10
         )
@@ -875,6 +877,7 @@ class GraspPreviewNode(Node):
             f"lock_orientation={bool(args.lock_grasp_orientation)} "
             "markers=/arachne/grasp_preview/markers "
             "roi_cloud=/arachne/grasp_preview/roi_cloud "
+            f"detections={args.detection_topic} "
             f"restart_topic={args.restart_search_topic}"
         )
         if bool(args.execute_real):
@@ -1097,6 +1100,7 @@ class GraspPreviewNode(Node):
             return
 
         self.missing_frames = 0
+        self._publish_detection_event(detection, header)
         needs_snapshot, reason = self._needs_depth_snapshot(detection, color.shape)
         if needs_snapshot:
             if self.latest_depth is None or self.depth_info is None:
@@ -2156,6 +2160,30 @@ class GraspPreviewNode(Node):
             mask_xy=mask_xy,
             mask_area_px=mask_area_px,
         )
+
+    def _publish_detection_event(self, detection: Detection, header: Header) -> None:
+        payload = {
+            "source": "grasp_preview_yolo_seg",
+            "stamp": {
+                "sec": int(header.stamp.sec),
+                "nanosec": int(header.stamp.nanosec),
+            },
+            "instances": [
+                {
+                    "label": detection.label,
+                    "class_name": detection.label,
+                    "taco_class": detection.label,
+                    "class_id": int(detection.class_id),
+                    "confidence": float(detection.confidence),
+                    "bbox_xyxy": [float(value) for value in detection.xyxy],
+                    "has_mask": detection.mask_xy is not None,
+                    "mask_area_px": float(detection.mask_area_px),
+                }
+            ],
+        }
+        msg = String()
+        msg.data = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        self.detection_pub.publish(msg)
 
     def _needs_depth_snapshot(
         self, detection: Detection, image_shape: tuple[int, ...]

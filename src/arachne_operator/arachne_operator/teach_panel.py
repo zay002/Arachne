@@ -60,6 +60,7 @@ MANAGED_SERVICE_COMMAND_PARAMS = {
     "viewer": "camera_view_command",
     "slam": "slam_command",
     "grasp_server": "grasp_server_command",
+    "cleanup_server": "cleanup_server_command",
 }
 
 
@@ -419,10 +420,18 @@ class TeachPanelNode(Node):
             (
                 "scripts/vision/grasp_task_server.sh "
                 "execute_real:=true confirm_execute_real:=true with_rviz:=false "
-                "preview_on_start:=false planning_recovery_base_enabled:=false "
+                "preview_on_start:=true planning_recovery_base_enabled:=false "
                 "require_odom:=false require_camera_topics:=true "
                 "require_aubo_status:=false require_gripper_status:=false "
                 "max_grasp_attempts:=3 retry_on_gripper_miss:=true"
+            ),
+        )
+        self.declare_parameter(
+            "cleanup_server_command",
+            (
+                "scripts/vision/road_cleanup_task_server.sh "
+                "patrol_distance_m:=2.0 patrol_step_m:=0.12 "
+                "detection_confidence:=0.35 loop:=true"
             ),
         )
         self.declare_parameter("grasp_task_state_topic", "/arachne/grasp_task/state")
@@ -431,6 +440,11 @@ class TeachPanelNode(Node):
         self.declare_parameter("grasp_task_restore_service", "/arachne/grasp_task/restore")
         self.declare_parameter("grasp_task_status_service", "/arachne/grasp_task/status")
         self.declare_parameter("grasp_task_preflight_service", "/arachne/grasp_task/preflight")
+        self.declare_parameter("cleanup_task_state_topic", "/arachne/road_cleanup/state")
+        self.declare_parameter("cleanup_task_start_service", "/arachne/road_cleanup/start")
+        self.declare_parameter("cleanup_task_stop_service", "/arachne/road_cleanup/stop")
+        self.declare_parameter("cleanup_task_status_service", "/arachne/road_cleanup/status")
+        self.declare_parameter("cleanup_task_preflight_service", "/arachne/road_cleanup/preflight")
 
         self.arm_state_joint_names = _parse_names(str(self.get_parameter("arm_state_joint_names").value))
         self.arm_command_joint_names = _parse_names(
@@ -485,6 +499,20 @@ class TeachPanelNode(Node):
                 Trigger, str(self.get_parameter("grasp_task_preflight_service").value)
             ),
         }
+        self.cleanup_task_clients = {
+            "start": self.create_client(
+                Trigger, str(self.get_parameter("cleanup_task_start_service").value)
+            ),
+            "stop": self.create_client(
+                Trigger, str(self.get_parameter("cleanup_task_stop_service").value)
+            ),
+            "status": self.create_client(
+                Trigger, str(self.get_parameter("cleanup_task_status_service").value)
+            ),
+            "preflight": self.create_client(
+                Trigger, str(self.get_parameter("cleanup_task_preflight_service").value)
+            ),
+        }
 
         self.create_subscription(Odometry, odom_topic, self._odom_callback, 10)
         self.create_subscription(JointState, joint_states_topic, self._joint_state_callback, 10)
@@ -497,6 +525,12 @@ class TeachPanelNode(Node):
             String,
             str(self.get_parameter("grasp_task_state_topic").value),
             self._grasp_task_state_callback,
+            10,
+        )
+        self.create_subscription(
+            String,
+            str(self.get_parameter("cleanup_task_state_topic").value),
+            self._cleanup_task_state_callback,
             10,
         )
 
@@ -526,6 +560,7 @@ class TeachPanelNode(Node):
             "Aubo": "waiting",
             "Gripper": "waiting",
             "Grasp": "waiting",
+            "Road": "waiting",
         }
         self.aubo_teach_gate_active = False
         self.aubo_teach_ready_event = threading.Event()
@@ -689,6 +724,24 @@ class TeachPanelNode(Node):
             self.hardware_status["Grasp"] = label
         self._log_hardware_status_change("Grasp", label)
 
+    def _cleanup_task_state_callback(self, msg: String) -> None:
+        data = msg.data.strip()
+        label = data
+        try:
+            payload = json.loads(data)
+            state = str(payload.get("state", "unknown"))
+            message = str(payload.get("message", "")).strip()
+            progress = payload.get("progress_m")
+            prefix = f"{state}: {message}" if message else state
+            if isinstance(progress, (int, float)):
+                prefix = f"{prefix} ({float(progress):.2f}m)"
+            label = prefix
+        except json.JSONDecodeError:
+            pass
+        with self.lock:
+            self.hardware_status["Road"] = label
+        self._log_hardware_status_change("Road", label)
+
     def snapshot(self) -> dict[str, str]:
         with self.lock:
             base = self.base_pose
@@ -713,11 +766,13 @@ class TeachPanelNode(Node):
                 "gripper": self.gripper_state,
                 "teach": "on" if self.aubo_teach_gate_active else "off",
                 "grasp_task": self.hardware_status.get("Grasp", "waiting"),
+                "road_cleanup": self.hardware_status.get("Road", "waiting"),
                 "status": self.last_status,
                 "camera": managed["camera"],
                 "viewer": managed["viewer"],
                 "slam": managed["slam"],
                 "grasp_server": managed["grasp_server"],
+                "cleanup_server": managed["cleanup_server"],
                 "log_dir": str(self.runtime_log_dir),
                 **self.hardware_status,
             }
@@ -1251,6 +1306,13 @@ class TeachPanelNode(Node):
             return
         self._start_worker(lambda: self._call_grasp_task_worker(command))
 
+    def call_cleanup_task(self, command: str) -> None:
+        command = str(command).strip().lower()
+        if command not in self.cleanup_task_clients:
+            self._status(f"road cleanup ignored unknown command: {command}", warn=True)
+            return
+        self._start_worker(lambda: self._call_cleanup_task_worker(command))
+
     def visual_grasp_start(self) -> None:
         self._start_worker(self._visual_grasp_start_worker)
 
@@ -1344,6 +1406,47 @@ class TeachPanelNode(Node):
         message = response.message if response is not None else "empty response"
         self._status(
             f"grasp task {command} {'ok' if success else 'failed'}: "
+            f"{self._short_grasp_task_message(message)}",
+            warn=not success,
+        )
+
+    def _call_cleanup_task_worker(self, command: str) -> None:
+        client = self.cleanup_task_clients.get(command)
+        if client is None:
+            self._status(f"road cleanup service missing: {command}", warn=True)
+            return
+        if command == "start":
+            self.drive_base_manual("stop")
+            self.stop_arm_velocity_hold()
+            if self._aubo_teach_gate_may_be_active():
+                self._publish_aubo_teach_command("teach_off")
+                ready = self.aubo_teach_ready_event.wait(
+                    max(float(self.get_parameter("aubo_teach_exit_wait_sec").value), 0.0)
+                )
+                if not ready or self._aubo_teach_gate_may_be_active():
+                    self._status("road cleanup blocked: Aubo teach mode still active", warn=True)
+                    return
+            self.start_camera_stack()
+            self._start_managed_process_worker("grasp_server")
+            self._start_managed_process_worker("cleanup_server")
+        elif command == "stop":
+            self.drive_base_manual("stop")
+            self.stop_arm_velocity_hold()
+
+        service_name = getattr(client, "srv_name", command)
+        self._status(f"road cleanup {command} requested")
+        if not client.wait_for_service(timeout_sec=4.0):
+            self._status(f"road cleanup {command} unavailable: {service_name}", warn=True)
+            return
+        future = client.call_async(Trigger.Request())
+        if not self._wait_service_future(future, 8.0):
+            self._status(f"road cleanup {command} timeout: {service_name}", warn=True)
+            return
+        response = future.result()
+        success = bool(response.success) if response is not None else False
+        message = response.message if response is not None else "empty response"
+        self._status(
+            f"road cleanup {command} {'ok' if success else 'failed'}: "
             f"{self._short_grasp_task_message(message)}",
             warn=not success,
         )
@@ -3335,23 +3438,32 @@ class TeachPanelApp:
         ttk.Button(top, text="Visual Grasp", command=self.node.visual_grasp_start).grid(
             row=0, column=11, rowspan=2, padx=4
         )
+        ttk.Button(top, text="Road", command=lambda: self.node.call_cleanup_task("start")).grid(
+            row=0, column=12, rowspan=2, padx=4
+        )
         ttk.Button(
             top,
             text="G Stop",
             command=lambda: self.node.call_grasp_task("stop"),
             style="Danger.TButton",
-        ).grid(row=0, column=12, rowspan=2, padx=4)
+        ).grid(row=0, column=13, rowspan=2, padx=4)
+        ttk.Button(
+            top,
+            text="Road Stop",
+            command=lambda: self.node.call_cleanup_task("stop"),
+            style="Danger.TButton",
+        ).grid(row=0, column=14, rowspan=2, padx=4)
         ttk.Button(top, text="Restore", command=lambda: self.node.call_grasp_task("restore")).grid(
-            row=0, column=13, rowspan=2, padx=4
-        )
-        ttk.Button(top, text="Aubo On", command=lambda: self.node.command_aubo_lifecycle("power_on")).grid(
-            row=0, column=14, rowspan=2, padx=4
-        )
-        ttk.Button(top, text="Aubo Start", command=lambda: self.node.command_aubo_lifecycle("startup")).grid(
             row=0, column=15, rowspan=2, padx=4
         )
-        ttk.Button(top, text="Aubo Off", command=self._confirm_aubo_power_off, style="Danger.TButton").grid(
+        ttk.Button(top, text="Aubo On", command=lambda: self.node.command_aubo_lifecycle("power_on")).grid(
             row=0, column=16, rowspan=2, padx=4
+        )
+        ttk.Button(top, text="Aubo Start", command=lambda: self.node.command_aubo_lifecycle("startup")).grid(
+            row=0, column=17, rowspan=2, padx=4
+        )
+        ttk.Button(top, text="Aubo Off", command=self._confirm_aubo_power_off, style="Danger.TButton").grid(
+            row=0, column=18, rowspan=2, padx=4
         )
 
     def _confirm_aubo_power_off(self) -> None:
@@ -3379,10 +3491,12 @@ class TeachPanelApp:
                 "gripper",
                 "teach",
                 "grasp_task",
+                "road_cleanup",
                 "camera",
                 "viewer",
                 "slam",
                 "grasp_server",
+                "cleanup_server",
                 "program",
                 "log_dir",
             )
@@ -3420,10 +3534,14 @@ class TeachPanelApp:
             ("Grasp Start", lambda: self.node.call_grasp_task("start")),
             ("Grasp Stop", lambda: self.node.call_grasp_task("stop")),
             ("Restore", lambda: self.node.call_grasp_task("restore")),
+            ("Road Preflight", lambda: self.node.call_cleanup_task("preflight")),
+            ("Road Start", lambda: self.node.call_cleanup_task("start")),
+            ("Road Stop", lambda: self.node.call_cleanup_task("stop")),
             ("Camera", self.node.start_camera_stack),
             ("2D View", lambda: self.node.toggle_managed_process("viewer")),
             ("SLAM", lambda: self.node.toggle_managed_process("slam")),
             ("GraspSrv", lambda: self.node.toggle_managed_process("grasp_server")),
+            ("RoadSrv", lambda: self.node.toggle_managed_process("cleanup_server")),
             ("Open", lambda: self.node.publish_gripper("open")),
             ("Close", lambda: self.node.publish_gripper("close")),
             ("Save Config", self._save_config),
@@ -3447,6 +3565,7 @@ class TeachPanelApp:
                 ("viewer", "2D Raw View"),
                 ("slam", "SLAM / Nav"),
                 ("grasp_server", "Grasp Server"),
+                ("cleanup_server", "Road Cleanup Server"),
             )
         ):
             ttk.Label(services, text=label, style="State.TLabel", width=16).grid(

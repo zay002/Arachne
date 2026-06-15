@@ -26,6 +26,7 @@ setup(
             "grasp_task_server = arachne_operator.grasp_task_server:main",
             "operator_panel = arachne_operator.operator_panel:main",
             "real_hardware_acceptance_test = arachne_operator.real_hardware_acceptance_test:main",
+            "road_cleanup_task_server = arachne_operator.road_cleanup_task_server:main",
             "sequence_executor = arachne_operator.sequence_executor:main",
             "teach_panel = arachne_operator.teach_panel:main",
             (

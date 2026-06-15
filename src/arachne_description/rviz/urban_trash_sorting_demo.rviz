@@ -1,0 +1,88 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: OdomGrid
+      Plane: XY
+      Reference Frame: odom
+      Cell Size: 0.25
+    - Class: rviz_default_plugins/RobotModel
+      Alpha: 1
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/display/robot_description
+      Enabled: true
+      Name: RobotModel
+      Visual Enabled: true
+      Collision Enabled: true
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: UrbanTrashPipeline
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/urban_trash/markers
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: true
+      Name: SyntheticRoiCloud
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/urban_trash/roi_cloud
+      Size (Pixels): 4
+      Style: Points
+      Color Transformer: FlatColor
+      Color: 255; 230; 40
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: PatrolPath
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/urban_trash/base_path
+      Line Style: Lines
+      Line Width: 0.035
+      Color: 0; 180; 255
+  Enabled: true
+  Global Options:
+    Background Color: 42; 45; 48
+    Fixed Frame: odom
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Value: true
+Views:
+  Current:
+    Class: rviz_default_plugins/Orbit
+    Distance: 3.0
+    Focal Point:
+      X: 1.0
+      Y: 0
+      Z: 0.15
+    Name: Current View
+    Pitch: 0.62
+    Target Frame: odom
+    Yaw: 0.72
+Window Geometry:
+  Width: 1440
+  Height: 900

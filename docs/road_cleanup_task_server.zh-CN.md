@@ -1,0 +1,69 @@
+# 道路垃圾巡检分拣真机流程
+
+`road_cleanup_task_server` 是移动巡检分拣的真机任务入口。真机视觉识别不另起一套节点，直接复用现有 `grasp_server` 里的 YOLO-SEG + 点云 + 抓取 pipeline；后续只需要把 YOLO-SEG 权重替换成 TACO 训练权重。
+
+## 示教器入口
+
+在示教器 Home 页：
+
+- `RoadSrv`：启动/停止道路巡检任务服务器。
+- `Road Preflight`：检查底层抓取 primitive 是否可用。
+- `Road Start`：开始直线往复巡检。
+- `Road Stop`：停止巡检、底盘和当前抓取任务。
+
+顶部快捷栏也提供 `Road` 和 `Road Stop`。
+
+## 感知接口
+
+`grasp_preview_pipeline.py` 会把现有 YOLO-SEG 的最佳检测发布到：
+
+```text
+/arachne/perception/taco_instances
+```
+
+消息类型为 `std_msgs/String` JSON，支持单实例或多实例。当前权重下 `label` 是现有垃圾类别；换成 TACO 权重后，同一个字段会自然变成 TACO 类别名。
+
+```json
+{
+  "instances": [
+    {
+      "label": "Clear plastic bottle",
+      "taco_class": "Clear plastic bottle",
+      "confidence": 0.91,
+      "bbox_xyxy": [120, 96, 220, 210],
+      "has_mask": true,
+      "mask_area_px": 4200
+    }
+  ]
+}
+```
+
+`road_cleanup_task_server` 只关心类别和置信度来触发停车；具体 3D 抓取点、ROI 点云、MoveIt/SDK 执行仍由 `grasp_server` 计算。
+
+## 运行逻辑
+
+1. 示教器启动 `camera`、`grasp_server` 和 `cleanup_server`。
+   - 示教器默认以 `preview_on_start:=true` 启动 `grasp_server`，因此空闲时 YOLO-SEG 会持续监视相机画面并发布检测事件。
+2. `Road Start` 调用 `/arachne/road_cleanup/start`。
+3. 任务服务器调用 `/arachne/grasp_task/preflight` 做安全预检。
+4. 底盘以小步 `drive_relative` 前进/后退，默认总行程 2 m。
+5. 行进中持续监听 `grasp_server` 发布的 YOLO-SEG 检测结果；发现置信度足够的垃圾后立刻调用 base stop。
+6. 调用 `/arachne/grasp_task/start` 执行“视觉定位 -> 点云/ROI -> MoveIt/SDK -> 抓取 -> 投篮”。
+7. 抓取完成后恢复巡检。
+
+## 当前边界
+
+- TACO 不需要单独任务节点；要替换的是 `ARACHNE_GRASP_YOLO_MODEL` 指向的 YOLO-SEG 权重。
+- 扫描姿态仍需要接入真实机械臂的安全扫描预置位。
+- `road_cleanup_task_server` 现在只做任务编排，不替代 `grasp_task_server` 的抓取策略。
+
+## 权重替换
+
+在启动示教器或 `grasp_server` 前设置：
+
+```bash
+export ARACHNE_GRASP_YOLO_MODEL=/path/to/taco_yolo_seg_best.pt
+export ARACHNE_GRASP_CLASSES=""
+```
+
+如果 TACO 训练时做了类别合并，也可以把 `ARACHNE_GRASP_CLASSES` 设置成需要抓取的类别名或类别 id。
