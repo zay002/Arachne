@@ -456,8 +456,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--moveit-soft-waypoint-orientation-tolerance", type=float, default=0.50, help=hidden)
     parser.add_argument("--moveit-local-fallback-position-tolerance", type=float, default=0.04, help=hidden)
     parser.add_argument("--moveit-local-fallback-orientation-tolerance", type=float, default=0.50, help=hidden)
-    parser.add_argument("--moveit-grasp-fallback-position-tolerance", type=float, default=0.12, help=hidden)
+    parser.add_argument("--moveit-grasp-fallback-position-tolerance", type=float, default=0.025, help=hidden)
     parser.add_argument("--moveit-grasp-fallback-orientation-tolerance", type=float, default=0.65, help=hidden)
+    parser.add_argument("--release-shoulder-elbow-motion-weight", type=float, default=4.0, help=hidden)
+    parser.add_argument("--release-wrist-motion-weight", type=float, default=0.35, help=hidden)
+    parser.add_argument("--release-configuration-weight", type=float, default=4.0, help=hidden)
     parser.add_argument("--moveit-pose-goal-on-ik-failure", action=argparse.BooleanOptionalAction, default=True, help=hidden)
     parser.add_argument(
         "--local-strict-ik",
@@ -2696,6 +2699,38 @@ class GraspPreviewNode(Node):
     def _wrap_joints(self, q: np.ndarray) -> np.ndarray:
         return np.arctan2(np.sin(q), np.cos(q))
 
+    def _is_release_target(self, target_name: str) -> bool:
+        return str(target_name).strip() in {"safe_mid", "lift", "basket_over", "drop"}
+
+    def _joint_motion_cost(self, target_name: str, q_target: np.ndarray, q_current: np.ndarray) -> float:
+        delta = np.abs(self._joint_delta(np.asarray(q_target, dtype=float), np.asarray(q_current, dtype=float)))
+        if self._is_release_target(target_name):
+            shoulder_elbow = max(float(self.args.release_shoulder_elbow_motion_weight), 0.0)
+            wrist = max(float(self.args.release_wrist_motion_weight), 0.0)
+            weights = np.asarray(
+                [
+                    shoulder_elbow,
+                    shoulder_elbow,
+                    max(shoulder_elbow * 0.8, wrist),
+                    max(wrist, 0.01),
+                    max(wrist, 0.01),
+                    max(wrist, 0.01),
+                ],
+                dtype=float,
+            )
+            return float(np.linalg.norm(delta * weights))
+        return float(np.linalg.norm(delta))
+
+    def _release_configuration_penalty(
+        self, target_name: str, q_target: np.ndarray, q_reference: np.ndarray
+    ) -> float:
+        if not self._is_release_target(target_name):
+            return 0.0
+        delta = np.abs(self._joint_delta(np.asarray(q_target, dtype=float), np.asarray(q_reference, dtype=float)))
+        shoulder_elbow_motion = float(np.linalg.norm(delta[:3]))
+        wrist_motion = float(np.linalg.norm(delta[3:]))
+        return max(float(self.args.release_configuration_weight), 0.0) * shoulder_elbow_motion + 0.15 * wrist_motion
+
     def _make_constrained_arm_trajectory(
         self, preview: GraspPreview
     ) -> tuple[list[JointTrajectoryFrame], str]:
@@ -3091,10 +3126,17 @@ class GraspPreviewNode(Node):
                         and (collision_free or bool(self.args.allow_colliding_best_effort))
                     )
                     if fallback_ok:
+                        joint_motion_cost = self._joint_motion_cost(
+                            target_name, q_unwrapped_goal, q_current
+                        )
+                        release_config_penalty = self._release_configuration_penalty(
+                            target_name, q_unwrapped_goal, q_current
+                        )
                         fallback_score = (
                             100.0 * float(position_error)
                             + 5.0 * float(orientation_error)
-                            + 0.25 * float(np.linalg.norm(q_unwrapped_goal - q_current))
+                            + 0.25 * joint_motion_cost
+                            + release_config_penalty
                             + (0.0 if collision_free else COLLISION_PENALTY)
                         )
                         candidate = (
@@ -3117,6 +3159,11 @@ class GraspPreviewNode(Node):
                         and orientation_error
                         <= max(float(self.args.moveit_ik_orientation_tolerance), 0.01)
                         and collision_free
+                        and (
+                            not self._is_release_target(target_name)
+                            or self._joint_motion_cost(target_name, q_unwrapped_goal, q_current)
+                            <= max(float(self.args.real_sdk_max_segment_joint_delta), 0.05) * 4.0
+                        )
                     )
                     if local_first_ok:
                         if np.max(np.abs(q_unwrapped_goal - q_waypoints[-1])) > 1e-5:
@@ -3775,13 +3822,17 @@ class GraspPreviewNode(Node):
                 collision_free = bool(endpoint_safe and segment_safe)
                 clearance = min(float(endpoint_clearance), float(segment_clearance))
                 hit_name = endpoint_hit_name if not endpoint_safe else segment_hit_name
-                joint_step = float(np.linalg.norm(q_unwrapped - q_waypoints[-1]))
+                joint_step = self._joint_motion_cost(target_name, q_unwrapped, q_waypoints[-1])
+                release_config_penalty = self._release_configuration_penalty(
+                    target_name, q_unwrapped, q_waypoints[-1]
+                )
                 collision_score = 0.0 if collision_free else COLLISION_PENALTY
                 score = (
                     collision_score
                     + 150.0 * float(position_error)
                     + 8.0 * float(orientation_error)
                     + 1.2 * joint_step
+                    + release_config_penalty
                     + 0.05 * float(candidate_index)
                     - 0.4 * float(clearance)
                 )
@@ -3895,13 +3946,13 @@ class GraspPreviewNode(Node):
             nominal = current_rotation_base
         elif phase == "grasp":
             nominal = grasp_down
-        elif phase == "carry":
+        elif phase in {"carry", "release"}:
             nominal = current_rotation_base
         else:
             nominal = downward
 
         limit_rad = self._tool_orientation_limit_rad()
-        if phase in {"current", "carry"}:
+        if phase in {"current", "carry", "release"}:
             yaw_offsets = (0.0,)
             tilt_offsets = ((0.0, 0.0),)
         elif phase == "grasp":

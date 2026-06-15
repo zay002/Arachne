@@ -1,3 +1,5 @@
+from glob import glob
+
 from setuptools import find_packages, setup
 
 package_name = "arachne_sim"
@@ -9,6 +11,7 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
+        (f"share/{package_name}/launch", glob("launch/*.launch.py")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -20,6 +23,7 @@ setup(
         "console_scripts": [
             "base_sim_controller = arachne_sim.base_sim_controller:main",
             "base_teleop_gui = arachne_sim.base_teleop_gui:main",
+            "moveit_grasp_planning_demo = arachne_sim.moveit_grasp_planning_demo:main",
         ],
     },
 )

@@ -12,9 +12,7 @@
       <geometry>
         <mesh filename="package://aubo_description/meshes/aubo_i5/visual/link0.DAE" />
       </geometry>
-      <material name="">
-        <color rgba="1 1 1 1" />
-      </material>
+      <material name="arachne_arm_joint_dark"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -35,9 +33,7 @@
       <geometry>
         <mesh filename="package://aubo_description/meshes/aubo_i5/visual/link1.DAE" />
       </geometry>
-      <material name="">
-        <color rgba="1 1 1 1" />
-      </material>
+      <material name="arachne_arm_shell"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -66,9 +62,7 @@
       <geometry>
         <mesh filename="package://aubo_description/meshes/aubo_i5/visual/link2.DAE" />
       </geometry>
-      <material name="">
-        <color rgba="1 1 1 1" />
-      </material>
+      <material name="arachne_arm_shell"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -97,9 +91,7 @@
       <geometry>
         <mesh filename="package://aubo_description/meshes/aubo_i5/visual/link3.DAE" />
       </geometry>
-      <material name="">
-        <color rgba="1 1 1 1" />
-      </material>
+      <material name="arachne_arm_joint_dark"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -128,9 +120,7 @@
       <geometry>
         <mesh filename="package://aubo_description/meshes/aubo_i5/visual/link4.DAE" />
       </geometry>
-      <material name="">
-        <color rgba="1 1 1 1" />
-      </material>
+      <material name="arachne_arm_shell"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -159,9 +149,7 @@
       <geometry>
         <mesh filename="package://aubo_description/meshes/aubo_i5/visual/link5.DAE" />
       </geometry>
-      <material name="">
-        <color rgba="1 1 1 1" />
-      </material>
+      <material name="arachne_arm_joint_dark"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -190,9 +178,7 @@
       <geometry>
         <mesh filename="package://aubo_description/meshes/aubo_i5/visual/link6.DAE" />
       </geometry>
-      <material name="">
-        <color rgba="1 1 1 1" />
-      </material>
+      <material name="arachne_arm_joint_dark"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />

@@ -89,7 +89,7 @@ def launch_setup(context, *args, **kwargs):
     }
     display_base_link = f"{display_frame_prefix}base_link"
 
-    return [
+    nodes = [
         Node(
             package="robot_state_publisher",
             executable="robot_state_publisher",
@@ -102,22 +102,6 @@ def launch_setup(context, *args, **kwargs):
             remappings=[
                 ("joint_states", LaunchConfiguration("display_joint_states_topic")),
                 ("robot_description", LaunchConfiguration("display_robot_description_topic")),
-            ],
-            output="screen",
-        ),
-        Node(
-            package="tf2_ros",
-            executable="static_transform_publisher",
-            name="arachne_display_base_link_bridge",
-            arguments=[
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "base_link",
-                display_base_link,
             ],
             output="screen",
         ),
@@ -225,6 +209,27 @@ def launch_setup(context, *args, **kwargs):
             output="screen",
         ),
     ]
+    if display_frame_prefix:
+        nodes.insert(
+            1,
+            Node(
+                package="tf2_ros",
+                executable="static_transform_publisher",
+                name="arachne_display_base_link_bridge",
+                arguments=[
+                    "0",
+                    "0",
+                    "0",
+                    "0",
+                    "0",
+                    "0",
+                    "base_link",
+                    display_base_link,
+                ],
+                output="screen",
+            ),
+        )
+    return nodes
 
 
 def generate_launch_description():

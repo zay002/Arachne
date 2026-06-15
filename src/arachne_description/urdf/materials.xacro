@@ -9,6 +9,12 @@
   <material name="arachne_arm">
     <color rgba="0.92 0.94 0.93 1.0"/>
   </material>
+  <material name="arachne_arm_shell">
+    <color rgba="0.88 0.90 0.86 1.0"/>
+  </material>
+  <material name="arachne_arm_joint_dark">
+    <color rgba="0.11 0.13 0.14 1.0"/>
+  </material>
   <material name="arachne_joint">
     <color rgba="0.18 0.22 0.24 1.0"/>
   </material>

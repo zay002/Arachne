@@ -74,6 +74,8 @@
   <end_effector name="ag95" parent_link="tool0" group="ag95_gripper" parent_group="aubo_arm"/>
 
   <disable_collisions link1="base_link" link2="arm_mount_link" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="front_basket_link" reason="FixedAccessory"/>
+  <disable_collisions link1="base_link" link2="rear_rack_link" reason="FixedAccessory"/>
   <disable_collisions link1="arm_mount_link" link2="aubo_base_link" reason="Adjacent"/>
   <disable_collisions link1="arm_mount_link" link2="aubo_shoulder_Link" reason="Adjacent"/>
   <disable_collisions link1="aubo_base_link" link2="aubo_shoulder_Link" reason="Adjacent"/>
