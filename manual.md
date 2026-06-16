@@ -1,6 +1,6 @@
 # Arachne Jetson 操作手册
 
-更新日期：2026-06-04
+更新日期：2026-06-16
 
 本手册适用于当前 Jetson Orin Nano 上的 Arachne `jetson` 分支。
 
@@ -109,17 +109,10 @@ cd /home/jetson/zhaoyang/Arachne
 ./scripts/vision/setup_yolo_env.sh
 ```
 
-下载当前推荐权重：
-
-```bash
-./scripts/vision/download_yolo_weights.sh
-```
-
 当前默认使用：
 
 ```text
 yolo26n_seg_taco_best.pt   当前垃圾抓取默认模型，YOLO segmentation，TACO 垃圾类别
-trash_yolo26n_seg_best.pt  旧版垃圾抓取备用模型，YOLO segmentation，类别为 trash
 yolo26n.pt                 通用 COCO 检测备用权重
 yolo26n-seg.pt             通用 COCO segmentation 备用权重
 ```
@@ -128,16 +121,28 @@ yolo26n-seg.pt             通用 COCO segmentation 备用权重
 
 抓取链路不会在权重缺失时自动下载官方 YOLO 权重；如果 `ARACHNE_GRASP_YOLO_MODEL` 指向的本地文件不存在，会直接停止并提示修正路径。只有明确调试通用权重时才设置 `ARACHNE_GRASP_ALLOW_MODEL_DOWNLOAD=true`。
 
+同步新代码后请确认本地权重存在：
+
+```bash
+ls -lh yolo_workspace/weights/yolo26n_seg_taco_best.pt
+```
+
+如果临时调试通用 YOLO 权重，才运行：
+
+```bash
+ARACHNE_GRASP_ALLOW_MODEL_DOWNLOAD=true ./scripts/vision/download_yolo_weights.sh
+```
+
 FP16 TensorRT 测试导出：
 
 ```bash
-./scripts/vision/export_yolo_engine.sh trash_yolo26n_seg_best.pt fp16
+./scripts/vision/export_yolo_engine.sh yolo26n_seg_taco_best.pt fp16
 ```
 
 INT8 导出需要先准备 `yolo_workspace/datasets/trash_mvp/images/val`：
 
 ```bash
-./scripts/vision/export_yolo_engine.sh trash_yolo26n_seg_best.pt int8
+./scripts/vision/export_yolo_engine.sh yolo26n_seg_taco_best.pt int8
 ```
 
 只用 Gemini335 做实时 YOLO 标注预览，不启动底盘和机械臂：
@@ -201,7 +206,7 @@ ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES \
 
 ### 人工操作 Grasp Task Server
 
-`grasp_task_server` 是真实抓取的常驻入口。服务启动一次后，每次调用 `/arachne/grasp_task/start` 都会执行一轮完整流程：同步真机姿态 -> YOLO trash 分割 -> depth ROI 定位 -> MoveIt 规划 -> Aubo SDK 运动和夹具开合 -> 投放 -> 回 home。重复抓取时不需要重启 server。
+`grasp_task_server` 是真实抓取的常驻入口。服务启动一次后，每次调用 `/arachne/grasp_task/start` 都会执行一轮完整流程：同步真机姿态 -> YOLO-SEG/TACO 分割 -> depth ROI 定位 -> MoveIt/本地规划 -> Aubo SDK 运动和夹具开合 -> 投放 -> 回 home。重复抓取时不需要重启 server。
 
 现场优先使用施教器总控 console。这个入口会先打开施教器和 RViz，不再等待 Aubo 完全上电或等待 grasp server；相机、2D raw 画面、SLAM/Nav、grasp server 都在施教器 `Home -> Runtime Services` 里按需启动/停止，Aubo 上电/启动也在施教器按钮里完成。
 
@@ -308,6 +313,34 @@ source install/setup.bash
 
 日常视觉抓取直接点击施教器顶部或 `Home` 页里的 `Visual Grasp`。它会自动启动 Gemini Camera、2D Raw View 和 Grasp Server，等待相机 color/depth、Aubo、夹具等 preflight 通过后再开始抓取；默认使用娃娃机式垂直逼近，close 后通过 MS42DC 反馈判断是否空抓，空抓时会重新拍摄并最多重试 3 次。`Grasp Start` 是底层服务调试入口，不会自动拉起依赖服务。raw 画面订阅 `/camera/color/image_raw`，抓取开始后可以继续动态观察末端运动；YOLO 在目标锁定后会暂停重复检测，但 raw 画面不依赖标注图刷新。`real_grasp_console.sh` 默认使用 320x240 彩色流保证远程桌面流畅，深度仍保持 640x480；如需高分辨率彩色流，可设置 `ARACHNE_CONSOLE_CAMERA_COLOR_WIDTH=640 ARACHNE_CONSOLE_CAMERA_COLOR_HEIGHT=480`。
 
+道路垃圾巡检使用同一个施教器入口：
+
+1. 在 `Runtime Services` 启动 `Road Cleanup Server`，或点击 `RoadSrv`。
+2. 确认 `Camera`、`2D Raw View` 和 `Grasp Server` 已启动；`grasp_server` 空闲时会持续用 YOLO-SEG 发布 `/arachne/perception/taco_instances`。
+3. 点击 `Road Preflight` 做抓取 primitive 检查。
+4. 点击顶部 `Road` 或 Home 页 `Road Start`，底盘开始默认 2 m 前进/后退巡检。
+5. 检测到目标后任务服务器会停底盘，调用 `/arachne/grasp_task/start` 完成点云 ROI、规划、抓取和投篮。
+
+如果 YOLO 和点云正常但目标超出机械臂可达范围或规划失败，`road_cleanup_task_server` 会进入 reach recovery：沿当前巡检方向小步移动底盘，向 `/arachne/grasp_preview/restart_search` 周期性发重搜信号，清掉旧候选，等待新检测后重新计算点云和抓取规划。默认最多 3 次，每次 0.10 m；超过次数后记录 skip 并继续巡检。
+
+命令行底层调试入口：
+
+```bash
+./scripts/vision/road_cleanup_task_server.sh \
+  patrol_distance_m:=2.0 \
+  patrol_step_m:=0.12 \
+  reach_recovery_step_m:=0.10
+ros2 service call /arachne/road_cleanup/start std_srvs/srv/Trigger "{}"
+ros2 service call /arachne/road_cleanup/status std_srvs/srv/Trigger "{}"
+```
+
+不接真机的状态机回归：
+
+```bash
+source install/setup.bash
+python3 scripts/vision/mock_road_cleanup_task_test.py
+```
+
 示教器可以和 server 同时开着，但不能同时下发机械臂动作。示教器空闲时不占控制权；只有 `teach_on/teach_off` 或手动 jog 正在执行时，才会写入 `/tmp/arachne_aubo_control_owner`。真实抓取发 `moveJoint` 前也会独占这个 owner，并写 `/tmp/arachne_aubo_teach_mode=1` 暂停 ROS driver 的 `servoJoint` 保持。若 preflight 提示 `aubo_control_owner` 或 `aubo_teach_gate` busy，先停止手动 jog 或发送 teach off，再重新 start。
 
 如果中途目标放错或想重新识别：
@@ -398,7 +431,7 @@ ARACHNE_GRASP_EXECUTE_REAL=false \
 - MoveIt 2 `move_group`，使用 OMPL 做 Aubo 轨迹规划。
 - Gemini335 RGB-D 相机。
 - RViz 抓取预览界面。
-- YOLO trash 分割、mask ROI 点云、深度测量和抓取入篮路径预览节点。
+- YOLO-SEG/TACO 分割、mask ROI 点云、深度测量和抓取入篮路径预览节点。
 
 抓取预览依赖 `base_link -> ee_camera_link` 的 TF。真机没电或没有 Aubo driver 时，RViz 里的机械臂不会自动同步到真机末端姿态，相机坐标会随模型关节角偏掉。当前模型默认 Home 已固定为 2026-06-05 从真机读取的位姿：
 
@@ -441,7 +474,7 @@ yolo_workspace/runs/grasp_preview/latest_grasp_preview.json
 当前路径只是可视化规划，不会控制机械臂。默认流程是：
 
 ```text
-SEARCH_2D: YOLO 持续寻找 trash
+SEARCH_2D: YOLO-SEG 持续寻找 TACO 垃圾目标
 -> SNAPSHOT_3D: 目标确认后只拍一次深度 ROI / 点云
 -> PLAN_LOCKED: 锁定抓取点和入篮路径，暂停 YOLO 2D 推理
 -> 执行/调试结束后重新开始 SEARCH_2D
@@ -758,7 +791,7 @@ cog  = 0.039927,0.045067,0.143233 m
 - `scripts/env/arachne_real_defaults.sh`
 - `recordings/teach/teach_panel_config.json`
 
-`real_grasp_console.sh`、`real_full_teach.sh` 和 `real_full_acceptance.sh` 都会读取共享 defaults；当启用自动 Aubo startup 或运行验收流程时，会按这里的 payload 写入控制器。若更换充电枪、相机或夹具，需要调整：
+日常入口 `real_grasp_console.sh` 会读取共享 defaults；历史示教/验收脚本 `real_full_teach.sh`、`real_full_acceptance.sh` 也会读取同一份配置。当启用自动 Aubo startup 或运行验收流程时，会按这里的 payload 写入控制器。若更换充电枪、相机或夹具，需要调整：
 
 ```bash
 cd /home/jetson/zhaoyang/Arachne

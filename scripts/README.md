@@ -5,11 +5,13 @@ Scripts are organized by function. Use the categorized paths directly:
 ```bash
 source scripts/env/arachne_env.sh
 ./scripts/build/build_workspace.sh
-./scripts/hardware/real_full_teach.sh --yes
+./scripts/hardware/real_grasp_console.sh --yes --quick
 ./scripts/vision/gemini_yolo_live.sh
 ./scripts/vision/grasp_preview.sh
 ./scripts/vision/grasp_preview_real_sync.sh --sync-only
 ./scripts/vision/grasp_task_server.sh
+./scripts/vision/road_cleanup_task_server.sh
+python3 scripts/vision/mock_road_cleanup_task_test.py
 ./scripts/agent/agent_bridge.sh
 ```
 
@@ -20,7 +22,7 @@ source scripts/env/arachne_env.sh
 | `hardware/` | Real hardware bringup, Aubo helpers, acceptance tests, serial checks |
 | `operator/` | Teach-panel launch entry |
 | `agent/` | Safe Agent Bridge launch entry |
-| `vision/` | Gemini335, YOLO, TensorRT export, live detection, grasp preview, grasp task server |
+| `vision/` | Gemini335, YOLO/TACO segmentation, TensorRT export, live detection, grasp preview, grasp task server, road cleanup task server |
 | `model/` | URDF, TF, gripper, and RViz model checks |
 | `sim/` | Gazebo demos and simulation validation |
 | `godot/` | Godot showcase setup and bridge helpers |

@@ -58,6 +58,17 @@ source install/setup.bash
 
 否则 RViz 的 `package://...` mesh 路径可能解析失败，表现为白模、部件堆叠或材质丢失。
 
+## 当前推荐工作流
+
+日常开发按“模型/仿真先验证，真机从施教器进入”的顺序走：
+
+1. `./scripts/model/view_model.sh` 检查 URDF/TF/mesh 是否正常。
+2. `./scripts/sim/urban_trash_sorting_demo.sh` 在 RViz 里复现道路垃圾巡检、识别、点云、抓取和投篮流程。
+3. `./scripts/hardware/real_grasp_console.sh --yes --quick` 打开真机施教器总控。
+4. 在施教器里用 `Visual Grasp` 做单次视觉抓取；用 `RoadSrv` + `Road Start` 做道路垃圾巡检分拣。
+
+真机道路任务复用同一套 `grasp_server`：空闲时 YOLO-SEG 持续发布 `/arachne/perception/taco_instances`，检测到目标后 `road_cleanup_task_server` 停车并调用 `/arachne/grasp_task/start`。如果 YOLO 和点云正常但机械臂不可达或规划失败，任务服务器会让底盘继续小步移动，发布 `/arachne/grasp_preview/restart_search` 让相机重新捕获目标，再重新计算点云和抓取规划。当前默认权重是 `yolo_workspace/weights/yolo26n_seg_taco_best.pt`，缺失时不会自动下载官方 YOLO 权重。
+
 ## 常用入口
 
 | 目标 | 命令 |
@@ -68,6 +79,7 @@ source install/setup.bash
 | Gazebo 手柄 demo | `./scripts/sim/switch_demo.sh` |
 | Gazebo 自主拾取验证 | `./scripts/sim/gazebo_autopick_demo.sh` |
 | Godot 展示前端 | `./scripts/godot/godot_showcase.sh` |
+| 道路垃圾分拣 RViz demo | `./scripts/sim/urban_trash_sorting_demo.sh` |
 | Gemini335 YOLO 实时标注 | `./scripts/vision/gemini_yolo_live.sh` |
 | C16 雷达驱动 | `ros2 launch lslidar_driver lslidar_cx_launch.py` |
 | C16 + 整车融合 RViz | `rviz2 -d src/arachne_description/rviz/arachne_lidar_fusion.rviz` |
@@ -75,6 +87,8 @@ source install/setup.bash
 | 真机姿态同步抓取预览 | `./scripts/vision/grasp_preview_real_sync.sh` |
 | 真机同步并执行抓取 | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
 | 抓取任务服务器 | `./scripts/vision/grasp_task_server.sh` |
+| 道路巡检任务服务器 | `./scripts/vision/road_cleanup_task_server.sh` |
+| Road cleanup mock 回归 | `python3 scripts/vision/mock_road_cleanup_task_test.py` |
 | Agent Bridge | `./scripts/agent/agent_bridge.sh` |
 | 真机环境检查 | `./scripts/hardware/check_real_hardware_env.sh` |
 | 真机一键 bringup | `./scripts/hardware/real_bringup.sh` |
@@ -178,7 +192,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 | `godot/arachne_showcase` | Godot 4.x 第三人称展示前端 |
 | `docs` | 建模、控制、硬件、标定和参考资料 |
 
-`scripts/` 根目录不再放置旧式兼容脚本；请直接使用分类路径，例如 `./scripts/hardware/real_full_teach.sh` 和 `source scripts/env/arachne_env.sh`。
+`scripts/` 根目录不再放置旧式兼容脚本；请直接使用分类路径，例如 `./scripts/hardware/real_grasp_console.sh --yes --quick` 和 `source scripts/env/arachne_env.sh`。
 
 ## 文档
 
@@ -187,6 +201,7 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 - [硬件](docs/hardware.zh-CN.md)
 - [标定](docs/calibration.zh-CN.md)
 - [抓取任务服务器](docs/grasp_task_server.zh-CN.md)
+- [道路垃圾巡检分拣](docs/road_cleanup_task_server.zh-CN.md)
 - [Agent Bridge](docs/agent_platform.zh-CN.md)
 - [任务路线：垃圾拾取与充电枪拔插](docs/task_tracks.zh-CN.md)
 - [参考资料](docs/references.zh-CN.md)

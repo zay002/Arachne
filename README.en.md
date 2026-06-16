@@ -58,6 +58,17 @@ source install/setup.bash
 
 Without that environment, RViz may fail to resolve `package://...` mesh paths, causing white meshes, stacked parts, or missing materials.
 
+## Recommended Workflow
+
+Use simulation and model checks before touching real hardware:
+
+1. `./scripts/model/view_model.sh` checks URDF, TF, meshes, and materials.
+2. `./scripts/sim/urban_trash_sorting_demo.sh` replays road-cleanup patrol, detection, point-cloud ROI, grasp, and basket drop in RViz.
+3. `./scripts/hardware/real_grasp_console.sh --yes --quick` opens the real-machine teach console.
+4. Use `Visual Grasp` for one-shot grasping, or `RoadSrv` + `Road Start` for road-cleanup patrol.
+
+The road-cleanup task reuses the same `grasp_server`: idle YOLO-SEG publishes `/arachne/perception/taco_instances`; `road_cleanup_task_server` stops the base and calls `/arachne/grasp_task/start`. If perception and point cloud are valid but the arm is out of reach or planning fails, the task moves the base a short distance, publishes `/arachne/grasp_preview/restart_search`, waits for a fresh detection, and recomputes point cloud and grasp planning. The default local weight is `yolo_workspace/weights/yolo26n_seg_taco_best.pt`; missing weights do not trigger an automatic official YOLO download.
+
 ## Common Commands
 
 | Goal | Command |
@@ -68,6 +79,7 @@ Without that environment, RViz may fail to resolve `package://...` mesh paths, c
 | Gazebo gamepad demo | `./scripts/sim/switch_demo.sh` |
 | Gazebo autonomous pick validation | `./scripts/sim/gazebo_autopick_demo.sh` |
 | Godot showcase | `./scripts/godot/godot_showcase.sh` |
+| Road trash sorting RViz demo | `./scripts/sim/urban_trash_sorting_demo.sh` |
 | Gemini335 YOLO live preview | `./scripts/vision/gemini_yolo_live.sh` |
 | C16 lidar driver | `ros2 launch lslidar_driver lslidar_cx_launch.py` |
 | C16 + robot fusion RViz | `rviz2 -d src/arachne_description/rviz/arachne_lidar_fusion.rviz` |
@@ -75,6 +87,8 @@ Without that environment, RViz may fail to resolve `package://...` mesh paths, c
 | Real-pose synchronized grasp preview | `./scripts/vision/grasp_preview_real_sync.sh` |
 | Real-pose synchronized grasp execution | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
 | Grasp task server | `./scripts/vision/grasp_task_server.sh` |
+| Road cleanup task server | `./scripts/vision/road_cleanup_task_server.sh` |
+| Road cleanup mock smoke test | `python3 scripts/vision/mock_road_cleanup_task_test.py` |
 | Agent Bridge | `./scripts/agent/agent_bridge.sh` |
 | Real-hardware environment check | `./scripts/hardware/check_real_hardware_env.sh` |
 | Real one-command bringup | `./scripts/hardware/real_bringup.sh` |
@@ -182,7 +196,7 @@ It starts real bringup, waits for `/odom`, `/joint_states`, the Aubo trajectory 
 | `godot/arachne_showcase` | Godot 4.x third-person showcase frontend |
 | `docs` | Modeling, control, hardware, calibration, and references |
 
-The `scripts/` root no longer carries old top-level script entrypoints. Use the categorized paths directly, such as `./scripts/hardware/real_full_teach.sh` and `source scripts/env/arachne_env.sh`.
+The `scripts/` root no longer carries old top-level script entrypoints. Use the categorized paths directly, such as `./scripts/hardware/real_grasp_console.sh --yes --quick` and `source scripts/env/arachne_env.sh`.
 
 ## Documentation
 
@@ -191,6 +205,7 @@ The `scripts/` root no longer carries old top-level script entrypoints. Use the 
 - [Hardware](docs/hardware.md)
 - [Calibration](docs/calibration.md)
 - [Grasp Task Server](docs/grasp_task_server.md)
+- [Road Cleanup Task Server](docs/road_cleanup_task_server.zh-CN.md)
 - [Agent Bridge](docs/agent_platform.md)
 - [References](docs/references.md)
 
