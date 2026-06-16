@@ -10,7 +10,7 @@ from typing import Any
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import Empty, String
 from std_srvs.srv import Trigger
 
 
@@ -37,6 +37,8 @@ class CleanupSnapshot:
     cycle_count: int
     latest_candidate: dict[str, Any]
     active_candidate: dict[str, Any]
+    recovery_attempts: int
+    last_grasp_failure: str
 
 
 class RoadCleanupTaskServer(Node):
@@ -60,12 +62,18 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("grasp_status_service", "/arachne/grasp_task/status")
         self.declare_parameter("grasp_preflight_service", "/arachne/grasp_task/preflight")
         self.declare_parameter("base_stop_service", "/arachne/grasp_task/base_stop")
+        self.declare_parameter("restart_search_topic", "/arachne/grasp_preview/restart_search")
         self.declare_parameter("patrol_distance_m", 2.0)
         self.declare_parameter("patrol_step_m", 0.12)
         self.declare_parameter("detection_confidence", 0.35)
         self.declare_parameter("detection_timeout_sec", 1.2)
         self.declare_parameter("base_step_timeout_sec", 8.0)
         self.declare_parameter("grasp_timeout_sec", 90.0)
+        self.declare_parameter("reach_recovery_enabled", True)
+        self.declare_parameter("reach_recovery_max_attempts", 3)
+        self.declare_parameter("reach_recovery_step_m", 0.10)
+        self.declare_parameter("reach_recovery_wait_detection_sec", 3.0)
+        self.declare_parameter("reach_recovery_continue_on_exhausted", True)
         self.declare_parameter("loop", True)
 
         self.lock = threading.RLock()
@@ -80,6 +88,8 @@ class RoadCleanupTaskServer(Node):
         self.cycle_count = 0
         self.latest_candidate: Candidate | None = None
         self.active_candidate: Candidate | None = None
+        self.recovery_attempts = 0
+        self.last_grasp_failure = ""
         self.base_state: dict[str, Any] = {}
         self.grasp_state: dict[str, Any] = {}
 
@@ -87,6 +97,9 @@ class RoadCleanupTaskServer(Node):
         self.event_pub = self.create_publisher(String, "/arachne/road_cleanup/event", 10)
         self.base_command_pub = self.create_publisher(
             String, str(self.get_parameter("base_command_topic").value), 10
+        )
+        self.restart_search_pub = self.create_publisher(
+            Empty, str(self.get_parameter("restart_search_topic").value), 10
         )
         self.create_subscription(
             String,
@@ -130,6 +143,7 @@ class RoadCleanupTaskServer(Node):
             "server_ready",
             {
                 "detection_topic": str(self.get_parameter("detection_topic").value),
+                "restart_search_topic": str(self.get_parameter("restart_search_topic").value),
                 "perception_source": "grasp_server_yolo_seg",
             },
         )
@@ -195,6 +209,8 @@ class RoadCleanupTaskServer(Node):
             self.progress_m = 0.0
             self.cycle_count = 0
             self.active_candidate = None
+            self.recovery_attempts = 0
+            self.last_grasp_failure = ""
         self._set_state("preflight", "checking camera, base and grasp primitive")
         ok, message = self._call_trigger(self.grasp_preflight_client, 5.0)
         if not ok:
@@ -265,33 +281,175 @@ class RoadCleanupTaskServer(Node):
         return False
 
     def _handle_candidate(self, candidate: Candidate) -> None:
-        with self.lock:
-            self.active_candidate = candidate
-            self.latest_candidate = None
-        self._set_state("grasp", f"detected {candidate.class_name}; stop base and run grasp")
-        self._call_trigger(self.base_stop_client, 1.0)
-        ok, message = self._call_trigger(self.grasp_start_client, 3.0)
-        if not ok:
-            self._finish("failed", f"grasp start failed: {message}")
-            return
+        max_recovery = (
+            max(int(self.get_parameter("reach_recovery_max_attempts").value), 0)
+            if bool(self.get_parameter("reach_recovery_enabled").value)
+            else 0
+        )
+        attempt = 0
+        while rclpy.ok() and not self.cancel_event.is_set():
+            with self.lock:
+                self.active_candidate = candidate
+                self.latest_candidate = None
+                self.grasp_state = {}
+            suffix = f" recovery_try={attempt}/{max_recovery}" if attempt else ""
+            self._set_state(
+                "grasp",
+                f"detected {candidate.class_name}; stop base and run grasp{suffix}",
+            )
+            self._call_trigger(self.base_stop_client, 1.0)
+            ok, message = self._call_trigger(self.grasp_start_client, 3.0)
+            if not ok:
+                self._finish("failed", f"grasp start failed: {message}")
+                return
+
+            state, text = self._wait_for_grasp_terminal()
+            if self.cancel_event.is_set():
+                self._call_trigger(self.grasp_stop_client, 1.0)
+                return
+            if state == "succeeded":
+                self._event(
+                    "grasp_complete",
+                    {"candidate": asdict(candidate), "recovery_attempts": attempt},
+                )
+                with self.lock:
+                    self.active_candidate = None
+                return
+
+            failure = f"grasp {state or 'failed'}: {text}".strip()
+            with self.lock:
+                self.last_grasp_failure = failure
+            if not self._should_recover_after_grasp_failure(state, text):
+                self._finish("failed", failure)
+                return
+            if attempt >= max_recovery:
+                self._event(
+                    "reach_recovery_exhausted",
+                    {
+                        "candidate": asdict(candidate),
+                        "attempts": attempt,
+                        "failure": failure,
+                    },
+                )
+                with self.lock:
+                    self.active_candidate = None
+                if bool(self.get_parameter("reach_recovery_continue_on_exhausted").value):
+                    self._set_state(
+                        "patrol",
+                        f"skip unreachable {candidate.class_name}; continue patrol",
+                    )
+                    return
+                self._finish("failed", failure)
+                return
+
+            attempt += 1
+            with self.lock:
+                self.recovery_attempts += 1
+            if not self._run_reach_recovery_step(attempt, failure):
+                return
+            updated = self._wait_for_recovery_candidate()
+            if updated is None:
+                self._event(
+                    "reach_recovery_no_redetect",
+                    {
+                        "candidate": asdict(candidate),
+                        "attempt": attempt,
+                        "failure": failure,
+                    },
+                )
+                with self.lock:
+                    self.active_candidate = None
+                self._set_state("patrol", "no fresh detection after base recovery; resume patrol")
+                return
+            candidate = updated
+
+    def _wait_for_grasp_terminal(self) -> tuple[str, str]:
         deadline = time.monotonic() + max(float(self.get_parameter("grasp_timeout_sec").value), 5.0)
         while rclpy.ok() and not self.cancel_event.is_set() and time.monotonic() < deadline:
             with self.lock:
                 state = str(self.grasp_state.get("state", "")).lower()
                 text = str(self.grasp_state.get("message", ""))
             if state in TERMINAL_STATES:
-                if state == "succeeded":
-                    self._event("grasp_complete", {"candidate": asdict(candidate)})
-                    with self.lock:
-                        self.active_candidate = None
-                    return
-                self._finish("failed", f"grasp {state}: {text}")
-                return
+                return state, text
             time.sleep(0.1)
+        return "canceled" if self.cancel_event.is_set() else "failed", "grasp timeout"
+
+    def _should_recover_after_grasp_failure(self, state: str, text: str) -> bool:
+        if state == "canceled" or self.cancel_event.is_set():
+            return False
+        lower = text.lower()
+        if "gripper" in lower or "capture" in lower:
+            return False
+        recover_tokens = (
+            "planning",
+            "planner",
+            "plan",
+            "ik",
+            "unreachable",
+            "trajectory unavailable",
+            "no_ik_solution",
+            "return code",
+            "timeout",
+        )
+        return state == "failed" and any(token in lower for token in recover_tokens)
+
+    def _run_reach_recovery_step(self, attempt: int, failure: str) -> bool:
+        distance = abs(float(self.get_parameter("reach_recovery_step_m").value)) * float(
+            self.direction
+        )
+        self._set_state(
+            "recover",
+            f"grasp unreachable/planning failed; move base {distance:.2f}m and recalc",
+        )
+        self._event(
+            "reach_recovery_start",
+            {"attempt": attempt, "distance_m": distance, "failure": failure},
+        )
+        with self.lock:
+            self.latest_candidate = None
+        self._restart_visual_search("reach recovery before base move")
+        payload = {"command": "drive_relative", "distance_m": distance}
+        msg = String()
+        msg.data = json.dumps(payload, sort_keys=True)
+        self.base_command_pub.publish(msg)
+
+        started = time.monotonic()
+        timeout = max(float(self.get_parameter("base_step_timeout_sec").value), 1.0)
+        while rclpy.ok() and not self.cancel_event.is_set() and time.monotonic() - started < timeout:
+            if self._base_terminal():
+                with self.lock:
+                    self.progress_m += distance
+                self._restart_visual_search("reach recovery after base move")
+                self._event("reach_recovery_done", {"attempt": attempt, "distance_m": distance})
+                return True
+            time.sleep(0.05)
+        self._call_trigger(self.base_stop_client, 1.0)
         if self.cancel_event.is_set():
-            self._call_trigger(self.grasp_stop_client, 1.0)
-            return
-        self._finish("failed", "grasp timeout")
+            return False
+        self._finish("failed", "base reach-recovery step timeout")
+        return False
+
+    def _wait_for_recovery_candidate(self) -> Candidate | None:
+        deadline = time.monotonic() + max(
+            float(self.get_parameter("reach_recovery_wait_detection_sec").value), 0.1
+        )
+        self._set_state("tracking", "visual tracking/re-detect after base recovery")
+        next_restart = 0.0
+        while rclpy.ok() and not self.cancel_event.is_set() and time.monotonic() < deadline:
+            now = time.monotonic()
+            if now >= next_restart:
+                self._restart_visual_search("tracking target after reach recovery")
+                next_restart = now + 0.8
+            candidate = self._fresh_candidate()
+            if candidate is not None:
+                self._event("reach_recovery_redetect", asdict(candidate))
+                return candidate
+            time.sleep(0.05)
+        return None
+
+    def _restart_visual_search(self, reason: str) -> None:
+        self.restart_search_pub.publish(Empty())
+        self._event("visual_search_restart", {"reason": reason})
 
     def _fresh_candidate(self) -> Candidate | None:
         timeout = max(float(self.get_parameter("detection_timeout_sec").value), 0.1)
@@ -407,6 +565,8 @@ class RoadCleanupTaskServer(Node):
                 cycle_count=self.cycle_count,
                 latest_candidate=latest,
                 active_candidate=active,
+                recovery_attempts=self.recovery_attempts,
+                last_grasp_failure=self.last_grasp_failure,
             )
 
     def _snapshot_json(self) -> str:

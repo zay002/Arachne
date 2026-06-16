@@ -49,13 +49,42 @@
 4. 底盘以小步 `drive_relative` 前进/后退，默认总行程 2 m。
 5. 行进中持续监听 `grasp_server` 发布的 YOLO-SEG 检测结果；发现置信度足够的垃圾后立刻调用 base stop。
 6. 调用 `/arachne/grasp_task/start` 执行“视觉定位 -> 点云/ROI -> MoveIt/SDK -> 抓取 -> 投篮”。
-7. 抓取完成后恢复巡检。
+7. 如果 YOLO 和点云正常但抓取规划失败或目标不可达，任务服务器会让底盘继续小步移动，清掉旧候选，并持续触发 grasp preview 重新搜索，等待新的 YOLO 检测事件，然后重新计算点云和抓取规划。
+8. 抓取完成后恢复巡检。
 
 ## 当前边界
 
 - TACO 不需要单独任务节点；当前默认抓取权重是 `yolo_workspace/weights/yolo26n_seg_taco_best.pt`，也可以用 `ARACHNE_GRASP_YOLO_MODEL` 覆盖。
 - 扫描姿态仍需要接入真实机械臂的安全扫描预置位。
 - `road_cleanup_task_server` 现在只做任务编排，不替代 `grasp_task_server` 的抓取策略。
+- reach recovery 默认开启：规划失败/不可达时沿当前巡检方向小步补偿，默认最多 3 次，每次 0.10 m。
+
+## 不可达兜底
+
+当抓取服务返回规划失败、IK 不可达、轨迹不可用或超时一类失败，且真实机械臂还没有开始执行时，道路清扫任务不会立刻结束，而是：
+
+1. 停止当前抓取任务。
+2. 向 `/arachne/grasp_preview/restart_search` 发出重搜信号，避免继续使用旧锁定框/旧点云。
+3. 底盘沿当前巡检方向移动 `reach_recovery_step_m`。
+4. 丢弃旧候选目标。
+5. 进入 `tracking` 状态，并周期性触发 grasp preview 重新搜索。
+6. 等待 `reach_recovery_wait_detection_sec` 内的新 YOLO-SEG 检测。
+7. 用新检测重新走“点云 ROI -> 抓取规划 -> 执行”。
+
+默认参数：
+
+```bash
+reach_recovery_enabled:=true
+reach_recovery_max_attempts:=3
+reach_recovery_step_m:=0.10
+reach_recovery_wait_detection_sec:=3.0
+reach_recovery_continue_on_exhausted:=true
+restart_search_topic:=/arachne/grasp_preview/restart_search
+```
+
+如果超过次数仍不可达，默认会记录 skip 并继续巡检，而不是让整条道路清扫任务失败。
+
+当前版本的“追踪”是保守的视觉重捕获：持续解除 YOLO 的锁定/暂停并等待新检测，底盘只做小步补偿，不自动扭动腕部。后续如果要加入腕部视觉伺服，需要接入单独的安全自动扫描接口，限制腕部速度、角度和碰撞边界。
 
 ## 权重替换
 
