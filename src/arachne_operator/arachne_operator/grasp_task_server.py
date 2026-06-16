@@ -144,7 +144,7 @@ class GraspTaskServer(Node):
         self.declare_parameter("execute_real", False)
         self.declare_parameter("confirm_execute_real", False)
         self.declare_parameter("with_rviz", False)
-        self.declare_parameter("classes", "trash")
+        self.declare_parameter("classes", "")
         self.declare_parameter("confidence", 0.25)
         self.declare_parameter("device_id", 0)
         self.declare_parameter("real_execute_backend", "sdk_move_joint")

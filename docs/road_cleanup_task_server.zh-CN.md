@@ -53,13 +53,19 @@
 
 ## 当前边界
 
-- TACO 不需要单独任务节点；要替换的是 `ARACHNE_GRASP_YOLO_MODEL` 指向的 YOLO-SEG 权重。
+- TACO 不需要单独任务节点；当前默认抓取权重是 `yolo_workspace/weights/yolo26n_seg_taco_best.pt`，也可以用 `ARACHNE_GRASP_YOLO_MODEL` 覆盖。
 - 扫描姿态仍需要接入真实机械臂的安全扫描预置位。
 - `road_cleanup_task_server` 现在只做任务编排，不替代 `grasp_task_server` 的抓取策略。
 
 ## 权重替换
 
-在启动示教器或 `grasp_server` 前设置：
+默认会加载：
+
+```bash
+yolo_workspace/weights/yolo26n_seg_taco_best.pt
+```
+
+如果需要临时覆盖，在启动示教器或 `grasp_server` 前设置：
 
 ```bash
 export ARACHNE_GRASP_YOLO_MODEL=/path/to/taco_yolo_seg_best.pt
@@ -67,3 +73,9 @@ export ARACHNE_GRASP_CLASSES=""
 ```
 
 如果 TACO 训练时做了类别合并，也可以把 `ARACHNE_GRASP_CLASSES` 设置成需要抓取的类别名或类别 id。
+
+抓取链路默认拒绝自动下载官方 YOLO 权重；如果本地权重路径不存在，会直接报错。确认只是在调试通用权重时，才设置：
+
+```bash
+export ARACHNE_GRASP_ALLOW_MODEL_DOWNLOAD=true
+```

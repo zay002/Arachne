@@ -306,6 +306,17 @@ def _add_venv_site_packages(venv: Path) -> None:
 
 def _load_yolo(venv: Path, model_path: Path, task: str, initial_device: str = ""):
     os.environ.setdefault("YOLO_AUTOINSTALL", "false")
+    model_path = model_path.expanduser()
+    if not model_path.is_absolute():
+        model_path = Path.cwd() / model_path
+    if not model_path.is_file():
+        if os.environ.get("ARACHNE_GRASP_ALLOW_MODEL_DOWNLOAD", "false").lower() != "true":
+            raise FileNotFoundError(
+                f"YOLO model file not found: {model_path}. "
+                "Refusing to let Ultralytics auto-download official weights; "
+                "set ARACHNE_GRASP_YOLO_MODEL to a local trained weight, "
+                "or set ARACHNE_GRASP_ALLOW_MODEL_DOWNLOAD=true intentionally."
+            )
     _add_venv_site_packages(venv)
     from ultralytics import YOLO
 
@@ -321,12 +332,10 @@ def _parse_args() -> argparse.Namespace:
         description="Preview detect-depth-grasp path from Gemini335 RGB-D in RViz."
     )
     hidden = argparse.SUPPRESS
-    parser.add_argument(
-        "--model", default="yolo_workspace/weights/trash_yolo26n_seg_best.pt", help=hidden
-    )
+    parser.add_argument("--model", default="yolo_workspace/weights/yolo26n_seg_taco_best.pt", help=hidden)
     parser.add_argument("--venv", default="yolo_workspace/.venv", help=hidden)
     parser.add_argument("--yolo-task", default="segment", help=hidden)
-    parser.add_argument("--classes", default="trash")
+    parser.add_argument("--classes", default="")
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--imgsz", type=int, default=640, help=hidden)
     parser.add_argument("--device-id", default="0", help=hidden)

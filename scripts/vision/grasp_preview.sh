@@ -23,22 +23,26 @@ refresh_arachne_environment() {
 refresh_arachne_environment
 
 export YOLO_AUTOINSTALL="${YOLO_AUTOINSTALL:-false}"
+ALLOW_MODEL_DOWNLOAD="${ARACHNE_GRASP_ALLOW_MODEL_DOWNLOAD:-false}"
 
-DEFAULT_YOLO_ENGINE="${ROOT_DIR}/yolo_workspace/engines/trash_yolo26n_seg_best_fp16_640.engine"
-DEFAULT_YOLO_ONNX="${ROOT_DIR}/yolo_workspace/weights/trash_yolo26n_seg_best.onnx"
-DEFAULT_YOLO_PT="${ROOT_DIR}/yolo_workspace/weights/trash_yolo26n_seg_best.pt"
+DEFAULT_YOLO_PT="${ROOT_DIR}/yolo_workspace/weights/yolo26n_seg_taco_best.pt"
+FALLBACK_YOLO_ENGINE="${ROOT_DIR}/yolo_workspace/engines/trash_yolo26n_seg_best_fp16_640.engine"
+FALLBACK_YOLO_ONNX="${ROOT_DIR}/yolo_workspace/weights/trash_yolo26n_seg_best.onnx"
+FALLBACK_YOLO_PT="${ROOT_DIR}/yolo_workspace/weights/trash_yolo26n_seg_best.pt"
 if [[ -n "${ARACHNE_GRASP_YOLO_MODEL:-}" ]]; then
   MODEL="${ARACHNE_GRASP_YOLO_MODEL}"
-elif [[ -f "${DEFAULT_YOLO_ENGINE}" ]]; then
-  MODEL="${DEFAULT_YOLO_ENGINE}"
-elif [[ -f "${DEFAULT_YOLO_ONNX}" ]]; then
-  MODEL="${DEFAULT_YOLO_ONNX}"
-else
+elif [[ -f "${DEFAULT_YOLO_PT}" ]]; then
   MODEL="${DEFAULT_YOLO_PT}"
+elif [[ -f "${FALLBACK_YOLO_ENGINE}" ]]; then
+  MODEL="${FALLBACK_YOLO_ENGINE}"
+elif [[ -f "${FALLBACK_YOLO_PT}" ]]; then
+  MODEL="${FALLBACK_YOLO_PT}"
+else
+  MODEL="${FALLBACK_YOLO_ONNX}"
 fi
 VENV="${ARACHNE_GRASP_YOLO_VENV:-${ROOT_DIR}/yolo_workspace/.venv}"
 YOLO_TASK="${ARACHNE_GRASP_YOLO_TASK:-segment}"
-CLASSES="${ARACHNE_GRASP_CLASSES:-trash}"
+CLASSES="${ARACHNE_GRASP_CLASSES:-}"
 CONF="${ARACHNE_GRASP_CONF:-0.25}"
 IMGSZ="${ARACHNE_GRASP_IMGSZ:-640}"
 DEVICE_ID="${ARACHNE_GRASP_DEVICE_ID:-0}"
@@ -138,7 +142,22 @@ if [[ ! -x "${VENV}/bin/python" ]]; then
   "${ROOT_DIR}/scripts/vision/setup_yolo_env.sh"
 fi
 if [[ ! -f "${MODEL}" ]]; then
-  "${ROOT_DIR}/scripts/vision/download_yolo_weights.sh"
+  if [[ "${ALLOW_MODEL_DOWNLOAD}" == "true" ]]; then
+    "${ROOT_DIR}/scripts/vision/download_yolo_weights.sh"
+  else
+    cat >&2 <<EOF
+YOLO model file not found:
+  ${MODEL}
+
+Refusing to auto-download official YOLO weights for the grasp pipeline.
+Copy the trained local weight to the expected path or set:
+  ARACHNE_GRASP_YOLO_MODEL=/absolute/path/to/model.pt
+
+To intentionally allow the legacy official-weight download path, set:
+  ARACHNE_GRASP_ALLOW_MODEL_DOWNLOAD=true
+EOF
+    exit 2
+  fi
 fi
 
 PIDS=()

@@ -118,12 +118,15 @@ cd /home/jetson/zhaoyang/Arachne
 当前默认使用：
 
 ```text
-trash_yolo26n_seg_best.pt  当前垃圾抓取默认模型，YOLO segmentation，类别为 trash
+yolo26n_seg_taco_best.pt   当前垃圾抓取默认模型，YOLO segmentation，TACO 垃圾类别
+trash_yolo26n_seg_best.pt  旧版垃圾抓取备用模型，YOLO segmentation，类别为 trash
 yolo26n.pt                 通用 COCO 检测备用权重
 yolo26n-seg.pt             通用 COCO segmentation 备用权重
 ```
 
-当前抓取链路默认使用自训 segmentation 权重 `trash_yolo26n_seg_best.pt`，先用 mask 锁定垃圾轮廓，再在 mask 内做 depth ROI 和 3D 点云；如果 mask 不可用，才退回检测框 ROI。充电枪不是通用 COCO 类别，后续需要采集本机 Gemini335 下的充电枪样本并微调专用权重。INT8 导出前需要先采集本机 Gemini335 的代表性图片作为 calibration/validation 数据，不建议用通用样例数据做最终量化。
+当前抓取链路默认使用 TACO segmentation 权重 `yolo26n_seg_taco_best.pt`，先用 mask 锁定垃圾轮廓，再在 mask 内做 depth ROI 和 3D 点云；如果 mask 不可用，才退回检测框 ROI。充电枪不是通用 COCO 类别，后续需要采集本机 Gemini335 下的充电枪样本并微调专用权重。INT8 导出前需要先采集本机 Gemini335 的代表性图片作为 calibration/validation 数据，不建议用通用样例数据做最终量化。
+
+抓取链路不会在权重缺失时自动下载官方 YOLO 权重；如果 `ARACHNE_GRASP_YOLO_MODEL` 指向的本地文件不存在，会直接停止并提示修正路径。只有明确调试通用权重时才设置 `ARACHNE_GRASP_ALLOW_MODEL_DOWNLOAD=true`。
 
 FP16 TensorRT 测试导出：
 
@@ -143,7 +146,7 @@ INT8 导出需要先准备 `yolo_workspace/datasets/trash_mvp/images/val`：
 ./scripts/vision/gemini_yolo_live.sh
 ```
 
-默认实时预览使用 `trash_yolo26n_seg_best.pt`、`imgsz=640`、`conf=0.25`，并只显示 `trash` 类。关闭检测窗口、按 `Esc` 或按 `q` 都会退出检测进程。
+默认实时预览使用 `yolo26n_seg_taco_best.pt`、`imgsz=640`、`conf=0.25`，并且不做类别过滤。关闭检测窗口、按 `Esc` 或按 `q` 都会退出检测进程。
 
 如果需要临时调整类别：
 
