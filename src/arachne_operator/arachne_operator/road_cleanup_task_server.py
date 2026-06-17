@@ -64,7 +64,8 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("base_stop_service", "/arachne/grasp_task/base_stop")
         self.declare_parameter("restart_search_topic", "/arachne/grasp_preview/restart_search")
         self.declare_parameter("patrol_distance_m", 1.2)
-        self.declare_parameter("patrol_step_m", 0.12)
+        self.declare_parameter("patrol_step_m", 1.2)
+        self.declare_parameter("max_round_trips", 2)
         self.declare_parameter("detection_confidence", 0.35)
         self.declare_parameter("detection_timeout_sec", 1.2)
         self.declare_parameter("base_step_timeout_sec", 8.0)
@@ -247,6 +248,9 @@ class RoadCleanupTaskServer(Node):
                 self.progress_m = 0.0
                 self.cycle_count += 1
             if not bool(self.get_parameter("loop").value) and self.cycle_count >= 2:
+                return False
+            max_round_trips = int(self.get_parameter("max_round_trips").value)
+            if max_round_trips > 0 and self.cycle_count >= max_round_trips * 2:
                 return False
             return True
 

@@ -250,6 +250,7 @@ def generate_launch_description():
                 ),
                 "workspace_root": LaunchConfiguration("workspace_root"),
                 "runtime_log_root": LaunchConfiguration("runtime_log_root"),
+                "autostart_managed_processes": LaunchConfiguration("autostart_managed_processes"),
                 "service_stop_timeout_sec": ParameterValue(
                     LaunchConfiguration("service_stop_timeout_sec"), value_type=float
                 ),
@@ -257,11 +258,17 @@ def generate_launch_description():
                 "camera_view_command": LaunchConfiguration("camera_view_command"),
                 "slam_command": LaunchConfiguration("slam_command"),
                 "grasp_server_command": LaunchConfiguration("grasp_server_command"),
+                "cleanup_server_command": LaunchConfiguration("cleanup_server_command"),
                 "grasp_task_state_topic": LaunchConfiguration("grasp_task_state_topic"),
                 "grasp_task_start_service": LaunchConfiguration("grasp_task_start_service"),
                 "grasp_task_stop_service": LaunchConfiguration("grasp_task_stop_service"),
                 "grasp_task_restore_service": LaunchConfiguration("grasp_task_restore_service"),
                 "grasp_task_status_service": LaunchConfiguration("grasp_task_status_service"),
+                "cleanup_task_state_topic": LaunchConfiguration("cleanup_task_state_topic"),
+                "cleanup_task_start_service": LaunchConfiguration("cleanup_task_start_service"),
+                "cleanup_task_stop_service": LaunchConfiguration("cleanup_task_stop_service"),
+                "cleanup_task_status_service": LaunchConfiguration("cleanup_task_status_service"),
+                "cleanup_task_preflight_service": LaunchConfiguration("cleanup_task_preflight_service"),
             }
         ],
     )
@@ -415,6 +422,10 @@ def generate_launch_description():
             DeclareLaunchArgument("teach_config_autoload", default_value="true"),
             DeclareLaunchArgument("workspace_root", default_value=""),
             DeclareLaunchArgument("runtime_log_root", default_value="log/teach_panel"),
+            DeclareLaunchArgument(
+                "autostart_managed_processes",
+                default_value="camera,viewer,grasp_server,cleanup_server",
+            ),
             DeclareLaunchArgument("service_stop_timeout_sec", default_value="4.0"),
             DeclareLaunchArgument(
                 "camera_command",
@@ -422,7 +433,7 @@ def generate_launch_description():
                     "ros2 launch arachne_sensors gemini335.launch.py "
                     "publish_pointcloud:=false with_color_view:=false with_depth_view:=false "
                     "with_tf:=true camera_parent_frame:=ee_camera_link "
-                    "projection_flip_x:=true projection_flip_y:=true"
+                    "projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YVYU"
                 ),
             ),
             DeclareLaunchArgument(
@@ -438,10 +449,18 @@ def generate_launch_description():
                 default_value=(
                     "scripts/vision/grasp_task_server.sh "
                     "execute_real:=true confirm_execute_real:=true with_rviz:=false "
-                    "preview_on_start:=false planning_recovery_base_enabled:=false "
+                    "preview_on_start:=true planning_recovery_base_enabled:=false "
                     "require_odom:=false require_camera_topics:=true "
                     "require_aubo_status:=false require_gripper_status:=false "
                     "max_grasp_attempts:=3 retry_on_gripper_miss:=true"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "cleanup_server_command",
+                default_value=(
+                    "scripts/vision/road_cleanup_task_server.sh "
+                    "patrol_distance_m:=1.2 patrol_step_m:=1.2 max_round_trips:=2 "
+                    "detection_confidence:=0.35 loop:=true"
                 ),
             ),
             DeclareLaunchArgument("grasp_task_state_topic", default_value="/arachne/grasp_task/state"),
@@ -451,6 +470,11 @@ def generate_launch_description():
                 "grasp_task_restore_service", default_value="/arachne/grasp_task/restore"
             ),
             DeclareLaunchArgument("grasp_task_status_service", default_value="/arachne/grasp_task/status"),
+            DeclareLaunchArgument("cleanup_task_state_topic", default_value="/arachne/road_cleanup/state"),
+            DeclareLaunchArgument("cleanup_task_start_service", default_value="/arachne/road_cleanup/start"),
+            DeclareLaunchArgument("cleanup_task_stop_service", default_value="/arachne/road_cleanup/stop"),
+            DeclareLaunchArgument("cleanup_task_status_service", default_value="/arachne/road_cleanup/status"),
+            DeclareLaunchArgument("cleanup_task_preflight_service", default_value="/arachne/road_cleanup/preflight"),
             visualization,
             camera,
             teach_panel_node,

@@ -397,6 +397,10 @@ class TeachPanelNode(Node):
         self.declare_parameter("teach_config_autoload", True)
         self.declare_parameter("workspace_root", "")
         self.declare_parameter("runtime_log_root", "log/teach_panel")
+        self.declare_parameter(
+            "autostart_managed_processes",
+            "camera,viewer,grasp_server,cleanup_server",
+        )
         self.declare_parameter("service_stop_timeout_sec", 4.0)
         self.declare_parameter(
             "camera_command",
@@ -404,7 +408,7 @@ class TeachPanelNode(Node):
                 "ros2 launch arachne_sensors gemini335.launch.py "
                 "publish_pointcloud:=false with_color_view:=false with_depth_view:=false "
                 "with_tf:=true camera_parent_frame:=ee_camera_link "
-                "projection_flip_x:=true projection_flip_y:=true"
+                "projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YVYU"
             ),
         )
         self.declare_parameter(
@@ -430,7 +434,7 @@ class TeachPanelNode(Node):
             "cleanup_server_command",
             (
                 "scripts/vision/road_cleanup_task_server.sh "
-                "patrol_distance_m:=1.2 patrol_step_m:=0.12 "
+                "patrol_distance_m:=1.2 patrol_step_m:=1.2 max_round_trips:=2 "
                 "detection_confidence:=0.35 loop:=true"
             ),
         )
@@ -578,13 +582,28 @@ class TeachPanelNode(Node):
         self.managed_process_logs: dict[str, Path] = {}
         self.managed_process_log_handles: dict[str, Any] = {}
         self.last_logged_hardware_status: dict[str, str] = {}
+        self.autostart_managed_processes = _parse_names(
+            str(self.get_parameter("autostart_managed_processes").value)
+        )
+        self.autostart_requested = False
         if bool(self.get_parameter("teach_config_autoload").value):
             self.load_teach_config(status=False)
         publish_rate = max(float(self.get_parameter("base_manual_publish_rate").value), 1.0)
         self.create_timer(1.0 / publish_rate, self._publish_manual_base_velocity)
         arm_velocity_rate = max(float(self.get_parameter("arm_velocity_publish_rate").value), 1.0)
         self.create_timer(1.0 / arm_velocity_rate, self._publish_manual_arm_velocity)
+        self.create_timer(1.0, self._autostart_managed_processes_once)
         self._status(f"ready; logs={self.runtime_log_dir}")
+
+    def _autostart_managed_processes_once(self) -> None:
+        if self.autostart_requested or not self.autostart_managed_processes:
+            return
+        self.autostart_requested = True
+        for name in self.autostart_managed_processes:
+            if name not in MANAGED_PROCESS_COMMAND_PARAMS:
+                self._status(f"autostart ignored unknown service: {name}", warn=True)
+                continue
+            self._start_managed_process_worker(name)
 
     def _resolve_workspace_root(self) -> Path:
         configured = str(self.get_parameter("workspace_root").value).strip()

@@ -19,7 +19,8 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("base_state_topic", default_value="/arachne/grasp_task/base_state"),
             DeclareLaunchArgument("patrol_distance_m", default_value="1.2"),
-            DeclareLaunchArgument("patrol_step_m", default_value="0.12"),
+            DeclareLaunchArgument("patrol_step_m", default_value="1.2"),
+            DeclareLaunchArgument("max_round_trips", default_value="2"),
             DeclareLaunchArgument("detection_confidence", default_value="0.35"),
             DeclareLaunchArgument("detection_timeout_sec", default_value="1.2"),
             DeclareLaunchArgument("base_step_timeout_sec", default_value="8.0"),
@@ -46,6 +47,9 @@ def generate_launch_description():
                         ),
                         "patrol_step_m": ParameterValue(
                             LaunchConfiguration("patrol_step_m"), value_type=float
+                        ),
+                        "max_round_trips": ParameterValue(
+                            LaunchConfiguration("max_round_trips"), value_type=int
                         ),
                         "detection_confidence": ParameterValue(
                             LaunchConfiguration("detection_confidence"), value_type=float

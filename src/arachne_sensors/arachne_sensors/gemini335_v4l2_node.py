@@ -75,6 +75,7 @@ class Gemini335V4L2Node(Node):
         self.declare_parameter("color_height", 480)
         self.declare_parameter("color_fps", 30.0)
         self.declare_parameter("color_fourcc", "YUYV")
+        self.declare_parameter("color_yuv_layout", "YVYU")
         self.declare_parameter("color_batch_frames", 30)
         self.declare_parameter("color_capture_timeout_sec", 4.0)
         self.declare_parameter("color_frame_id", "camera_color_optical_frame")
@@ -308,11 +309,16 @@ class Gemini335V4L2Node(Node):
                     process.terminate()
                     self._sleep_color_period(start, period)
                     continue
-                code = (
-                    cv2.COLOR_YUV2RGB_UYVY
-                    if pixelformat == "UYVY"
-                    else cv2.COLOR_YUV2RGB_YUY2
-                )
+                layout = str(self.get_parameter("color_yuv_layout").value).strip().upper()
+                code = {
+                    "UYVY": cv2.COLOR_YUV2BGR_UYVY,
+                    "YUYV": cv2.COLOR_YUV2BGR_YUY2,
+                    "YUY2": cv2.COLOR_YUV2BGR_YUY2,
+                    "YVYU": cv2.COLOR_YUV2BGR_YVYU,
+                }.get(layout)
+                if code is None:
+                    self._warn_color(f"unknown color_yuv_layout={layout}; falling back to YVYU")
+                    code = cv2.COLOR_YUV2BGR_YVYU
                 while not self.stop_event.is_set():
                     chunk = process.stdout.read(frame_bytes)
                     if len(chunk) != frame_bytes:
@@ -500,7 +506,7 @@ class Gemini335V4L2Node(Node):
             return
         stamp = self.get_clock().now()
         header = self._header(stamp, self.color_frame_id)
-        if not self._publish_safe(self.color_pub, _image_from_array(frame, header, "rgb8")):
+        if not self._publish_safe(self.color_pub, _image_from_array(frame, header, "bgr8")):
             return
         self.color_info.header = header
         self._publish_safe(self.color_info_pub, self.color_info)
