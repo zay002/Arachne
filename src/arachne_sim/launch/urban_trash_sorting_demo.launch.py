@@ -13,9 +13,11 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description():
     description_share = Path(get_package_share_directory("arachne_description"))
     moveit_share = Path(get_package_share_directory("arachne_moveit_config"))
+    nav_share = Path(get_package_share_directory("arachne_nav"))
     display_launch = description_share / "launch" / "display.launch.py"
     moveit_launch = moveit_share / "launch" / "moveit_planning.launch.py"
     rviz_config = description_share / "rviz" / "urban_trash_sorting_demo.rviz"
+    default_slam_map = nav_share / "maps" / "road_lab_apriltag.yaml"
 
     display = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(str(display_launch)),
@@ -54,7 +56,57 @@ def generate_launch_description():
                     LaunchConfiguration("playback_speed"), value_type=float
                 ),
                 "loop": ParameterValue(LaunchConfiguration("loop"), value_type=bool),
+                "patrol_distance_m": ParameterValue(
+                    LaunchConfiguration("patrol_distance_m"), value_type=float
+                ),
+                "show_keepout_markers": ParameterValue(
+                    LaunchConfiguration("show_keepout_markers"), value_type=bool
+                ),
+                "slam_map_yaml": LaunchConfiguration("slam_map_yaml"),
+                "map_frame_id": LaunchConfiguration("map_frame_id"),
+                "trash_seed": ParameterValue(LaunchConfiguration("trash_seed"), value_type=int),
+                "trash_count": ParameterValue(LaunchConfiguration("trash_count"), value_type=int),
+                "scan_arc_radius_m": ParameterValue(
+                    LaunchConfiguration("scan_arc_radius_m"), value_type=float
+                ),
+                "scan_arc_angle_deg": ParameterValue(
+                    LaunchConfiguration("scan_arc_angle_deg"), value_type=float
+                ),
+                "scan_arc_samples": ParameterValue(
+                    LaunchConfiguration("scan_arc_samples"), value_type=int
+                ),
+                "scan_cycle_duration_sec": ParameterValue(
+                    LaunchConfiguration("scan_cycle_duration_sec"), value_type=float
+                ),
+                "detection_lock_frames": ParameterValue(
+                    LaunchConfiguration("detection_lock_frames"), value_type=int
+                ),
             }
+        ],
+        output="screen",
+    )
+
+    map_to_odom = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="urban_trash_map_to_odom",
+        arguments=[
+            "--x",
+            "0",
+            "--y",
+            "0",
+            "--z",
+            "0",
+            "--roll",
+            "0",
+            "--pitch",
+            "0",
+            "--yaw",
+            "0",
+            "--frame-id",
+            LaunchConfiguration("map_frame_id"),
+            "--child-frame-id",
+            "odom",
         ],
         output="screen",
     )
@@ -74,9 +126,21 @@ def generate_launch_description():
             DeclareLaunchArgument("planner_id", default_value="RRTConnectkConfigDefault"),
             DeclareLaunchArgument("playback_speed", default_value="0.85"),
             DeclareLaunchArgument("loop", default_value="true"),
+            DeclareLaunchArgument("patrol_distance_m", default_value="1.2"),
+            DeclareLaunchArgument("show_keepout_markers", default_value="false"),
+            DeclareLaunchArgument("slam_map_yaml", default_value=str(default_slam_map)),
+            DeclareLaunchArgument("map_frame_id", default_value="map"),
+            DeclareLaunchArgument("trash_seed", default_value="26"),
+            DeclareLaunchArgument("trash_count", default_value="10"),
+            DeclareLaunchArgument("scan_arc_radius_m", default_value="0.32"),
+            DeclareLaunchArgument("scan_arc_angle_deg", default_value="72.0"),
+            DeclareLaunchArgument("scan_arc_samples", default_value="5"),
+            DeclareLaunchArgument("scan_cycle_duration_sec", default_value="4.2"),
+            DeclareLaunchArgument("detection_lock_frames", default_value="1"),
             DeclareLaunchArgument("launch_demo_rviz", default_value="true"),
             display,
             moveit,
+            map_to_odom,
             demo,
             rviz,
         ]

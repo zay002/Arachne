@@ -449,6 +449,7 @@ def generate_launch_description():
                 default_value=(
                     "scripts/vision/grasp_task_server.sh "
                     "execute_real:=true confirm_execute_real:=true with_rviz:=false "
+                    "real_sdk_move_speed:=0.18 "
                     "preview_on_start:=true planning_recovery_base_enabled:=false "
                     "require_odom:=false require_camera_topics:=true "
                     "require_aubo_status:=false require_gripper_status:=false "
@@ -460,6 +461,7 @@ def generate_launch_description():
                 default_value=(
                     "scripts/vision/road_cleanup_task_server.sh "
                     "patrol_distance_m:=1.2 patrol_step_m:=1.2 max_round_trips:=2 "
+                    "patrol_base_speed_mps:=0.06 base_step_timeout_sec:=32.0 "
                     "detection_confidence:=0.35 loop:=true"
                 ),
             ),

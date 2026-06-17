@@ -22,6 +22,7 @@ from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.action import ActionClient
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile
@@ -603,7 +604,7 @@ class TeachPanelNode(Node):
             if name not in MANAGED_PROCESS_COMMAND_PARAMS:
                 self._status(f"autostart ignored unknown service: {name}", warn=True)
                 continue
-            self._start_managed_process_worker(name)
+            self._start_worker(lambda service=name: self._start_managed_process_worker(service))
 
     def _resolve_workspace_root(self) -> Path:
         configured = str(self.get_parameter("workspace_root").value).strip()
@@ -4460,13 +4461,16 @@ class TeachPanelApp:
 def main() -> None:
     rclpy.init()
     node = TeachPanelNode()
-    spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
+    executor = MultiThreadedExecutor(num_threads=6)
+    executor.add_node(node)
+    spin_thread = threading.Thread(target=executor.spin, daemon=True)
     spin_thread.start()
     try:
         TeachPanelApp(node).run()
     finally:
         node.stop_all()
         node.stop_all_managed_processes()
+        executor.remove_node(node)
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

@@ -18,6 +18,7 @@ from typing import Any
 import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import Image, JointState
 from std_msgs.msg import String
@@ -149,7 +150,7 @@ class GraspTaskServer(Node):
         self.declare_parameter("device_id", 0)
         self.declare_parameter("real_execute_backend", "sdk_move_joint")
         self.declare_parameter("real_return_home", True)
-        self.declare_parameter("real_sdk_move_speed", 0.25)
+        self.declare_parameter("real_sdk_move_speed", 0.18)
         self.declare_parameter("real_sdk_move_accel", 0.45)
         self.declare_parameter("real_sdk_ip", os.environ.get("AUBO_ROBOT_IP", "192.168.127.128"))
         self.declare_parameter("real_sdk_rpc_port", 30004)
@@ -572,10 +573,18 @@ class GraspTaskServer(Node):
 
         if command == "drive_relative":
             distance = self._payload_float(payload, "distance_m", "distance", default=0.0)
+            speed = self._payload_float(
+                payload,
+                "speed_m_s",
+                "speed_mps",
+                "linear_speed_mps",
+                "linear_x",
+                default=0.0,
+            )
             return self._start_base_worker(
                 "drive_relative",
                 payload,
-                lambda: self._drive_distance(distance),
+                lambda: self._drive_distance(distance, speed_override=abs(speed) if speed > 0.0 else None),
             )
 
         if command == "turn_relative":
@@ -1840,8 +1849,10 @@ class GraspTaskServer(Node):
 def main() -> None:
     rclpy.init()
     node = GraspTaskServer()
+    executor = MultiThreadedExecutor(num_threads=6)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         node.cancel_event.set()
         node.base_cancel_event.set()
@@ -1850,6 +1861,7 @@ def main() -> None:
         node._terminate_process("shutdown")
         node._stop_idle_preview("shutdown")
     finally:
+        executor.remove_node(node)
         node._stop_idle_preview("shutdown")
         node.destroy_node()
         if rclpy.ok():

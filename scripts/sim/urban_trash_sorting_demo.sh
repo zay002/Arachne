@@ -11,6 +11,16 @@ PLANNER_ID="${PLANNER_ID:-RRTConnectkConfigDefault}"
 PLAYBACK_SPEED="${PLAYBACK_SPEED:-0.85}"
 LOOP="${LOOP:-true}"
 WITH_RVIZ="${WITH_RVIZ:-true}"
+PATROL_DISTANCE_M="${PATROL_DISTANCE_M:-1.2}"
+SHOW_KEEPOUT_MARKERS="${SHOW_KEEPOUT_MARKERS:-false}"
+SLAM_MAP_YAML="${SLAM_MAP_YAML:-${ROOT_DIR}/src/arachne_nav/maps/road_lab_apriltag.yaml}"
+TRASH_SEED="${TRASH_SEED:-26}"
+TRASH_COUNT="${TRASH_COUNT:-10}"
+SCAN_ARC_RADIUS_M="${SCAN_ARC_RADIUS_M:-0.32}"
+SCAN_ARC_ANGLE_DEG="${SCAN_ARC_ANGLE_DEG:-72.0}"
+SCAN_ARC_SAMPLES="${SCAN_ARC_SAMPLES:-5}"
+SCAN_CYCLE_DURATION_SEC="${SCAN_CYCLE_DURATION_SEC:-4.2}"
+DETECTION_LOCK_FRAMES="${DETECTION_LOCK_FRAMES:-1}"
 
 cleanup_stale_demo() {
   local patterns=(
@@ -52,4 +62,14 @@ exec ros2 launch arachne_sim urban_trash_sorting_demo.launch.py \
   planner_id:="${PLANNER_ID}" \
   playback_speed:="${PLAYBACK_SPEED}" \
   loop:="${LOOP}" \
+  patrol_distance_m:="${PATROL_DISTANCE_M}" \
+  show_keepout_markers:="${SHOW_KEEPOUT_MARKERS}" \
+  slam_map_yaml:="${SLAM_MAP_YAML}" \
+  trash_seed:="${TRASH_SEED}" \
+  trash_count:="${TRASH_COUNT}" \
+  scan_arc_radius_m:="${SCAN_ARC_RADIUS_M}" \
+  scan_arc_angle_deg:="${SCAN_ARC_ANGLE_DEG}" \
+  scan_arc_samples:="${SCAN_ARC_SAMPLES}" \
+  scan_cycle_duration_sec:="${SCAN_CYCLE_DURATION_SEC}" \
+  detection_lock_frames:="${DETECTION_LOCK_FRAMES}" \
   launch_demo_rviz:="${WITH_RVIZ}"

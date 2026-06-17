@@ -506,6 +506,7 @@ exec env \
   execute_real:=true \
   confirm_execute_real:=true \
   with_rviz:=false \
+  real_sdk_move_speed:=0.18 \
   preview_on_start:=true \
   planning_recovery_base_enabled:=false \
   require_odom:="${REQUIRE_ODOM}" \
@@ -530,8 +531,8 @@ exec ros2 launch arachne_operator teach_panel.launch.py \
   camera_command:="ros2 launch arachne_sensors gemini335.launch.py publish_pointcloud:=false with_color_view:=false with_depth_view:=false with_tf:=true camera_parent_frame:=ee_camera_link projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YVYU color_width:=${CAMERA_COLOR_WIDTH} color_height:=${CAMERA_COLOR_HEIGHT} color_fps:=${CAMERA_COLOR_FPS} depth_width:=${CAMERA_DEPTH_WIDTH} depth_height:=${CAMERA_DEPTH_HEIGHT} depth_fps:=${CAMERA_DEPTH_FPS}" \
   camera_view_command:="\${ARACHNE_SYSTEM_PYTHON:-python3} scripts/vision/raw_image_viewer.py --topic ${VIEWER_IMAGE_TOPIC} --window \"Arachne Raw Camera\" --max-fps 15" \
   slam_command:="ARACHNE_NAV_WITH_LSLIDAR_DRIVER=false scripts/hardware/real_lidar_nav.sh" \
-  grasp_server_command:="scripts/vision/grasp_task_server.sh execute_real:=true confirm_execute_real:=true with_rviz:=false preview_on_start:=true planning_recovery_base_enabled:=false require_odom:=${REQUIRE_ODOM} require_camera_topics:=${REQUIRE_CAMERA_TOPICS} require_aubo_status:=false require_gripper_status:=false max_grasp_attempts:=3 retry_on_gripper_miss:=true extra_args:=\"${SERVER_EXTRA_ARGS}\"" \
-  cleanup_server_command:="scripts/vision/road_cleanup_task_server.sh patrol_distance_m:=1.2 patrol_step_m:=1.2 max_round_trips:=2 detection_confidence:=0.35 loop:=true" \
+  grasp_server_command:="scripts/vision/grasp_task_server.sh execute_real:=true confirm_execute_real:=true with_rviz:=false real_sdk_move_speed:=0.18 preview_on_start:=true planning_recovery_base_enabled:=false require_odom:=${REQUIRE_ODOM} require_camera_topics:=${REQUIRE_CAMERA_TOPICS} require_aubo_status:=false require_gripper_status:=false max_grasp_attempts:=3 retry_on_gripper_miss:=true extra_args:=\"${SERVER_EXTRA_ARGS}\"" \
+  cleanup_server_command:="scripts/vision/road_cleanup_task_server.sh patrol_distance_m:=1.2 patrol_step_m:=1.2 patrol_base_speed_mps:=0.06 max_round_trips:=2 base_step_timeout_sec:=32.0 detection_confidence:=0.35 loop:=true" \
   autostart_managed_processes:="camera,viewer,grasp_server,cleanup_server" \
   ${TEACH_EXTRA_ARGS}
 ')"

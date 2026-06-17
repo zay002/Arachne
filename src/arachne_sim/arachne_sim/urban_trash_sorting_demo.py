@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
 import math
 from pathlib import Path
+import random
 import sys
 import threading
 import time
@@ -14,7 +16,8 @@ from builtin_interfaces.msg import Duration
 from geometry_msgs.msg import Point, PoseStamped, Twist
 from moveit_msgs.msg import Constraints, JointConstraint, MotionPlanRequest, MoveItErrorCodes, RobotState
 from moveit_msgs.srv import GetMotionPlan
-from nav_msgs.msg import Odometry, Path as PathMsg
+from nav_msgs.msg import OccupancyGrid, Odometry, Path as PathMsg
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import JointState, PointCloud2
@@ -58,7 +61,7 @@ GRASP_FRAME_OFFSET_Z = 0.138691938
 EE_CAMERA_XYZ = (0.025, -0.069, 0.03077)
 EE_CAMERA_RPY = (0.0, -math.pi / 2.0, -math.pi / 2.0)
 
-ROAD_LENGTH = 2.0
+DEFAULT_PATROL_DISTANCE_M = 1.2
 PATROL_SPEED = 0.10
 REACH_X = (0.46, 0.96)
 REACH_Y = (-0.55, 0.22)
@@ -104,6 +107,17 @@ class UrbanTrashSortingDemo(Node):
         self.declare_parameter("planner_id", "RRTConnectkConfigDefault")
         self.declare_parameter("playback_speed", 0.85)
         self.declare_parameter("loop", True)
+        self.declare_parameter("patrol_distance_m", DEFAULT_PATROL_DISTANCE_M)
+        self.declare_parameter("show_keepout_markers", False)
+        self.declare_parameter("slam_map_yaml", "")
+        self.declare_parameter("map_frame_id", "map")
+        self.declare_parameter("trash_seed", 26)
+        self.declare_parameter("trash_count", 10)
+        self.declare_parameter("scan_arc_radius_m", 0.32)
+        self.declare_parameter("scan_arc_angle_deg", 72.0)
+        self.declare_parameter("scan_arc_samples", 5)
+        self.declare_parameter("scan_cycle_duration_sec", 4.2)
+        self.declare_parameter("detection_lock_frames", 1)
 
         self.plan_client = self.create_client(
             GetMotionPlan, str(self.get_parameter("plan_service").value)
@@ -113,11 +127,27 @@ class UrbanTrashSortingDemo(Node):
         self.marker_pub = self.create_publisher(MarkerArray, "/arachne/urban_trash/markers", 10)
         self.cloud_pub = self.create_publisher(PointCloud2, "/arachne/urban_trash/roi_cloud", 10)
         self.path_pub = self.create_publisher(PathMsg, "/arachne/urban_trash/base_path", 10)
+        map_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.map_pub = self.create_publisher(OccupancyGrid, "/map", map_qos)
         self.create_subscription(Odometry, "/odom", self._odom_cb, 10)
 
         self.planner_id = str(self.get_parameter("planner_id").value)
         self.playback_speed = max(float(self.get_parameter("playback_speed").value), 0.05)
         self.loop = bool(self.get_parameter("loop").value)
+        self.road_length = max(float(self.get_parameter("patrol_distance_m").value), 0.2)
+        self.show_keepout_markers = bool(self.get_parameter("show_keepout_markers").value)
+        self.map_frame_id = str(self.get_parameter("map_frame_id").value)
+        self.map_origin = (0.0, 0.0)
+        self.map_resolution = 0.05
+        self.map_width = 0
+        self.map_height = 0
+        self.map_data: list[int] = []
+        self.map_msg = self._load_slam_map(str(self.get_parameter("slam_map_yaml").value).strip())
 
         self.kinematics = AuboI5Kinematics()
         self.base_from_aubo = self._transform(ARM_MOUNT_XYZ, ARM_MOUNT_RPY)
@@ -128,6 +158,8 @@ class UrbanTrashSortingDemo(Node):
         )
         self.grasp_rotation_base = self._grasp_frame_in_base(np.asarray(GRASP_SEED, dtype=float))[:3, :3]
 
+        self.patrol_waypoints = self._make_patrol_waypoints()
+        self.patrol_index = 1 if len(self.patrol_waypoints) > 1 else 0
         self.trash = self._make_trash_scene()
         self.collected: set[str] = set()
         self.failed: set[str] = set()
@@ -136,16 +168,17 @@ class UrbanTrashSortingDemo(Node):
         self.base_yaw = 0.0
         self.direction = 1.0
         self.mode = "patrol"
-        self.scan_poses = [SCAN_LEFT, SCAN_CENTER, SCAN_RIGHT, SCAN_CENTER]
-        self.scan_index = 1
+        self.scan_poses, self.scan_camera_arc_points_base = self._make_camera_scan_arc()
+        self.scan_center_index = min(len(self.scan_poses) // 2, len(self.scan_poses) - 1)
+        self.scan_center_joints = list(self.scan_poses[self.scan_center_index])
+        self.scan_index = self.scan_center_index
         self.scan_started = self.get_clock().now()
-        self.scan_duration = 1.15
-        self.scan_from = list(SCAN_CENTER)
-        self.scan_target = list(SCAN_CENTER)
-        self.current_arm = list(SCAN_CENTER)
+        self.scan_cycle_duration = max(float(self.get_parameter("scan_cycle_duration_sec").value), 1.2)
+        self.current_arm = list(self.scan_center_joints)
         self.current_gripper = (0.0, 0.0)
         self.candidate_name = ""
         self.candidate_count = 0
+        self.detection_lock_frames = max(int(self.get_parameter("detection_lock_frames").value), 1)
         self.locked: TrashSpec | None = None
         self.pipeline_note = "patrol: base moving, wrist camera scanning"
         self.strategy_note = "waiting for YOLO lock"
@@ -154,20 +187,213 @@ class UrbanTrashSortingDemo(Node):
         self.planning_thread: threading.Thread | None = None
 
         self.timer = self.create_timer(1.0 / 45.0, self._tick)
+        self.create_timer(1.0, self._publish_slam_map)
         self.get_logger().info(
-            "Urban trash sorting demo ready: moving patrol + wrist-camera scan + synthetic YOLO/pointcloud + grasp"
+            f"Urban trash sorting demo ready: map cruise ({len(self.patrol_waypoints)} waypoints) + "
+            f"wrist-camera scan + random TACO trash ({len(self.trash)} objects)"
         )
 
+    def _make_camera_scan_arc(self) -> tuple[list[list[float]], list[tuple[float, float, float]]]:
+        radius = max(float(self.get_parameter("scan_arc_radius_m").value), 0.06)
+        max_angle = math.radians(max(min(float(self.get_parameter("scan_arc_angle_deg").value), 85.0), 8.0))
+        samples = max(int(self.get_parameter("scan_arc_samples").value), 5)
+        if samples % 2 == 0:
+            samples += 1
+
+        center_q = np.asarray(SCAN_CENTER, dtype=float)
+        center_camera = self._camera_pose_base(center_q)
+        center_position = np.asarray(center_camera[:3, 3], dtype=float)
+        center_rotation = np.asarray(center_camera[:3, :3], dtype=float)
+        pivot = center_position + np.array([-radius, 0.0, 0.0], dtype=float)
+
+        joints: list[list[float]] = []
+        camera_points: list[tuple[float, float, float]] = []
+        q_seed = center_q.copy()
+        for theta in np.linspace(-max_angle, max_angle, samples):
+            position = pivot + np.array([radius * math.cos(float(theta)), radius * math.sin(float(theta)), 0.0])
+            position[2] = center_position[2]
+            camera_target = np.eye(4, dtype=np.float64)
+            camera_target[:3, :3] = center_rotation
+            camera_target[:3, 3] = position
+            tool_target = self.aubo_from_base @ (camera_target @ self._invert_rigid(self.tool_to_camera))
+            ok, q_solution, position_error, orientation_error, _iterations = self.kinematics.solve_pose(
+                q_seed,
+                tool_target,
+                position_tolerance=0.012,
+                orientation_tolerance=0.18,
+                damping=0.07,
+                max_iterations=240,
+                max_step=0.07,
+                orientation_weight=0.28,
+            )
+            q_goal = q_seed + self._joint_delta(q_solution, q_seed)
+            achieved = self._camera_pose_base(q_goal)
+            achieved_error = float(np.linalg.norm(achieved[:3, 3] - position))
+            if not ok or achieved_error > 0.025 or orientation_error > 0.35:
+                self.get_logger().warning(
+                    "camera arc IK failed; falling back to legacy scan poses "
+                    f"(err={achieved_error:.3f}m ori={orientation_error:.3f}rad)"
+                )
+                return [list(SCAN_LEFT), list(SCAN_CENTER), list(SCAN_RIGHT), list(SCAN_CENTER)], []
+            joints.append([float(v) for v in q_goal])
+            camera_points.append((float(position[0]), float(position[1]), float(position[2])))
+            q_seed = q_goal
+
+        z_values = [point[2] for point in camera_points]
+        z_span = max(z_values) - min(z_values) if z_values else 0.0
+        self.get_logger().info(
+            f"Camera scan arc ready: radius={radius:.2f}m angle={math.degrees(max_angle):.1f}deg "
+            f"keypoints={len(joints)} z_span={z_span * 1000.0:.1f}mm"
+        )
+        return joints, camera_points
+
     def _make_trash_scene(self) -> list[TrashSpec]:
-        return [
-            TrashSpec("bottle_01", "plastic_bottle", "Clear plastic bottle", (0.72, -0.36, -0.22), (0.06, 0.06, 0.18), (0.1, 0.55, 1.0), "flat_ground", (0.58, -0.58), 0.13, 0.20, "PET/light", "body_clamp", math.radians(8.0), 0.93),
-            TrashSpec("banana_01", "banana_peel", "Food waste", (1.18, -0.30, -0.22), (0.13, 0.045, 0.025), (1.0, 0.85, 0.08), "curb_edge", (0.45, -0.45), 0.10, 0.16, "soft/slippery", "soft_scoop", math.radians(-18.0), 0.88),
-            TrashSpec("can_01", "can", "Drink can", (1.52, -0.42, -0.22), (0.065, 0.065, 0.11), (0.86, 0.86, 0.82), "flat_ground", (0.55, -0.55), 0.12, 0.18, "aluminum/rigid", "cylindrical_clamp", math.radians(11.0), 0.94),
-            TrashSpec("newspaper_01", "curled_newspaper", "Normal paper", (0.95, 0.18, -0.22), (0.18, 0.07, 0.055), (0.92, 0.88, 0.72), "curb_edge", (0.50, -0.50), 0.11, 0.17, "paper/deformable", "wide_pinch", math.radians(24.0), 0.86),
-            TrashSpec("battery_01", "battery_1", "Battery", (1.74, -0.20, -0.22), (0.045, 0.045, 0.13), (0.12, 0.12, 0.12), "gap_or_crevice", (0.62, -0.62), 0.14, 0.20, "dense/hazard", "vertical_pull", math.radians(-5.0), 0.90),
-            TrashSpec("cup_01", "paper_cup", "Paper cup", (1.34, 0.10, -0.22), (0.075, 0.075, 0.10), (0.95, 0.95, 0.88), "flat_ground", (0.50, -0.50), 0.12, 0.17, "paper/light", "rim_clamp", math.radians(7.0), 0.89),
-            TrashSpec("straw_01", "plastic_straw", "Plastic straw", (1.88, -0.47, -0.22), (0.16, 0.014, 0.014), (0.95, 0.12, 0.22), "gap_or_crevice", (0.42, -0.42), 0.13, 0.18, "plastic/thin", "edge_pick", math.radians(32.0), 0.84),
+        templates = [
+            ("plastic_bottle", "Clear plastic bottle", (0.06, 0.06, 0.18), (0.1, 0.55, 1.0), "flat_ground", (0.58, -0.58), 0.13, 0.20, "PET/light", "body_clamp", 0.93),
+            ("banana_peel", "Food waste", (0.13, 0.045, 0.025), (1.0, 0.85, 0.08), "curb_edge", (0.45, -0.45), 0.10, 0.16, "soft/slippery", "soft_scoop", 0.88),
+            ("can", "Drink can", (0.065, 0.065, 0.11), (0.86, 0.86, 0.82), "flat_ground", (0.55, -0.55), 0.12, 0.18, "aluminum/rigid", "cylindrical_clamp", 0.94),
+            ("curled_newspaper", "Normal paper", (0.18, 0.07, 0.055), (0.92, 0.88, 0.72), "curb_edge", (0.50, -0.50), 0.11, 0.17, "paper/deformable", "wide_pinch", 0.86),
+            ("battery_1", "Battery", (0.045, 0.045, 0.13), (0.12, 0.12, 0.12), "gap_or_crevice", (0.62, -0.62), 0.14, 0.20, "dense/hazard", "vertical_pull", 0.90),
+            ("paper_cup", "Paper cup", (0.075, 0.075, 0.10), (0.95, 0.95, 0.88), "flat_ground", (0.50, -0.50), 0.12, 0.17, "paper/light", "rim_clamp", 0.89),
+            ("plastic_straw", "Plastic straw", (0.16, 0.014, 0.014), (0.95, 0.12, 0.22), "gap_or_crevice", (0.42, -0.42), 0.13, 0.18, "plastic/thin", "edge_pick", 0.84),
         ]
+        rng = random.Random(int(self.get_parameter("trash_seed").value))
+        count = max(int(self.get_parameter("trash_count").value), 1)
+        segments = list(zip(self.patrol_waypoints, self.patrol_waypoints[1:] + self.patrol_waypoints[:1]))
+        trash: list[TrashSpec] = []
+        for index in range(count):
+            class_name, taco_class, size, color, environment, close, approach, lift, material, style, confidence = templates[index % len(templates)]
+            x, y, yaw = self._random_trash_pose_near_patrol(rng, segments)
+            trash.append(
+                TrashSpec(
+                    f"{class_name}_{index + 1:02d}",
+                    class_name,
+                    taco_class,
+                    (x, y, -0.22),
+                    size,
+                    color,
+                    environment,
+                    close,
+                    approach,
+                    lift,
+                    material,
+                    style,
+                    yaw,
+                    confidence,
+                )
+            )
+        return trash
+
+    def _make_patrol_waypoints(self) -> list[tuple[float, float]]:
+        fallback = self._local_patrol_waypoints()
+        if not self.map_data or self.map_width <= 0 or self.map_height <= 0:
+            return fallback
+
+        stride = max(self.road_length, 0.9)
+        margin = 0.40
+        min_x, max_x, min_y, max_y = self._free_map_bounds()
+        xs = np.arange(min_x + margin, max_x - margin, stride)
+        ys = np.arange(min_y + margin, max_y - margin, stride)
+        candidates: dict[tuple[int, int], tuple[float, float]] = {}
+        for yi, y in enumerate(ys):
+            for xi, x in enumerate(xs):
+                if self._map_is_clear(float(x), float(y), 0.28):
+                    candidates[(xi, yi)] = (float(x), float(y))
+        if len(candidates) < 3:
+            return fallback
+
+        adjacency: dict[tuple[int, int], list[tuple[int, int]]] = {key: [] for key in candidates}
+        for key, point in candidates.items():
+            xi, yi = key
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+                neighbor = (xi + dx, yi + dy)
+                if neighbor in candidates and self._line_is_clear(point, candidates[neighbor], 0.22):
+                    adjacency[key].append(neighbor)
+            adjacency[key].sort(key=lambda item: (item[1], item[0]))
+
+        start = min(candidates, key=lambda key: math.hypot(candidates[key][0], candidates[key][1]))
+        route_keys = self._dfs_coverage_route(start, adjacency)
+        route = [candidates[key] for key in route_keys]
+        if len(route) < 3:
+            return fallback
+        self.get_logger().info(
+            f"Generated map coverage patrol: {len(route)} route points over {len(set(route_keys))} free samples"
+        )
+        return route
+
+    def _local_patrol_waypoints(self) -> list[tuple[float, float]]:
+        step = self.road_length
+        return [
+            (0.0, 0.0),
+            (step, 0.0),
+            (step, step * 0.85),
+            (0.0, step * 0.85),
+            (-step * 0.75, step * 0.45),
+            (-step * 0.75, -step * 0.45),
+            (0.0, -step * 0.70),
+            (step * 0.75, -step * 0.45),
+        ]
+
+    def _dfs_coverage_route(
+        self,
+        start: tuple[int, int],
+        adjacency: dict[tuple[int, int], list[tuple[int, int]]],
+    ) -> list[tuple[int, int]]:
+        route = [start]
+        visited = {start}
+        stack: list[tuple[tuple[int, int], int]] = [(start, 0)]
+        while stack:
+            current, next_index = stack[-1]
+            neighbors = adjacency.get(current, [])
+            if next_index >= len(neighbors):
+                stack.pop()
+                if stack:
+                    route.append(stack[-1][0])
+                continue
+            neighbor = neighbors[next_index]
+            stack[-1] = (current, next_index + 1)
+            if neighbor in visited:
+                continue
+            visited.add(neighbor)
+            route.append(neighbor)
+            stack.append((neighbor, 0))
+        return route
+
+    def _free_map_bounds(self) -> tuple[float, float, float, float]:
+        xs: list[float] = []
+        ys: list[float] = []
+        for row in range(self.map_height):
+            for col in range(self.map_width):
+                if self.map_data[row * self.map_width + col] != 0:
+                    continue
+                xs.append(self.map_origin[0] + (col + 0.5) * self.map_resolution)
+                ys.append(self.map_origin[1] + (row + 0.5) * self.map_resolution)
+        if not xs:
+            return (-self.road_length, self.road_length, -self.road_length, self.road_length)
+        return (min(xs), max(xs), min(ys), max(ys))
+
+    def _random_trash_pose_near_patrol(
+        self,
+        rng: random.Random,
+        segments: list[tuple[tuple[float, float], tuple[float, float]]],
+    ) -> tuple[float, float, float]:
+        for _attempt in range(40):
+            a, b = rng.choice(segments)
+            dx = b[0] - a[0]
+            dy = b[1] - a[1]
+            length = max(math.hypot(dx, dy), 1e-6)
+            ux = dx / length
+            uy = dy / length
+            nx = -uy
+            ny = ux
+            t = rng.uniform(0.18, 0.82)
+            lateral = rng.choice([-1.0, 1.0]) * rng.uniform(0.32, 0.54)
+            x = a[0] + dx * t + nx * lateral
+            y = a[1] + dy * t + ny * lateral
+            if self._map_is_free(x, y):
+                return (x, y, rng.uniform(-math.pi, math.pi))
+        a, b = rng.choice(segments)
+        return ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5 - 0.42, rng.uniform(-math.pi, math.pi))
 
     def _odom_cb(self, msg: Odometry) -> None:
         self.base_x = float(msg.pose.pose.position.x)
@@ -198,10 +424,10 @@ class UrbanTrashSortingDemo(Node):
             self.candidate_name = target.name
             self.candidate_count += 1
             self.pipeline_note = f"YOLO tracking {target.class_name}: {self.candidate_count}/3 frames"
-            if self.candidate_count >= 3:
+            if self.candidate_count >= self.detection_lock_frames:
                 self.locked = target
                 self.mode = "planning"
-                self.pipeline_note = f"locked {target.class_name}: stop base, crop ROI pointcloud"
+                self.pipeline_note = f"locked {target.class_name}: brake scan/base, crop ROI pointcloud"
                 self.strategy_note = self._strategy_note(target)
                 self._publish_stop()
                 self.get_logger().info(
@@ -221,26 +447,45 @@ class UrbanTrashSortingDemo(Node):
             return
         now = self.get_clock().now()
         elapsed = (now.nanoseconds - self.scan_started.nanoseconds) * 1e-9
-        if elapsed >= self.scan_duration:
-            self.scan_index = (self.scan_index + 1) % len(self.scan_poses)
-            self.scan_from = list(self.current_arm)
-            self.scan_target = list(self.scan_poses[self.scan_index])
-            self.scan_started = now
-            elapsed = 0.0
-        ratio = min(max(elapsed / self.scan_duration, 0.0), 1.0)
-        eased = 0.5 - 0.5 * math.cos(math.pi * ratio)
-        self.current_arm = [
-            start + (target - start) * eased
-            for start, target in zip(self.scan_from, self.scan_target)
-        ]
+        phase = (elapsed / self.scan_cycle_duration) % 1.0
+        sweep = 0.5 - 0.5 * math.cos(2.0 * math.pi * phase)
+        scaled = sweep * (len(self.scan_poses) - 1)
+        lower = min(int(math.floor(scaled)), len(self.scan_poses) - 2)
+        upper = lower + 1
+        ratio = scaled - lower
+        self.scan_index = lower if ratio < 0.5 else upper
+        self.current_arm = self._interpolate_joint_pose(
+            self.scan_poses[lower],
+            self.scan_poses[upper],
+            ratio,
+        )
+
+    def _interpolate_joint_pose(self, start: list[float], target: list[float], ratio: float) -> list[float]:
+        t = min(max(float(ratio), 0.0), 1.0)
+        a = np.asarray(start, dtype=float)
+        delta = self._joint_delta(np.asarray(target, dtype=float), a)
+        return [float(v) for v in a + delta * t]
 
     def _patrol_step(self) -> None:
-        if self.base_x >= ROAD_LENGTH:
-            self.direction = -1.0
-        elif self.base_x <= 0.0:
-            self.direction = 1.0
+        if not self.patrol_waypoints:
+            self._publish_stop()
+            return
+        target = self.patrol_waypoints[self.patrol_index]
+        dx = target[0] - self.base_x
+        dy = target[1] - self.base_y
+        distance = math.hypot(dx, dy)
+        if distance < 0.12:
+            self.patrol_index = (self.patrol_index + 1) % len(self.patrol_waypoints)
+            target = self.patrol_waypoints[self.patrol_index]
+            dx = target[0] - self.base_x
+            dy = target[1] - self.base_y
+            distance = math.hypot(dx, dy)
+        desired_yaw = math.atan2(dy, dx)
+        yaw_error = self._normalize_angle(desired_yaw - self.base_yaw)
         msg = Twist()
-        msg.linear.x = PATROL_SPEED * self.direction
+        msg.angular.z = max(min(1.7 * yaw_error, 0.65), -0.65)
+        if abs(yaw_error) < 1.0:
+            msg.linear.x = PATROL_SPEED * max(0.15, 1.0 - abs(yaw_error) / 1.0)
         self.cmd_pub.publish(msg)
 
     def _publish_stop(self) -> None:
@@ -248,12 +493,7 @@ class UrbanTrashSortingDemo(Node):
 
     def _synthetic_yolo_scan(self) -> TrashSpec | None:
         best: tuple[float, TrashSpec] | None = None
-        scan_y_center = {
-            0: -0.38,
-            1: -0.14,
-            2: 0.16,
-            3: -0.14,
-        }.get(self.scan_index, -0.14)
+        scan_y_center = float(self._camera_pose_base()[:3, 3][1])
         for obj in self.trash:
             if obj.name in self.collected or obj.name in self.failed:
                 continue
@@ -332,7 +572,7 @@ class UrbanTrashSortingDemo(Node):
         q_current = release
         stages.append(Stage("basket_over", [float(v) for v in q_current], obj.grasp_close))
         stages.append(Stage("drop_open", [float(v) for v in q_current], (0.0, 0.0)))
-        stages.append(Stage("resume_scan", list(SCAN_CENTER), (0.0, 0.0)))
+        stages.append(Stage("resume_scan", list(self.scan_center_joints), (0.0, 0.0)))
         return stages
 
     def _grasp_points_base(
@@ -489,9 +729,7 @@ class UrbanTrashSortingDemo(Node):
         self.samples = []
         self.sample_index = 0
         self.mode = "patrol"
-        self.scan_index = 1
-        self.scan_from = list(self.current_arm)
-        self.scan_target = list(SCAN_CENTER)
+        self.scan_index = self.scan_center_index
         self.scan_started = self.get_clock().now()
         self.current_gripper = (0.0, 0.0)
         self.candidate_count = 0
@@ -568,15 +806,14 @@ class UrbanTrashSortingDemo(Node):
         self.marker_pub.publish(MarkerArray(markers=markers))
 
     def _scene_markers(self) -> list[Marker]:
-        markers = [
-            self._box(1, "road", (1.0, 0.0, -0.225), (2.3, 0.92, 0.01), 0.0, self._color(0.13, 0.14, 0.15, 0.72)),
-            self._box(2, "curb", (1.0, 0.42, -0.15), (2.3, 0.12, 0.16), 0.0, self._color(0.48, 0.50, 0.47, 0.75)),
-            self._box(3, "front_basket_keepout", (self.base_x + 0.5435, 0.0, -0.030), (0.204, 0.180, 0.087), self.base_yaw, self._color(1.0, 0.35, 0.05, 0.20)),
-            self._box(4, "rear_rack_keepout", (self.base_x - 0.160, 0.0, 0.416), (0.274, 0.329, 0.622), self.base_yaw + math.pi / 2.0, self._color(1.0, 0.05, 0.05, 0.13)),
-            self._box(5, "sidewalk", (1.0, 0.62, -0.105), (2.3, 0.28, 0.07), 0.0, self._color(0.32, 0.33, 0.31, 0.55)),
-            self._box(6, "lane_marking", (1.0, -0.02, -0.218), (2.0, 0.018, 0.006), 0.0, self._color(1.0, 0.92, 0.20, 0.60)),
-            self._box(7, "curb_gap", (1.78, -0.31, -0.214), (0.30, 0.035, 0.012), 0.0, self._color(0.02, 0.02, 0.02, 0.85)),
-        ]
+        markers: list[Marker] = []
+        if self.show_keepout_markers:
+            markers.extend(
+                [
+                    self._box(3, "front_basket_keepout", (self.base_x + 0.5435, 0.0, -0.030), (0.204, 0.180, 0.087), self.base_yaw, self._color(1.0, 0.35, 0.05, 0.20)),
+                    self._box(4, "rear_rack_keepout", (self.base_x - 0.160, 0.0, 0.416), (0.274, 0.329, 0.622), self.base_yaw + math.pi / 2.0, self._color(1.0, 0.05, 0.05, 0.13)),
+                ]
+            )
         markers.extend(self._base_outline_markers())
         for index, obj in enumerate(self.trash, start=20):
             if obj.name in self.collected:
@@ -613,8 +850,14 @@ class UrbanTrashSortingDemo(Node):
         axis.scale.x = 0.018
         axis.color = self._color(0.1, 1.0, 0.25, 0.95)
         axis.points.extend([self._point(origin), self._point(origin + forward * 0.75)])
+        arc = self._base_marker(73, "ee_camera_scan_arc")
+        arc.type = Marker.LINE_STRIP
+        arc.scale.x = 0.014
+        arc.color = self._color(1.0, 0.78, 0.12, 0.92)
+        for point in self.scan_camera_arc_points_base:
+            arc.points.append(self._point(np.asarray(self._base_point_to_odom(point), dtype=float)))
         label = self._text(71, f"{self.mode}\nscan_{self.scan_index}", tuple(near + np.array([0.0, 0.0, 0.16])))
-        return [marker, axis, label]
+        return [marker, axis, arc, label]
 
     def _base_outline_markers(self) -> list[Marker]:
         chassis = self._box(
@@ -706,9 +949,11 @@ class UrbanTrashSortingDemo(Node):
         text = (
             f"{self.pipeline_note}\n"
             f"{self.strategy_note}\n"
-            f"done={len(self.collected)} failed={len(self.failed)} base_x={self.base_x:.2f}"
+            f"done={len(self.collected)} failed={len(self.failed)} "
+            f"wp={self.patrol_index + 1}/{len(self.patrol_waypoints)} "
+            f"base=({self.base_x:.2f},{self.base_y:.2f})"
         )
-        return [self._text(150, text, (self.base_x + 0.18, -0.68, 0.34))]
+        return [self._text(150, text, (self.base_x + 0.18, self.base_y - 0.68, 0.34))]
 
     def _publish_roi_cloud(self) -> None:
         target = self.locked or self._object_by_name(self.candidate_name) or self._synthetic_yolo_scan()
@@ -744,13 +989,154 @@ class UrbanTrashSortingDemo(Node):
     def _publish_base_path(self) -> None:
         msg = PathMsg()
         msg.header = self._header()
-        for x in np.linspace(0.0, ROAD_LENGTH, 24):
+        path_points = list(self.patrol_waypoints)
+        if path_points:
+            path_points.append(path_points[0])
+        for x, y in path_points:
             pose = PoseStamped()
             pose.header = msg.header
             pose.pose.position.x = float(x)
+            pose.pose.position.y = float(y)
             pose.pose.orientation.w = 1.0
             msg.poses.append(pose)
         self.path_pub.publish(msg)
+
+    def _publish_slam_map(self) -> None:
+        if self.map_msg is None:
+            return
+        self.map_msg.header.stamp = self.get_clock().now().to_msg()
+        self.map_pub.publish(self.map_msg)
+
+    def _load_slam_map(self, yaml_path: str) -> OccupancyGrid | None:
+        if not yaml_path:
+            return None
+        path = Path(yaml_path).expanduser()
+        if not path.exists():
+            self.get_logger().warning(f"SLAM map yaml not found: {path}")
+            return None
+        try:
+            meta = self._read_simple_yaml(path)
+            image_path = Path(str(meta.get("image", "")))
+            if not image_path.is_absolute():
+                image_path = path.parent / image_path
+            width, height, pixels = self._read_pgm(image_path)
+            resolution = float(meta.get("resolution", 0.05))
+            origin = list(meta.get("origin", [0.0, 0.0, 0.0]))
+            negate = int(meta.get("negate", 0))
+            occupied_thresh = float(meta.get("occupied_thresh", 0.65))
+            free_thresh = float(meta.get("free_thresh", 0.25))
+        except (OSError, ValueError, SyntaxError) as exc:
+            self.get_logger().warning(f"failed to load SLAM map {path}: {exc}")
+            return None
+
+        grid = OccupancyGrid()
+        grid.header.frame_id = self.map_frame_id
+        grid.info.resolution = resolution
+        grid.info.width = width
+        grid.info.height = height
+        grid.info.origin.position.x = float(origin[0])
+        grid.info.origin.position.y = float(origin[1])
+        grid.info.origin.orientation.w = 1.0
+        data: list[int] = []
+        for y in range(height):
+            row_start = (height - 1 - y) * width
+            for x in range(width):
+                color = pixels[row_start + x]
+                if negate:
+                    occ = color / 255.0
+                else:
+                    occ = (255 - color) / 255.0
+                if occ > occupied_thresh:
+                    data.append(100)
+                elif occ < free_thresh:
+                    data.append(0)
+                else:
+                    data.append(-1)
+        grid.data = data
+        self.map_origin = (float(origin[0]), float(origin[1]))
+        self.map_resolution = resolution
+        self.map_width = width
+        self.map_height = height
+        self.map_data = data
+        self.get_logger().info(f"Loaded SLAM map for sim: {path} ({width}x{height}, {resolution:.3f}m)")
+        return grid
+
+    def _map_is_free(self, x: float, y: float) -> bool:
+        if not self.map_data or self.map_width <= 0 or self.map_height <= 0:
+            return True
+        col = int((x - self.map_origin[0]) / self.map_resolution)
+        row = int((y - self.map_origin[1]) / self.map_resolution)
+        if col < 0 or col >= self.map_width or row < 0 or row >= self.map_height:
+            return False
+        return self.map_data[row * self.map_width + col] == 0
+
+    def _map_is_clear(self, x: float, y: float, radius: float) -> bool:
+        if not self._map_is_free(x, y):
+            return False
+        if not self.map_data:
+            return True
+        cell_radius = max(int(math.ceil(radius / self.map_resolution)), 1)
+        center_col = int((x - self.map_origin[0]) / self.map_resolution)
+        center_row = int((y - self.map_origin[1]) / self.map_resolution)
+        for row in range(center_row - cell_radius, center_row + cell_radius + 1):
+            for col in range(center_col - cell_radius, center_col + cell_radius + 1):
+                if col < 0 or col >= self.map_width or row < 0 or row >= self.map_height:
+                    return False
+                dx = (col - center_col) * self.map_resolution
+                dy = (row - center_row) * self.map_resolution
+                if math.hypot(dx, dy) <= radius and self.map_data[row * self.map_width + col] != 0:
+                    return False
+        return True
+
+    def _line_is_clear(
+        self,
+        a: tuple[float, float],
+        b: tuple[float, float],
+        radius: float,
+    ) -> bool:
+        distance = math.hypot(b[0] - a[0], b[1] - a[1])
+        steps = max(int(distance / 0.12), 1)
+        for index in range(steps + 1):
+            t = index / steps
+            x = a[0] + (b[0] - a[0]) * t
+            y = a[1] + (b[1] - a[1]) * t
+            if not self._map_is_clear(x, y, radius):
+                return False
+        return True
+
+    def _read_simple_yaml(self, path: Path) -> dict[str, object]:
+        values: dict[str, object] = {}
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.split("#", 1)[0].strip()
+            if not line or ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            value = value.strip()
+            if value.startswith("["):
+                values[key.strip()] = ast.literal_eval(value)
+            elif value:
+                try:
+                    values[key.strip()] = ast.literal_eval(value)
+                except (ValueError, SyntaxError):
+                    values[key.strip()] = value
+        return values
+
+    def _read_pgm(self, path: Path) -> tuple[int, int, bytes]:
+        with path.open("rb") as file:
+            magic = file.readline().strip()
+            if magic != b"P5":
+                raise ValueError(f"unsupported PGM format {magic!r}")
+            line = file.readline().strip()
+            while line.startswith(b"#"):
+                line = file.readline().strip()
+            width, height = [int(part) for part in line.split()]
+            max_value = int(file.readline().strip())
+            if max_value != 255:
+                raise ValueError(f"unsupported PGM max value {max_value}")
+            pixels = file.read(width * height)
+        if len(pixels) != width * height:
+            raise ValueError(f"PGM size mismatch: expected {width * height}, got {len(pixels)}")
+        return width, height, pixels
 
     def _trash_marker(self, marker_id: int, obj: TrashSpec) -> Marker:
         alpha = 0.36 if obj.name in self.failed else 0.92
@@ -827,14 +1213,17 @@ class UrbanTrashSortingDemo(Node):
         from std_msgs.msg import Header
 
         header = Header()
-        header.frame_id = "odom"
+        header.frame_id = self.map_frame_id
         header.stamp = self.get_clock().now().to_msg()
         return header
 
     def _camera_pose_odom(self) -> np.ndarray:
         base = self._transform((self.base_x, self.base_y, 0.0), (0.0, 0.0, self.base_yaw))
-        tool_in_base = self.base_from_aubo @ self.kinematics.fk(np.asarray(self.current_arm, dtype=float))
-        return base @ tool_in_base @ self.tool_to_camera
+        return base @ self._camera_pose_base()
+
+    def _camera_pose_base(self, joints: np.ndarray | list[float] | None = None) -> np.ndarray:
+        q = np.asarray(self.current_arm if joints is None else joints, dtype=float)
+        return self.base_from_aubo @ self.kinematics.fk(q) @ self.tool_to_camera
 
     def _object_by_name(self, name: str) -> TrashSpec | None:
         if not name:
@@ -859,6 +1248,9 @@ class UrbanTrashSortingDemo(Node):
             self.base_y + s * point[0] + c * point[1],
             point[2],
         )
+
+    def _normalize_angle(self, angle: float) -> float:
+        return math.atan2(math.sin(angle), math.cos(angle))
 
     def _grasp_frame_in_base(self, joints: np.ndarray) -> np.ndarray:
         return self.base_from_aubo @ self.kinematics.fk(np.asarray(joints, dtype=float)) @ self.tool_to_grasp

@@ -6,10 +6,22 @@ Visualization Manager:
   Displays:
     - Class: rviz_default_plugins/Grid
       Enabled: true
-      Name: OdomGrid
+      Name: MapGrid
       Plane: XY
-      Reference Frame: odom
-      Cell Size: 0.25
+      Reference Frame: map
+      Cell Size: 0.5
+      Plane Cell Count: 80
+    - Class: rviz_default_plugins/Map
+      Enabled: true
+      Name: RecordedSlamMap
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map
+      Alpha: 0.7
+      Draw Behind: true
     - Class: rviz_default_plugins/RobotModel
       Alpha: 1
       Description Source: Topic
@@ -22,7 +34,7 @@ Visualization Manager:
       Enabled: true
       Name: RobotModel
       Visual Enabled: true
-      Collision Enabled: true
+      Collision Enabled: false
     - Class: rviz_default_plugins/TF
       Enabled: true
       Name: TF
@@ -63,7 +75,7 @@ Visualization Manager:
   Enabled: true
   Global Options:
     Background Color: 42; 45; 48
-    Fixed Frame: odom
+    Fixed Frame: map
     Frame Rate: 30
   Name: root
   Tools:
@@ -74,15 +86,15 @@ Visualization Manager:
 Views:
   Current:
     Class: rviz_default_plugins/Orbit
-    Distance: 3.0
+    Distance: 24.0
     Focal Point:
-      X: 1.0
-      Y: 0
+      X: -8.0
+      Y: -4.5
       Z: 0.15
     Name: Current View
-    Pitch: 0.62
-    Target Frame: odom
-    Yaw: 0.72
+    Pitch: 1.2
+    Target Frame: map
+    Yaw: 0.0
 Window Geometry:
   Width: 1440
   Height: 900

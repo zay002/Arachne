@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any
 
 import rclpy
-from rclpy.executors import ExternalShutdownException
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import Empty, String
 from std_srvs.srv import Trigger
@@ -65,6 +65,7 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("restart_search_topic", "/arachne/grasp_preview/restart_search")
         self.declare_parameter("patrol_distance_m", 1.2)
         self.declare_parameter("patrol_step_m", 1.2)
+        self.declare_parameter("patrol_base_speed_mps", 0.06)
         self.declare_parameter("max_round_trips", 2)
         self.declare_parameter("detection_confidence", 0.35)
         self.declare_parameter("detection_timeout_sec", 1.2)
@@ -165,8 +166,8 @@ class RoadCleanupTaskServer(Node):
 
     def _stop_cb(self, _request, response):
         self.cancel_event.set()
-        self._call_trigger(self.base_stop_client, 1.0)
-        self._call_trigger(self.grasp_stop_client, 1.0)
+        self._call_trigger_background(self.base_stop_client, 1.0, "base_stop")
+        self._call_trigger_background(self.grasp_stop_client, 1.0, "grasp_stop")
         self._set_state("canceled", "road cleanup stopping")
         response.success = True
         response.message = self._snapshot_json()
@@ -259,7 +260,11 @@ class RoadCleanupTaskServer(Node):
             "patrol",
             f"scan while moving {'forward' if self.direction > 0 else 'back'} step={distance:.2f}m",
         )
-        payload = {"command": "drive_relative", "distance_m": distance}
+        payload = {
+            "command": "drive_relative",
+            "distance_m": distance,
+            "speed_m_s": max(float(self.get_parameter("patrol_base_speed_mps").value), 0.0),
+        }
         msg = String()
         msg.data = json.dumps(payload, sort_keys=True)
         self.base_command_pub.publish(msg)
@@ -528,6 +533,14 @@ class RoadCleanupTaskServer(Node):
             return False, f"empty response: {getattr(client, 'srv_name', 'trigger')}"
         return bool(response.success), str(response.message)
 
+    def _call_trigger_background(self, client, timeout: float, label: str) -> None:
+        def worker() -> None:
+            ok, message = self._call_trigger(client, timeout)
+            if not ok:
+                self._event("async_service_failed", {"service": label, "message": message})
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _set_state(self, state: str, message: str) -> None:
         with self.lock:
             self.state = state
@@ -585,11 +598,17 @@ class RoadCleanupTaskServer(Node):
 def main(args: list[str] | None = None) -> None:
     rclpy.init(args=args)
     node = RoadCleanupTaskServer()
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        try:
+            executor.remove_node(node)
+        except KeyboardInterrupt:
+            pass
         try:
             node.destroy_node()
         except KeyboardInterrupt:
