@@ -59,13 +59,11 @@
     <joint name="ms42dc_right_finger_joint" value="-0.6"/>
   </group_state>
 
-  <end_effector name="ms42dc" parent_link="tool0" group="ms42dc_gripper" parent_group="aubo_arm"/>
+  <end_effector name="ms42dc" parent_link="aubo_wrist3_Link" group="ms42dc_gripper" parent_group="aubo_arm"/>
 
-  <disable_collisions link1="base_link" link2="arm_mount_link" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="aubo_base_link" reason="Adjacent"/>
   <disable_collisions link1="base_link" link2="front_basket_link" reason="FixedAccessory"/>
   <disable_collisions link1="base_link" link2="rear_rack_link" reason="FixedAccessory"/>
-  <disable_collisions link1="arm_mount_link" link2="aubo_base_link" reason="Adjacent"/>
-  <disable_collisions link1="arm_mount_link" link2="aubo_shoulder_Link" reason="Adjacent"/>
   <disable_collisions link1="aubo_base_link" link2="aubo_shoulder_Link" reason="Adjacent"/>
   <disable_collisions link1="aubo_shoulder_Link" link2="aubo_upperArm_Link" reason="Adjacent"/>
   <disable_collisions link1="aubo_upperArm_Link" link2="aubo_foreArm_Link" reason="Adjacent"/>
@@ -73,41 +71,27 @@
   <disable_collisions link1="aubo_wrist1_Link" link2="aubo_wrist2_Link" reason="Adjacent"/>
   <disable_collisions link1="aubo_wrist2_Link" link2="aubo_wrist3_Link" reason="Adjacent"/>
   <disable_collisions link1="aubo_wrist3_Link" link2="tool0" reason="Adjacent"/>
-  <disable_collisions link1="tool0" link2="gripper_adapter_link" reason="Adjacent"/>
-  <disable_collisions link1="aubo_wrist3_Link" link2="gripper_adapter_link" reason="Never"/>
-  <disable_collisions link1="aubo_wrist3_Link" link2="ee_camera_support_link" reason="Never"/>
+  <disable_collisions link1="aubo_wrist3_Link" link2="ee_camera_support_link" reason="Adjacent"/>
   <disable_collisions link1="aubo_wrist3_Link" link2="ee_camera_link" reason="Never"/>
   <disable_collisions link1="tool0" link2="ee_camera_support_link" reason="Never"/>
   <disable_collisions link1="tool0" link2="ee_camera_link" reason="Never"/>
-  <disable_collisions link1="gripper_adapter_link" link2="ee_camera_support_link" reason="Adjacent"/>
-  <disable_collisions link1="gripper_adapter_link" link2="ee_camera_link" reason="Never"/>
   <disable_collisions link1="ee_camera_support_link" link2="ee_camera_link" reason="Adjacent"/>
-  <disable_collisions link1="gripper_adapter_link" link2="ms42dc_body_link" reason="Adjacent"/>
-  <disable_collisions link1="gripper_adapter_link" link2="ms42dc_base_link" reason="Never"/>
-  <disable_collisions link1="gripper_adapter_link" link2="ms42dc_mid_link" reason="Never"/>
-  <disable_collisions link1="gripper_adapter_link" link2="ms42dc_left_finger_link" reason="Never"/>
-  <disable_collisions link1="gripper_adapter_link" link2="ms42dc_right_finger_link" reason="Never"/>
-  <disable_collisions link1="ee_camera_support_link" link2="ms42dc_body_link" reason="Never"/>
-  <disable_collisions link1="ee_camera_support_link" link2="ms42dc_base_link" reason="Never"/>
+  <disable_collisions link1="ee_camera_support_link" link2="ms42dc_base_link" reason="Adjacent"/>
   <disable_collisions link1="ee_camera_support_link" link2="ms42dc_mid_link" reason="Never"/>
   <disable_collisions link1="ee_camera_support_link" link2="ms42dc_left_finger_link" reason="Never"/>
   <disable_collisions link1="ee_camera_support_link" link2="ms42dc_right_finger_link" reason="Never"/>
-  <disable_collisions link1="ee_camera_link" link2="ms42dc_body_link" reason="Never"/>
   <disable_collisions link1="ee_camera_link" link2="ms42dc_base_link" reason="Never"/>
   <disable_collisions link1="ee_camera_link" link2="ms42dc_mid_link" reason="Never"/>
   <disable_collisions link1="ee_camera_link" link2="ms42dc_left_finger_link" reason="Never"/>
   <disable_collisions link1="ee_camera_link" link2="ms42dc_right_finger_link" reason="Never"/>
-  <disable_collisions link1="aubo_wrist3_Link" link2="ms42dc_body_link" reason="Never"/>
   <disable_collisions link1="aubo_wrist3_Link" link2="ms42dc_base_link" reason="Never"/>
   <disable_collisions link1="aubo_wrist3_Link" link2="ms42dc_mid_link" reason="Never"/>
   <disable_collisions link1="aubo_wrist3_Link" link2="ms42dc_left_finger_link" reason="Never"/>
   <disable_collisions link1="aubo_wrist3_Link" link2="ms42dc_right_finger_link" reason="Never"/>
-  <disable_collisions link1="tool0" link2="ms42dc_body_link" reason="Never"/>
   <disable_collisions link1="tool0" link2="ms42dc_base_link" reason="Never"/>
   <disable_collisions link1="tool0" link2="ms42dc_mid_link" reason="Never"/>
   <disable_collisions link1="tool0" link2="ms42dc_left_finger_link" reason="Never"/>
   <disable_collisions link1="tool0" link2="ms42dc_right_finger_link" reason="Never"/>
-  <disable_collisions link1="ms42dc_body_link" link2="ms42dc_base_link" reason="Adjacent"/>
   <disable_collisions link1="ms42dc_base_link" link2="ms42dc_mid_link" reason="Adjacent"/>
   <disable_collisions link1="ms42dc_base_link" link2="ms42dc_left_finger_link" reason="Adjacent"/>
   <disable_collisions link1="ms42dc_base_link" link2="ms42dc_right_finger_link" reason="Adjacent"/>

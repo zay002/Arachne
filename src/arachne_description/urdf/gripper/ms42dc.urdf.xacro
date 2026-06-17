@@ -4,6 +4,8 @@
 
   <xacro:property name="ms42dc_cad_xyz" value="-0.049334103 0.049874070 0.016816675"/>
   <xacro:property name="ms42dc_cad_rpy" value="1.570796327 0 0"/>
+  <xacro:property name="ms42dc_grasp_xyz_from_base" value="0.049334103 0.121875263 0.049874070"/>
+  <xacro:property name="ms42dc_grasp_rpy_from_base" value="-1.570796327 0 0"/>
 
   <xacro:property name="ms42dc_left_pivot_xyz" value="0.0133341030359 0.0576833250744 0.0610740704713"/>
   <xacro:property name="ms42dc_left_visual_xyz" value="-0.0133341030359 -0.0576833250744 -0.0610740704713"/>
@@ -28,24 +30,16 @@
     </collision>
   </xacro:macro>
 
-  <xacro:macro name="arachne_ms42dc" params="prefix:='ms42dc_' parent mimic_right:=true">
-    <link name="${prefix}body_link"/>
-
-    <joint name="${prefix}body_fixed_joint" type="fixed">
-      <parent link="${parent}"/>
-      <child link="${prefix}body_link"/>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-    </joint>
-
+  <xacro:macro name="arachne_ms42dc" params="prefix:='ms42dc_' parent xyz:='0 0 0' rpy:='0 0 0' mimic_right:=true">
     <link name="${prefix}base_link">
       <xacro:arachne_ms42dc_mesh name="ms42dc_base"/>
       <xacro:box_inertial mass="0.52" x="0.080" y="0.070" z="0.064"/>
     </link>
 
     <joint name="${prefix}base_frame_joint" type="fixed">
-      <parent link="${prefix}body_link"/>
+      <parent link="${parent}"/>
       <child link="${prefix}base_link"/>
-      <origin xyz="${ms42dc_cad_xyz}" rpy="${ms42dc_cad_rpy}"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
     </joint>
 
     <link name="${prefix}left_finger_link">
@@ -91,9 +85,9 @@
     <link name="grasp_frame"/>
 
     <joint name="${prefix}grasp_frame_joint" type="fixed">
-      <parent link="${prefix}body_link"/>
+      <parent link="${prefix}base_link"/>
       <child link="grasp_frame"/>
-      <origin xyz="0 0 ${ms42dc_closed_tip_z - ms42dc_grasp_tip_inset}" rpy="0 0 0"/>
+      <origin xyz="${ms42dc_grasp_xyz_from_base}" rpy="${ms42dc_grasp_rpy_from_base}"/>
     </joint>
   </xacro:macro>
 </robot>

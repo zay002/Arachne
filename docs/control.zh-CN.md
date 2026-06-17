@@ -1,6 +1,6 @@
 # 控制
 
-第一层仿真控制已经覆盖 RViz 和 Gazebo demo。轻量视图中，底盘接收 `/cmd_vel`，发布 `/odom`、`odom -> base_link` 和轮子 joint state；Gazebo 模式通过 diff-drive 物理插件驱动模型，并使用 Gazebo 专用 Scout 轮子朝向，使前进命令能产生真实前进。Aubo 在 RViz 模式下由 `joint_state_publisher_gui` 控制，在 Switch demo 中由轻量 Gazebo 轨迹桥控制，默认姿态使用用户确认过的展示姿态，而不是折叠的零位。MS42DC 和 AG95 都只暴露 `Open` / `Close` 两个夹爪状态；模型唯一差异是 `gripper_adapter_link` 下方的夹爪。
+第一层仿真控制已经覆盖 RViz 和 Gazebo demo。轻量视图中，底盘接收 `/cmd_vel`，发布 `/odom`、`odom -> base_link` 和轮子 joint state；Gazebo 模式通过 diff-drive 物理插件驱动模型，并使用 Gazebo 专用 Scout 轮子朝向，使前进命令能产生真实前进。Aubo 在 RViz 模式下由 `joint_state_publisher_gui` 控制，在 Switch demo 中由轻量 Gazebo 轨迹桥控制，默认姿态使用用户确认过的展示姿态，而不是折叠的零位。MS42DC 和 AG95 都只暴露 `Open` / `Close` 两个夹爪状态；模型唯一差异是 `ee_camera_support_link` 下方连接的夹爪。
 
 在 `display.launch.py` 中，默认零位 joint state 发布到 `/arachne/default_joint_states`，GUI 滑条发布到 `/arachne/gui_joint_states`，底盘轮子状态发布到 `/arachne/base/joint_states`，夹爪状态发布到 `/arachne/gripper/joint_states`，`joint_state_mux` 是统一 `/joint_states` 的唯一发布者，供 `robot_state_publisher` 使用。
 

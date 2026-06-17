@@ -23,6 +23,7 @@ setup(
         "console_scripts": [
             "base_sim_controller = arachne_sim.base_sim_controller:main",
             "base_teleop_gui = arachne_sim.base_teleop_gui:main",
+            "end_effector_direction_markers = arachne_sim.end_effector_direction_markers:main",
             "moveit_grasp_planning_demo = arachne_sim.moveit_grasp_planning_demo:main",
             "urban_trash_sorting_demo = arachne_sim.urban_trash_sorting_demo:main",
         ],

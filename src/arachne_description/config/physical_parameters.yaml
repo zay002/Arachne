@@ -1,16 +1,16 @@
 mounts:
   scout_to_aubo:
     parent: base_link
-    child: arm_mount_link
-    xyz: [0.22, 0.0, 0.155]
+    child: aubo_base_link
+    xyz: [0.22, 0.0, 0.105]
     rpy: [0.0, 0.0, 1.57079632679]
     status: current_hardware_mount_pose
   tool_to_gripper:
-    parent: tool0
-    child: gripper_adapter_link
-    xyz: [0.0, 0.0, 0.0]
-    rpy: [0.0, 0.0, 0.785398163397]
-    status: field_adjusted_flange_counterclockwise_45deg
+    parent: ee_camera_support_link
+    child: ms42dc_base_link
+    xyz: [-0.049334103, 0.049874070, 0.021816675]
+    rpy: [1.570796327, 0.0, 0.0]
+    status: mounted_on_end_effector_camera_support_with_12mm_clearance
 aubo_i5:
   default_home_pose:
     source: real_hardware_defaults.yaml

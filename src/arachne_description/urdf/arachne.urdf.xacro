@@ -1,22 +1,24 @@
 <?xml version="1.0"?>
 <robot name="arachne" xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:arg name="arm_mount_xyz" default="0.22 0.0 0.155"/>
+  <xacro:arg name="arm_mount_xyz" default="0.22 0.0 0.105"/>
   <xacro:arg name="arm_mount_rpy" default="0.0 0.0 1.57079632679"/>
-  <xacro:arg name="tool_adapter_xyz" default="0.0 0.0 0.0"/>
-  <xacro:arg name="tool_adapter_rpy" default="0.0 0.0 0.785398163397"/>
+  <xacro:arg name="ee_support_xyz" default="0.0 0.0 0.0"/>
+  <xacro:arg name="ee_support_rpy" default="0.0 0.0 2.35619449019"/>
+  <xacro:arg name="tool_adapter_xyz" default="-0.049334103 0.049874070 0.021816675"/>
+  <xacro:arg name="tool_adapter_rpy" default="1.570796327 0.0 0.0"/>
   <xacro:arg name="gripper_type" default="ms42dc"/>
   <xacro:arg name="with_lidar" default="true"/>
   <xacro:arg name="with_ee_camera" default="true"/>
   <xacro:arg name="with_rear_rack" default="true"/>
   <xacro:arg name="with_front_basket" default="true"/>
-  <xacro:arg name="front_basket_xyz" default="0.4655 0.0 -0.0735"/>
+  <xacro:arg name="front_basket_xyz" default="0.4655 0.0 -0.0715"/>
   <xacro:arg name="front_basket_rpy" default="0.0 0.0 0.0"/>
   <xacro:arg name="rear_rack_xyz" default="-0.16 0.0 0.105"/>
-  <xacro:arg name="rear_rack_rpy" default="0.0 0.0 0.0"/>
+  <xacro:arg name="rear_rack_rpy" default="0.0 0.0 1.57079632679"/>
   <xacro:arg name="lidar_xyz" default="0.0 0.035 0.6223"/>
   <xacro:arg name="lidar_rpy" default="0.0 0.0 0.0"/>
-  <xacro:arg name="ee_camera_xyz" default="0.0 0.0 0.0"/>
-  <xacro:arg name="ee_camera_rpy" default="0.0 0.0 0.0"/>
+  <xacro:arg name="ee_camera_xyz" default="0.0 -0.0741 0.005"/>
+  <xacro:arg name="ee_camera_rpy" default="0.0 0.0 1.57079632679"/>
   <xacro:arg name="with_ros2_control" default="false"/>
   <xacro:arg name="with_gazebo_plugins" default="false"/>
   <xacro:arg name="with_mimic_joints" default="true"/>
@@ -31,8 +33,6 @@
   <xacro:include filename="gripper/ms42dc.urdf.xacro"/>
   <xacro:include filename="gripper/ms42dc_ros2_control.xacro"/>
   <xacro:include filename="gripper/ag95_ros2_control.xacro"/>
-  <xacro:include filename="mounts/scout_aubo_mount.xacro"/>
-  <xacro:include filename="mounts/aubo_ms42dc_adapter.xacro"/>
   <xacro:include filename="sensors/rear_rack.xacro"/>
   <xacro:include filename="sensors/lidar.xacro"/>
   <xacro:include filename="sensors/ee_camera.xacro"/>
@@ -43,15 +43,14 @@
   <xacro:if value="$(arg with_front_basket)">
     <xacro:arachne_front_basket parent="base_link" xyz="$(arg front_basket_xyz)" rpy="$(arg front_basket_rpy)"/>
   </xacro:if>
-  <xacro:arachne_scout_aubo_mount parent="base_link" xyz="$(arg arm_mount_xyz)" rpy="$(arg arm_mount_rpy)"/>
-  <xacro:arachne_aubo_i5_vendor parent="arm_mount_link"/>
-  <xacro:arachne_aubo_ms42dc_adapter parent="tool0" xyz="$(arg tool_adapter_xyz)" rpy="$(arg tool_adapter_rpy)"/>
+  <xacro:arachne_aubo_i5_vendor parent="base_link" xyz="$(arg arm_mount_xyz)" rpy="$(arg arm_mount_rpy)"/>
+  <xacro:arachne_ee_camera_support parent="aubo_wrist3_Link" xyz="$(arg ee_support_xyz)" rpy="$(arg ee_support_rpy)"/>
   <xacro:if value="${'$(arg gripper_type)' == 'ms42dc'}">
-    <xacro:arachne_ms42dc parent="gripper_adapter_link" mimic_right="$(arg with_mimic_joints)"/>
+    <xacro:arachne_ms42dc parent="ee_camera_support_link" xyz="$(arg tool_adapter_xyz)" rpy="$(arg tool_adapter_rpy)" mimic_right="$(arg with_mimic_joints)"/>
   </xacro:if>
   <xacro:if value="${'$(arg gripper_type)' == 'ag95'}">
     <xacro:include filename="gripper/ag95.urdf.xacro"/>
-    <xacro:arachne_ag95 parent="gripper_adapter_link"/>
+    <xacro:arachne_ag95 parent="ee_camera_support_link" xyz="$(arg tool_adapter_xyz)" rpy="$(arg tool_adapter_rpy)"/>
   </xacro:if>
 
   <xacro:if value="$(arg with_rear_rack)">
@@ -68,7 +67,7 @@
   </xacro:if>
 
   <xacro:if value="$(arg with_ee_camera)">
-    <xacro:arachne_ee_camera parent="gripper_adapter_link" xyz="$(arg ee_camera_xyz)" rpy="$(arg ee_camera_rpy)"/>
+    <xacro:arachne_ee_camera_sensor parent="ee_camera_support_link" camera_xyz="$(arg ee_camera_xyz)" camera_rpy="$(arg ee_camera_rpy)"/>
   </xacro:if>
 
   <xacro:if value="$(arg with_ros2_control)">

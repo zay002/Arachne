@@ -60,6 +60,8 @@ def launch_setup(context, *args, **kwargs):
     mappings = {
         "arm_mount_xyz": LaunchConfiguration("arm_mount_xyz").perform(context),
         "arm_mount_rpy": LaunchConfiguration("arm_mount_rpy").perform(context),
+        "ee_support_xyz": LaunchConfiguration("ee_support_xyz").perform(context),
+        "ee_support_rpy": LaunchConfiguration("ee_support_rpy").perform(context),
         "tool_adapter_xyz": LaunchConfiguration("tool_adapter_xyz").perform(context),
         "tool_adapter_rpy": LaunchConfiguration("tool_adapter_rpy").perform(context),
         "gripper_type": LaunchConfiguration("gripper_type").perform(context),
@@ -78,6 +80,7 @@ def launch_setup(context, *args, **kwargs):
     }
 
     display_frame_prefix = LaunchConfiguration("display_frame_prefix").perform(context)
+    camera_depth_frame = f"{display_frame_prefix}{LaunchConfiguration('camera_depth_frame').perform(context)}"
     robot_description = _prefix_robot_links(
         xacro.process_file(str(model_path), mappings=mappings).toxml(),
         display_frame_prefix,
@@ -202,6 +205,57 @@ def launch_setup(context, *args, **kwargs):
             output="screen",
         ),
         Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="display_camera_depth_optical_tf",
+            arguments=[
+                "--x",
+                LaunchConfiguration("camera_optical_x"),
+                "--y",
+                LaunchConfiguration("camera_optical_y"),
+                "--z",
+                LaunchConfiguration("camera_optical_z"),
+                "--roll",
+                LaunchConfiguration("camera_optical_roll"),
+                "--pitch",
+                LaunchConfiguration("camera_optical_pitch"),
+                "--yaw",
+                LaunchConfiguration("camera_optical_yaw"),
+                "--frame-id",
+                f"{display_frame_prefix}ee_camera_link",
+                "--child-frame-id",
+                camera_depth_frame,
+            ],
+            condition=IfCondition(LaunchConfiguration("with_camera_optical_tf")),
+            output="screen",
+        ),
+        Node(
+            package="arachne_sim",
+            executable="end_effector_direction_markers",
+            name="end_effector_direction_markers",
+            parameters=[
+                {
+                    "marker_topic": LaunchConfiguration("direction_marker_topic"),
+                    "tool_frame": f"{display_frame_prefix}tool0",
+                    "camera_frame": camera_depth_frame,
+                    "tool_axis": ParameterValue(
+                        LaunchConfiguration("tool_direction_axis"), value_type=str
+                    ),
+                    "camera_axis": ParameterValue(
+                        LaunchConfiguration("camera_direction_axis"), value_type=str
+                    ),
+                    "tool_length_m": ParameterValue(
+                        LaunchConfiguration("tool_direction_length_m"), value_type=float
+                    ),
+                    "camera_length_m": ParameterValue(
+                        LaunchConfiguration("camera_direction_length_m"), value_type=float
+                    ),
+                }
+            ],
+            condition=IfCondition(LaunchConfiguration("with_direction_markers")),
+            output="screen",
+        ),
+        Node(
             package="rviz2",
             executable="rviz2",
             arguments=["-d", str(rviz_config)],
@@ -235,10 +289,12 @@ def launch_setup(context, *args, **kwargs):
 def generate_launch_description():
     return LaunchDescription(
         [
-            DeclareLaunchArgument("arm_mount_xyz", default_value="0.22 0.0 0.155"),
+            DeclareLaunchArgument("arm_mount_xyz", default_value="0.22 0.0 0.105"),
             DeclareLaunchArgument("arm_mount_rpy", default_value="0.0 0.0 1.57079632679"),
-            DeclareLaunchArgument("tool_adapter_xyz", default_value="0.0 0.0 0.0"),
-            DeclareLaunchArgument("tool_adapter_rpy", default_value="0.0 0.0 0.785398163397"),
+            DeclareLaunchArgument("ee_support_xyz", default_value="0.0 0.0 0.0"),
+            DeclareLaunchArgument("ee_support_rpy", default_value="0.0 0.0 2.35619449019"),
+            DeclareLaunchArgument("tool_adapter_xyz", default_value="-0.049334103 0.049874070 0.021816675"),
+            DeclareLaunchArgument("tool_adapter_rpy", default_value="1.570796327 0.0 0.0"),
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
             DeclareLaunchArgument("with_base_sim", default_value="true"),
             DeclareLaunchArgument("with_base_gui", default_value="false"),
@@ -258,6 +314,22 @@ def generate_launch_description():
             DeclareLaunchArgument("with_ee_camera", default_value="true"),
             DeclareLaunchArgument("with_rear_rack", default_value="true"),
             DeclareLaunchArgument("with_front_basket", default_value="true"),
+            DeclareLaunchArgument("with_direction_markers", default_value="true"),
+            DeclareLaunchArgument("with_camera_optical_tf", default_value="true"),
+            DeclareLaunchArgument(
+                "direction_marker_topic", default_value="/arachne/model/direction_markers"
+            ),
+            DeclareLaunchArgument("tool_direction_axis", default_value="plus_z"),
+            DeclareLaunchArgument("camera_direction_axis", default_value="plus_z"),
+            DeclareLaunchArgument("tool_direction_length_m", default_value="0.22"),
+            DeclareLaunchArgument("camera_direction_length_m", default_value="0.38"),
+            DeclareLaunchArgument("camera_depth_frame", default_value="camera_depth_optical_frame"),
+            DeclareLaunchArgument("camera_optical_x", default_value="0.0201"),
+            DeclareLaunchArgument("camera_optical_y", default_value="0.0"),
+            DeclareLaunchArgument("camera_optical_z", default_value="0.0125"),
+            DeclareLaunchArgument("camera_optical_roll", default_value="0.0"),
+            DeclareLaunchArgument("camera_optical_pitch", default_value="0.0"),
+            DeclareLaunchArgument("camera_optical_yaw", default_value="0.0"),
             DeclareLaunchArgument("joint_state_publish_rate", default_value="80.0"),
             DeclareLaunchArgument(
                 "display_joint_states_topic", default_value="/arachne/display/joint_states"
@@ -266,15 +338,15 @@ def generate_launch_description():
                 "display_robot_description_topic",
                 default_value="/arachne/display/robot_description",
             ),
-            DeclareLaunchArgument("display_frame_prefix", default_value="grasp_preview_"),
-            DeclareLaunchArgument("front_basket_xyz", default_value="0.4655 0.0 -0.0735"),
+            DeclareLaunchArgument("display_frame_prefix", default_value=""),
+            DeclareLaunchArgument("front_basket_xyz", default_value="0.4655 0.0 -0.0715"),
             DeclareLaunchArgument("front_basket_rpy", default_value="0.0 0.0 0.0"),
             DeclareLaunchArgument("rear_rack_xyz", default_value="-0.16 0.0 0.105"),
-            DeclareLaunchArgument("rear_rack_rpy", default_value="0.0 0.0 0.0"),
+            DeclareLaunchArgument("rear_rack_rpy", default_value="0.0 0.0 1.57079632679"),
             DeclareLaunchArgument("lidar_xyz", default_value="0.0 0.035 0.6223"),
             DeclareLaunchArgument("lidar_rpy", default_value="0.0 0.0 0.0"),
-            DeclareLaunchArgument("ee_camera_xyz", default_value="0.0 0.0 0.0"),
-            DeclareLaunchArgument("ee_camera_rpy", default_value="0.0 0.0 0.0"),
+            DeclareLaunchArgument("ee_camera_xyz", default_value="0.0 -0.0741 0.005"),
+            DeclareLaunchArgument("ee_camera_rpy", default_value="0.0 0.0 1.57079632679"),
             DeclareLaunchArgument(
                 "aubo_shoulder_joint",
                 default_value=str(DISPLAY_ARM_ZEROS["aubo_shoulder_joint"]),

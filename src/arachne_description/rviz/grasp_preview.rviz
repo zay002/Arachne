@@ -25,12 +25,15 @@ Visualization Manager:
     - Class: rviz_default_plugins/TF
       Enabled: false
       Name: TF
-    - Class: rviz_default_plugins/Axes
+    - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Length: 0.18
-      Name: LidarOrigin
-      Radius: 0.01
-      Reference Frame: lidar_link
+      Name: UsefulDirectionMarkers
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/model/direction_markers
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: GraspPreviewMarkers

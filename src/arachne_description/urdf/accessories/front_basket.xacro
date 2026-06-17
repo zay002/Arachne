@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:macro name="arachne_front_basket" params="parent xyz:='0.4655 0 -0.0735' rpy:='0 0 0'">
+  <xacro:macro name="arachne_front_basket" params="parent xyz:='0.4655 0 -0.0715' rpy:='0 0 0'">
     <link name="front_basket_link">
       <visual>
         <origin xyz="0 0 0" rpy="0 0 0"/>

@@ -27,6 +27,15 @@ Visualization Manager:
       Name: TF
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
+      Name: UsefulDirectionMarkers
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/model/direction_markers
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
       Name: SyntheticVisionAndWaypoints
       Topic:
         Depth: 10

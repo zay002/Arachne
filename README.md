@@ -114,7 +114,7 @@ Arachne 的真机层尽量复用官方或厂家 ROS 路线，并在本仓库内�
 
 ### 坐标系约定
 
-Arachne 默认遵循 ROS 车体坐标约定：`base_link` 的 +X 指向小车前方，+Y 指向小车左侧，+Z 向上。`odom -> base_link` 来自底盘里程计，`map -> odom` 属于后续定位系统，不写进 URDF。机械臂链路挂在车体上：`base_link -> arm_mount_link -> aubo_base_link -> ... -> tool0 -> gripper_adapter_link -> grasp_frame`；其中 `aubo_base_link` 是 Aubo 底座坐标，`tool0` 是法兰中心，`grasp_frame` 是夹具中心/抓取 TCP。末端相机挂在 `tool0` 下方，RGB-D ROI 点先在相机深度 frame 中按深度投影得到，再经 TF 转成 `base_link` 下的抓取目标。抓取预览的补偿量 `ARACHNE_GRASP_BASE_OFFSET` 是 `base_link` 下的 `(x,y,z)` 米制偏置，默认 `0,0,0`；长期偏差应通过 `scripts/vision/apriltag_hand_eye_calibration.sh` 求真实手眼外参。真机抓取执行默认在投放开爪后回到 `scripts/env/arachne_real_defaults.sh` 中的 home 姿态。
+Arachne 默认遵循 ROS 车体坐标约定：`base_link` 的 +X 指向小车前方，+Y 指向小车左侧，+Z 向上。`odom -> base_link` 来自底盘里程计，`map -> odom` 属于后续定位系统，不写进 URDF。机械臂链路挂在车体上：`base_link -> aubo_base_link -> ... -> aubo_wrist3_Link -> tool0`；实际末端支架挂在 `aubo_wrist3_Link` 下方，链路为 `aubo_wrist3_Link -> ee_camera_support_link -> ms42dc_base_link -> grasp_frame`，相机链路为 `ee_camera_support_link -> ee_camera_link`。其中 `aubo_base_link` 是 Aubo 底座坐标，`tool0` 是法兰中心，`grasp_frame` 是夹具中心/抓取 TCP。RGB-D ROI 点先在相机深度 frame 中按深度投影得到，再经 TF 转成 `base_link` 下的抓取目标。抓取预览的补偿量 `ARACHNE_GRASP_BASE_OFFSET` 是 `base_link` 下的 `(x,y,z)` 米制偏置，默认 `0,0,0`；长期偏差应通过 `scripts/vision/apriltag_hand_eye_calibration.sh` 求真实手眼外参。真机抓取执行默认在投放开爪后回到 `scripts/env/arachne_real_defaults.sh` 中的 home 姿态。
 
 | 设备 | 默认接口 | 说明 |
 | --- | --- | --- |

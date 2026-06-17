@@ -37,7 +37,7 @@ IK_DAMPING = 0.08
 IK_EPSILON = 1.0e-4
 GRASP_FRAME_OFFSET = 0.165
 
-ARM_MOUNT_XYZ = (0.22, 0.0, 0.155)
+ARM_MOUNT_XYZ = (0.22, 0.0, 0.105)
 ARM_MOUNT_RPY = (0.0, 0.0, math.pi / 2.0)
 AUBO_JOINT_ORIGINS = [
     ((0.0, 0.0, 0.122), (0.0, 0.0, math.pi)),

@@ -9,7 +9,7 @@ Arachne targets a Scout 2.0 mobile base, an Aubo i5 arm, and a Yizhua Robot MS42
 - Scout 2.0 is modeled from the AgileX Scout v2 description in `scout_ros2`.
 - Aubo i5 is modeled from the official `AuboRobot/aubo_description` `aubo_i5.urdf`.
 - The default end effector is the Yizhua Robot MS42DC, using local `third_party/MS42DC.step` plus user-created movable split meshes in `third_party/MS42DC_SPLIT`.
-- The MS42DC and AG95 variants differ only below `gripper_adapter_link`; the base, arm, mounts, sensors, launch flow, and Open/Close gripper interface are shared.
+- The MS42DC and AG95 variants differ only below `ee_camera_support_link`; the base, arm, wrist-mounted support, sensors, launch flow, and Open/Close gripper interface are shared.
 
 ## Real-Hardware ROS Path
 

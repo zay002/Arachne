@@ -9,7 +9,7 @@ Arachne 面向 Scout 2.0 移动底盘、Aubo i5 机械臂和易爪机器人 MS42
 - Scout 2.0 基于 AgileX `scout_ros2` 中的 Scout v2 描述建模。
 - Aubo i5 基于官方 `AuboRobot/aubo_description` 中的 `aubo_i5.urdf` 建模。
 - 默认末端执行器是易爪机器人 MS42DC，使用本地 `third_party/MS42DC.step` 和 `third_party/MS42DC_SPLIT` 中由项目作者手动拆分的可动 mesh。
-- MS42DC 与 AG95 的差异只出现在 `gripper_adapter_link` 下方；底盘、机械臂、安装件、传感器、启动流程和 Open/Close 夹爪接口都共享。
+- MS42DC 与 AG95 的差异只出现在 `ee_camera_support_link` 下方；底盘、机械臂、腕部末端支架、传感器、启动流程和 Open/Close 夹爪接口都共享。
 
 ## 真机 ROS 路线
 

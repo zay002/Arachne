@@ -946,7 +946,6 @@ class GraspPreviewNode(Node):
                 (0.0, 0.0, 0.210 / 6.0),
                 padded((0.925 / 6.0, 0.380 * 1.65, 0.210 / 3.0)),
             ),
-            CollisionBox("arm_mount", (0.22, 0.0, 0.155 - 0.025), padded((0.26, 0.22, 0.05))),
         ]
         if basket_box is not None:
             boxes.append(basket_box)

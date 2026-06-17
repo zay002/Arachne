@@ -1,10 +1,12 @@
 default:
   description: "Scout 2.0 + Aubo i5 with the Yizhua Robot MS42DC two-finger flexible servo gripper."
   xacro_args:
-    arm_mount_xyz: "0.22 0.0 0.155"
+    arm_mount_xyz: "0.22 0.0 0.105"
     arm_mount_rpy: "0.0 0.0 1.57079632679"
-    tool_adapter_xyz: "0.0 0.0 0.0"
-    tool_adapter_rpy: "0.0 0.0 0.785398163397"
+    ee_support_xyz: "0.0 0.0 0.0"
+    ee_support_rpy: "0.0 0.0 2.35619449019"
+    tool_adapter_xyz: "-0.049334103 0.049874070 0.021816675"
+    tool_adapter_rpy: "1.570796327 0.0 0.0"
     gripper_type: "ms42dc"
     with_lidar: "true"
     with_ee_camera: "false"

@@ -56,8 +56,18 @@ def generate_launch_description():
                     LaunchConfiguration("playback_speed"), value_type=float
                 ),
                 "loop": ParameterValue(LaunchConfiguration("loop"), value_type=bool),
+                "patrol_pattern": LaunchConfiguration("patrol_pattern"),
                 "patrol_distance_m": ParameterValue(
                     LaunchConfiguration("patrol_distance_m"), value_type=float
+                ),
+                "patrol_box_width_m": ParameterValue(
+                    LaunchConfiguration("patrol_box_width_m"), value_type=float
+                ),
+                "patrol_box_height_m": ParameterValue(
+                    LaunchConfiguration("patrol_box_height_m"), value_type=float
+                ),
+                "patrol_entry_m": ParameterValue(
+                    LaunchConfiguration("patrol_entry_m"), value_type=float
                 ),
                 "show_keepout_markers": ParameterValue(
                     LaunchConfiguration("show_keepout_markers"), value_type=bool
@@ -126,7 +136,11 @@ def generate_launch_description():
             DeclareLaunchArgument("planner_id", default_value="RRTConnectkConfigDefault"),
             DeclareLaunchArgument("playback_speed", default_value="0.85"),
             DeclareLaunchArgument("loop", default_value="true"),
+            DeclareLaunchArgument("patrol_pattern", default_value="box_entry"),
             DeclareLaunchArgument("patrol_distance_m", default_value="1.2"),
+            DeclareLaunchArgument("patrol_box_width_m", default_value="1.0"),
+            DeclareLaunchArgument("patrol_box_height_m", default_value="1.2"),
+            DeclareLaunchArgument("patrol_entry_m", default_value="0.3"),
             DeclareLaunchArgument("show_keepout_markers", default_value="false"),
             DeclareLaunchArgument("slam_map_yaml", default_value=str(default_slam_map)),
             DeclareLaunchArgument("map_frame_id", default_value="map"),

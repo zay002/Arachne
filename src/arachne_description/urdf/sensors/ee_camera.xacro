@@ -3,7 +3,7 @@
   <xacro:property name="ee_camera_support_scale" value="0.001"/>
   <xacro:property name="ee_camera_support_visual_xyz" value="-0.031499998 -0.0815 -0.122628235"/>
 
-  <xacro:macro name="arachne_ee_camera" params="parent xyz:='0 0 0' rpy:='0 0 0' camera_xyz:='0.025 -0.069 0.03077' camera_rpy:='0 -1.57079632679 -1.57079632679'">
+  <xacro:macro name="arachne_ee_camera_support" params="parent xyz:='0 0 0' rpy:='0 0 0'">
     <link name="ee_camera_support_link">
       <visual>
         <origin xyz="${ee_camera_support_visual_xyz}" rpy="0 0 0"/>
@@ -28,10 +28,12 @@
       <child link="ee_camera_support_link"/>
       <origin xyz="${xyz}" rpy="${rpy}"/>
     </joint>
+  </xacro:macro>
 
+  <xacro:macro name="arachne_ee_camera_sensor" params="parent camera_xyz:='0.0 -0.0741 0.005' camera_rpy:='0.0 0.0 1.57079632679'">
     <link name="ee_camera_link">
       <visual>
-        <origin xyz="-0.01587 -0.025 -0.0125" rpy="0 0 0"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
           <mesh filename="package://arachne_description/meshes/sensors/orbbec/gemini335_336/camera_link_colored.dae"/>
         </geometry>
@@ -48,9 +50,14 @@
       <xacro:box_inertial mass="0.08" x="0.030" y="0.089" z="0.025"/>
     </link>
     <joint name="ee_camera_joint" type="fixed">
-      <parent link="ee_camera_support_link"/>
+      <parent link="${parent}"/>
       <child link="ee_camera_link"/>
       <origin xyz="${camera_xyz}" rpy="${camera_rpy}"/>
     </joint>
+  </xacro:macro>
+
+  <xacro:macro name="arachne_ee_camera" params="parent xyz:='0 0 0' rpy:='0 0 0' camera_xyz:='0.0 -0.0741 0.005' camera_rpy:='0.0 0.0 1.57079632679'">
+    <xacro:arachne_ee_camera_support parent="${parent}" xyz="${xyz}" rpy="${rpy}"/>
+    <xacro:arachne_ee_camera_sensor parent="ee_camera_support_link" camera_xyz="${camera_xyz}" camera_rpy="${camera_rpy}"/>
   </xacro:macro>
 </robot>

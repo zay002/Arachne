@@ -162,7 +162,7 @@ class AprilTagHandEyeCalibrator(Node):
         self.declare_parameter("image_topic", "/camera/color/image_raw")
         self.declare_parameter("camera_info_topic", "/camera/color/camera_info")
         self.declare_parameter("base_frame", "base_link")
-        self.declare_parameter("gripper_frame", "gripper_adapter_link")
+        self.declare_parameter("gripper_frame", "tool0")
         self.declare_parameter(
             "board_image_path", "/home/jetson/zhaoyang/arachne_floor_apriltag_board_a3.png"
         )

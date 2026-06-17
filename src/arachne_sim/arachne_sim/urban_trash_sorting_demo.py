@@ -23,6 +23,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState, PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import ColorRGBA
+from std_srvs.srv import Trigger
 from trajectory_msgs.msg import JointTrajectory
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -54,11 +55,11 @@ SCAN_LEFT = [-1.96, -0.48, 1.62, 0.98, 1.70, -0.26]
 SCAN_RIGHT = [-1.48, -0.42, 1.70, 0.84, 1.66, 0.18]
 GRASP_SEED = [1.20, -0.26, -1.26, 0.34, -1.44, 0.0]
 
-ARM_MOUNT_XYZ = (0.22, 0.0, 0.155)
+ARM_MOUNT_XYZ = (0.22, 0.0, 0.105)
 ARM_MOUNT_RPY = (0.0, 0.0, math.pi / 2.0)
 TOOL_ADAPTER_RPY = (0.0, 0.0, math.pi / 4.0)
-GRASP_FRAME_OFFSET_Z = 0.138691938
-EE_CAMERA_XYZ = (0.025, -0.069, 0.03077)
+GRASP_FRAME_OFFSET_Z = 0.143691938
+EE_CAMERA_XYZ = (0.0, -0.0741, 0.005)
 EE_CAMERA_RPY = (0.0, -math.pi / 2.0, -math.pi / 2.0)
 
 DEFAULT_PATROL_DISTANCE_M = 1.2
@@ -107,7 +108,11 @@ class UrbanTrashSortingDemo(Node):
         self.declare_parameter("planner_id", "RRTConnectkConfigDefault")
         self.declare_parameter("playback_speed", 0.85)
         self.declare_parameter("loop", True)
+        self.declare_parameter("patrol_pattern", "box_entry")
         self.declare_parameter("patrol_distance_m", DEFAULT_PATROL_DISTANCE_M)
+        self.declare_parameter("patrol_box_width_m", 1.0)
+        self.declare_parameter("patrol_box_height_m", 1.2)
+        self.declare_parameter("patrol_entry_m", 0.3)
         self.declare_parameter("show_keepout_markers", False)
         self.declare_parameter("slam_map_yaml", "")
         self.declare_parameter("map_frame_id", "map")
@@ -135,10 +140,12 @@ class UrbanTrashSortingDemo(Node):
         )
         self.map_pub = self.create_publisher(OccupancyGrid, "/map", map_qos)
         self.create_subscription(Odometry, "/odom", self._odom_cb, 10)
+        self.create_service(Trigger, "/arachne/urban_trash/return_home", self._return_home_cb)
 
         self.planner_id = str(self.get_parameter("planner_id").value)
         self.playback_speed = max(float(self.get_parameter("playback_speed").value), 0.05)
         self.loop = bool(self.get_parameter("loop").value)
+        self.patrol_pattern = str(self.get_parameter("patrol_pattern").value).strip().lower()
         self.road_length = max(float(self.get_parameter("patrol_distance_m").value), 0.2)
         self.show_keepout_markers = bool(self.get_parameter("show_keepout_markers").value)
         self.map_frame_id = str(self.get_parameter("map_frame_id").value)
@@ -158,6 +165,7 @@ class UrbanTrashSortingDemo(Node):
         )
         self.grasp_rotation_base = self._grasp_frame_in_base(np.asarray(GRASP_SEED, dtype=float))[:3, :3]
 
+        self.patrol_loop_start_index = 0
         self.patrol_waypoints = self._make_patrol_waypoints()
         self.patrol_index = 1 if len(self.patrol_waypoints) > 1 else 0
         self.trash = self._make_trash_scene()
@@ -185,13 +193,37 @@ class UrbanTrashSortingDemo(Node):
         self.samples: list[tuple[list[float], tuple[float, float], str]] = []
         self.sample_index = 0
         self.planning_thread: threading.Thread | None = None
+        self.return_requested = False
+        self.return_generation = 0
+        self.return_arm_from = list(self.current_arm)
+        self.return_started = self.get_clock().now()
+        self.return_arm_duration = 2.4
 
         self.timer = self.create_timer(1.0 / 45.0, self._tick)
         self.create_timer(1.0, self._publish_slam_map)
         self.get_logger().info(
-            f"Urban trash sorting demo ready: map cruise ({len(self.patrol_waypoints)} waypoints) + "
+            f"Urban trash sorting demo ready: {self.patrol_pattern} cruise ({len(self.patrol_waypoints)} waypoints) + "
             f"wrist-camera scan + random TACO trash ({len(self.trash)} objects)"
         )
+
+    def _return_home_cb(self, _request, response):
+        self.return_requested = True
+        self.return_generation += 1
+        self.locked = None
+        self.samples = []
+        self.sample_index = 0
+        self.mode = "return_home"
+        self.return_arm_from = list(self.current_arm)
+        self.return_started = self.get_clock().now()
+        self.current_gripper = (0.0, 0.0)
+        self.candidate_count = 0
+        self.candidate_name = ""
+        self.pipeline_note = "return: base to start, gripper open, arm to scan midpoint"
+        self.strategy_note = "return_home requested"
+        self._publish_stop()
+        response.success = True
+        response.message = "return_home started"
+        return response
 
     def _make_camera_scan_arc(self) -> tuple[list[list[float]], list[tuple[float, float, float]]]:
         radius = max(float(self.get_parameter("scan_arc_radius_m").value), 0.06)
@@ -259,7 +291,7 @@ class UrbanTrashSortingDemo(Node):
         ]
         rng = random.Random(int(self.get_parameter("trash_seed").value))
         count = max(int(self.get_parameter("trash_count").value), 1)
-        segments = list(zip(self.patrol_waypoints, self.patrol_waypoints[1:] + self.patrol_waypoints[:1]))
+        segments = self._patrol_segments()
         trash: list[TrashSpec] = []
         for index in range(count):
             class_name, taco_class, size, color, environment, close, approach, lift, material, style, confidence = templates[index % len(templates)]
@@ -285,6 +317,11 @@ class UrbanTrashSortingDemo(Node):
         return trash
 
     def _make_patrol_waypoints(self) -> list[tuple[float, float]]:
+        if self.patrol_pattern in {"box_entry", "rectangle_entry", "real_box"}:
+            return self._box_entry_patrol_waypoints()
+        if self.patrol_pattern in {"local", "local_loop"}:
+            return self._local_patrol_waypoints()
+
         fallback = self._local_patrol_waypoints()
         if not self.map_data or self.map_width <= 0 or self.map_height <= 0:
             return fallback
@@ -318,6 +355,37 @@ class UrbanTrashSortingDemo(Node):
             return fallback
         self.get_logger().info(
             f"Generated map coverage patrol: {len(route)} route points over {len(set(route_keys))} free samples"
+        )
+        return route
+
+    def _patrol_segments(self) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+        if len(self.patrol_waypoints) < 2:
+            return [((0.0, 0.0), (self.road_length, 0.0))]
+        segments = list(zip(self.patrol_waypoints, self.patrol_waypoints[1:]))
+        loop_start = min(max(int(self.patrol_loop_start_index), 0), len(self.patrol_waypoints) - 1)
+        if loop_start < len(self.patrol_waypoints) - 1:
+            segments.append((self.patrol_waypoints[-1], self.patrol_waypoints[loop_start]))
+        return segments
+
+    def _box_entry_patrol_waypoints(self) -> list[tuple[float, float]]:
+        width = max(float(self.get_parameter("patrol_box_width_m").value), 0.2)
+        height = max(float(self.get_parameter("patrol_box_height_m").value), 0.2)
+        entry = max(float(self.get_parameter("patrol_entry_m").value), 0.0)
+        half_width = width * 0.5
+        bottom_x = entry
+        top_x = entry + height
+        route = [
+            (0.0, 0.0),
+            (bottom_x, 0.0),
+            (bottom_x, half_width),
+            (top_x, half_width),
+            (top_x, -half_width),
+            (bottom_x, -half_width),
+        ]
+        self.patrol_loop_start_index = 2
+        self.get_logger().info(
+            f"Generated box-entry patrol: entry={entry:.2f}m box={width:.2f}x{height:.2f}m "
+            f"route={len(route)} waypoints"
         )
         return route
 
@@ -408,12 +476,21 @@ class UrbanTrashSortingDemo(Node):
         self._publish_base_path()
         self._publish_roi_cloud()
 
+        if self.mode == "return_home":
+            self._return_home_step()
+            self._publish_joint_state(self.current_arm, self.current_gripper)
+            return
         if self.mode == "executing":
             self._publish_stop()
             self._play_execution()
             return
         if self.mode == "planning":
             self._publish_stop()
+            self._publish_joint_state(self.current_arm, self.current_gripper)
+            return
+        if self.mode == "home":
+            self._publish_stop()
+            self.current_gripper = (0.0, 0.0)
             self._publish_joint_state(self.current_arm, self.current_gripper)
             return
 
@@ -441,6 +518,42 @@ class UrbanTrashSortingDemo(Node):
             self.candidate_name = ""
             self.pipeline_note = "patrol: base moving, wrist camera scanning"
             self.strategy_note = "waiting for YOLO lock"
+
+    def _return_home_step(self) -> None:
+        self.current_gripper = (0.0, 0.0)
+        now = self.get_clock().now()
+        elapsed = (now.nanoseconds - self.return_started.nanoseconds) * 1e-9
+        ratio = min(max(elapsed / self.return_arm_duration, 0.0), 1.0)
+        eased = 0.5 - 0.5 * math.cos(math.pi * ratio)
+        self.current_arm = self._interpolate_joint_pose(
+            self.return_arm_from,
+            self.scan_center_joints,
+            eased,
+        )
+
+        dx = -self.base_x
+        dy = -self.base_y
+        distance = math.hypot(dx, dy)
+        if distance <= 0.05:
+            self._publish_stop()
+            self.base_x = 0.0 if abs(self.base_x) < 0.02 else self.base_x
+            self.base_y = 0.0 if abs(self.base_y) < 0.02 else self.base_y
+            if ratio >= 1.0:
+                self.mode = "home"
+                self.return_requested = False
+                self.current_arm = list(self.scan_center_joints)
+                self.scan_index = self.scan_center_index
+                self.pipeline_note = "home: base at start, gripper open, arm at scan midpoint"
+                self.strategy_note = "ready to restart patrol"
+            return
+
+        desired_yaw = math.atan2(dy, dx)
+        yaw_error = self._normalize_angle(desired_yaw - self.base_yaw)
+        msg = Twist()
+        msg.angular.z = max(min(1.8 * yaw_error, 0.70), -0.70)
+        if abs(yaw_error) < 1.15:
+            msg.linear.x = min(0.12, max(0.035, distance * 0.45)) * max(0.12, 1.0 - abs(yaw_error) / 1.15)
+        self.cmd_pub.publish(msg)
 
     def _update_scan_pose(self) -> None:
         if self.mode != "patrol":
@@ -475,7 +588,10 @@ class UrbanTrashSortingDemo(Node):
         dy = target[1] - self.base_y
         distance = math.hypot(dx, dy)
         if distance < 0.12:
-            self.patrol_index = (self.patrol_index + 1) % len(self.patrol_waypoints)
+            if self.patrol_index >= len(self.patrol_waypoints) - 1:
+                self.patrol_index = min(self.patrol_loop_start_index, len(self.patrol_waypoints) - 1)
+            else:
+                self.patrol_index += 1
             target = self.patrol_waypoints[self.patrol_index]
             dx = target[0] - self.base_x
             dy = target[1] - self.base_y
@@ -510,17 +626,24 @@ class UrbanTrashSortingDemo(Node):
         return best[1]
 
     def _plan_locked_target(self) -> None:
+        return_generation = self.return_generation
         target = self.locked
         if target is None:
             self.mode = "patrol"
+            return
+        if self._return_interrupted(return_generation):
             return
         if not self.plan_client.wait_for_service(timeout_sec=8.0):
             self.get_logger().error("MoveIt service unavailable; cannot execute urban trash demo")
             self.mode = "patrol"
             return
+        if self._return_interrupted(return_generation):
+            return
         self.pipeline_note = f"ROI extracted: {target.taco_class}, pointcloud -> grasp pose"
         self.strategy_note = self._strategy_note(target)
         stages = self._make_grasp_stages(target)
+        if self._return_interrupted(return_generation):
+            return
         if stages is None:
             self.get_logger().warning(f"Skipping {target.name}: no valid grasp plan")
             self.failed.add(target.name)
@@ -530,10 +653,14 @@ class UrbanTrashSortingDemo(Node):
         samples: list[tuple[list[float], tuple[float, float], str]] = []
         current = list(stages[0].target)
         for stage in stages[1:]:
+            if self._return_interrupted(return_generation):
+                return
             if stage.label in {"close", "drop_open"}:
                 samples.extend(self._hold_samples(current, stage.gripper, stage.label, 0.6))
                 continue
             trajectory = self._request_joint_plan(current, stage.target, stage.label)
+            if self._return_interrupted(return_generation):
+                return
             if trajectory is None:
                 self.get_logger().error(f"MoveIt failed at {stage.label}; aborting target {target.name}")
                 self.failed.add(target.name)
@@ -544,10 +671,19 @@ class UrbanTrashSortingDemo(Node):
             current = list(stage.target)
         self.samples = samples
         self.sample_index = 0
+        if self._return_interrupted(return_generation):
+            return
         self.mode = "executing"
         self.pipeline_note = f"executing: grasp {target.taco_class} -> basket"
         self.get_logger().info(
             f"Executing {target.taco_class}: TACO mask -> ROI cloud -> strategy -> MoveIt ({len(samples)} frames)"
+        )
+
+    def _return_interrupted(self, generation: int) -> bool:
+        return (
+            self.return_requested
+            or generation != self.return_generation
+            or self.mode in {"return_home", "home"}
         )
 
     def _make_grasp_stages(self, obj: TrashSpec) -> list[Stage] | None:
@@ -990,8 +1126,8 @@ class UrbanTrashSortingDemo(Node):
         msg = PathMsg()
         msg.header = self._header()
         path_points = list(self.patrol_waypoints)
-        if path_points:
-            path_points.append(path_points[0])
+        if path_points and self.patrol_loop_start_index <= len(path_points) - 1:
+            path_points.append(path_points[self.patrol_loop_start_index])
         for x, y in path_points:
             pose = PoseStamped()
             pose.header = msg.header
