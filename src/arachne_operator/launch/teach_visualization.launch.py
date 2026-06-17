@@ -3,8 +3,9 @@ from pathlib import Path
 import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -31,7 +32,7 @@ def launch_setup(context, *args, **kwargs):
 
     visualization_joint_states = LaunchConfiguration("visualization_joint_states_topic")
 
-    return [
+    actions = [
         Node(
             package="arachne_operator",
             executable="teach_visualization_joint_states",
@@ -67,6 +68,20 @@ def launch_setup(context, *args, **kwargs):
             output="screen",
         ),
     ]
+    if str(LaunchConfiguration("with_lslidar_driver").perform(context)).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        lslidar_share = Path(get_package_share_directory("lslidar_c16_decoder"))
+        actions.insert(
+            0,
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(str(lslidar_share / "launch" / "lslidar_c16_launch.py"))
+            ),
+        )
+    return actions
 
 
 def generate_launch_description():
@@ -96,6 +111,7 @@ def generate_launch_description():
             DeclareLaunchArgument("tool_adapter_rpy", default_value="0.0 0.0 0.785398163397"),
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
             DeclareLaunchArgument("with_lidar", default_value="true"),
+            DeclareLaunchArgument("with_lslidar_driver", default_value="false"),
             DeclareLaunchArgument("with_ee_camera", default_value="true"),
             OpaqueFunction(function=launch_setup),
         ]

@@ -12,9 +12,9 @@
   <xacro:arg name="front_basket_xyz" default="0.4655 0.0 -0.0735"/>
   <xacro:arg name="front_basket_rpy" default="0.0 0.0 0.0"/>
   <xacro:arg name="rear_rack_xyz" default="-0.16 0.0 0.105"/>
-  <xacro:arg name="rear_rack_rpy" default="0.0 0.0 1.57079632679"/>
+  <xacro:arg name="rear_rack_rpy" default="0.0 0.0 0.0"/>
   <xacro:arg name="lidar_xyz" default="0.0 0.035 0.6223"/>
-  <xacro:arg name="lidar_rpy" default="0.0 0.0 3.14159265359"/>
+  <xacro:arg name="lidar_rpy" default="0.0 0.0 0.0"/>
   <xacro:arg name="ee_camera_xyz" default="0.0 0.0 0.0"/>
   <xacro:arg name="ee_camera_rpy" default="0.0 0.0 0.0"/>
   <xacro:arg name="with_ros2_control" default="false"/>

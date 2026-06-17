@@ -22,6 +22,7 @@ def generate_launch_description():
             "with_rviz": LaunchConfiguration("visualization_with_rviz"),
             "gripper_type": LaunchConfiguration("visualization_gripper_type"),
             "with_lidar": LaunchConfiguration("visualization_with_lidar"),
+            "with_lslidar_driver": LaunchConfiguration("visualization_with_lslidar_driver"),
             "with_ee_camera": LaunchConfiguration("visualization_with_ee_camera"),
             "tool_adapter_xyz": LaunchConfiguration("visualization_tool_adapter_xyz"),
             "tool_adapter_rpy": LaunchConfiguration("visualization_tool_adapter_rpy"),
@@ -274,6 +275,7 @@ def generate_launch_description():
             DeclareLaunchArgument("visualization_with_rviz", default_value="true"),
             DeclareLaunchArgument("visualization_gripper_type", default_value="ms42dc"),
             DeclareLaunchArgument("visualization_with_lidar", default_value="true"),
+            DeclareLaunchArgument("visualization_with_lslidar_driver", default_value="false"),
             DeclareLaunchArgument("visualization_with_ee_camera", default_value="true"),
             DeclareLaunchArgument("visualization_tool_adapter_xyz", default_value="0.0 0.0 0.0"),
             DeclareLaunchArgument(

@@ -1,0 +1,94 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+      Plane: XY
+      Reference Frame: <Fixed Frame>
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+    - Class: rviz_default_plugins/Axes
+      Enabled: true
+      Length: 0.25
+      Name: Lidar Axes
+      Radius: 0.015
+      Reference Frame: lidar_link
+    - Class: rviz_default_plugins/PointCloud2
+      Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Color: 0; 180; 255
+      Color Transformer: FlatColor
+      Enabled: true
+      Name: C16 PointCloud
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.025
+      Style: Points
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /lslidar_point_cloud
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/LaserScan
+      Alpha: 1
+      Color: 255; 255; 255
+      Color Transformer: FlatColor
+      Enabled: true
+      Name: C16 Scan
+      Size (m): 0.035
+      Style: Points
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /scan
+    - Class: rviz_default_plugins/Map
+      Alpha: 0.72
+      Draw Behind: true
+      Enabled: true
+      Name: SLAM Map
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map
+  Enabled: true
+  Global Options:
+    Background Color: 245; 245; 242
+    Fixed Frame: lidar_link
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Value: true
+Views:
+  Current:
+    Class: rviz_default_plugins/Orbit
+    Distance: 8.0
+    Focal Point:
+      X: 0
+      Y: 0
+      Z: 0
+    Name: Current View
+    Pitch: 1.1
+    Target Frame: lidar_link
+    Yaw: 0.0

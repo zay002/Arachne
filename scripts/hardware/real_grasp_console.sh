@@ -31,6 +31,7 @@ SERVER_EXTRA_ARGS="${ARACHNE_CONSOLE_SERVER_EXTRA_ARGS:-${DEFAULT_SERVER_EXTRA_A
 TEACH_WITH_CAMERA="${ARACHNE_CONSOLE_TEACH_WITH_CAMERA:-false}"
 TEACH_WITH_RVIZ="${ARACHNE_CONSOLE_TEACH_WITH_RVIZ:-true}"
 TEACH_WITH_VISUALIZATION="${ARACHNE_CONSOLE_TEACH_WITH_VISUALIZATION:-true}"
+TEACH_WITH_LSLIDAR_DRIVER="${ARACHNE_CONSOLE_TEACH_WITH_LSLIDAR_DRIVER:-true}"
 TEACH_EXTRA_ARGS="${ARACHNE_CONSOLE_TEACH_EXTRA_ARGS:-}"
 WITH_VIEWER="${ARACHNE_CONSOLE_WITH_VIEWER:-false}"
 AUTO_AUBO_START="${ARACHNE_CONSOLE_AUTO_AUBO_START:-false}"
@@ -60,7 +61,7 @@ Usage:
 
 Open the real operator console. By default this starts only the guarded Aubo
 driver, Scout/MS42DC bringup, RViz visualization, and the teach panel. Camera,
-2D viewer, SLAM/Nav, grasp server, and Aubo power/start can be controlled from
+2D viewer, Localization/Nav, grasp server, and Aubo power/start can be controlled from
 the teach panel Runtime Services and Aubo buttons.
 
 Options:
@@ -85,6 +86,7 @@ Environment:
   ARACHNE_CONSOLE_REMOTE_PLANNER_TIMEOUT=${REMOTE_PLANNER_TIMEOUT}
   ARACHNE_CONSOLE_TEACH_WITH_CAMERA=${TEACH_WITH_CAMERA}
   ARACHNE_CONSOLE_TEACH_WITH_RVIZ=${TEACH_WITH_RVIZ}
+  ARACHNE_CONSOLE_TEACH_WITH_LSLIDAR_DRIVER=${TEACH_WITH_LSLIDAR_DRIVER}
   ARACHNE_CONSOLE_TEACH_EXTRA_ARGS=${TEACH_EXTRA_ARGS}
   ARACHNE_CONSOLE_WITH_VIEWER=${WITH_VIEWER}
   ARACHNE_CONSOLE_AUTO_AUBO_START=${AUTO_AUBO_START}
@@ -101,7 +103,7 @@ Environment:
   ARACHNE_CONSOLE_CAMERA_DEPTH_HEIGHT=${CAMERA_DEPTH_HEIGHT}
 
 After startup, use the teach panel buttons:
-  Runtime Services    -> start/stop camera, 2D viewer, SLAM/Nav, grasp server
+  Runtime Services    -> start/stop camera, 2D viewer, Localization/Nav, grasp server
   Aubo On / Start     -> power on / startup the real arm when needed
   Visual Grasp        -> start camera/viewer/server, preflight, then grasp
   Grasp Start         -> /arachne/grasp_task/start only
@@ -310,6 +312,7 @@ SERVER_EXTRA_ARGS=$(q "${SERVER_EXTRA_ARGS}")
 TEACH_WITH_CAMERA=$(q "${TEACH_WITH_CAMERA}")
 TEACH_WITH_RVIZ=$(q "${TEACH_WITH_RVIZ}")
 TEACH_WITH_VISUALIZATION=$(q "${TEACH_WITH_VISUALIZATION}")
+TEACH_WITH_LSLIDAR_DRIVER=$(q "${TEACH_WITH_LSLIDAR_DRIVER}")
 TEACH_EXTRA_ARGS=$(q "${TEACH_EXTRA_ARGS}")
 REQUIRE_ODOM=$(q "${REQUIRE_ODOM}")
 REQUIRE_CAMERA_TOPICS=$(q "${REQUIRE_CAMERA_TOPICS}")
@@ -408,7 +411,7 @@ echo "  teach extra args: ${TEACH_EXTRA_ARGS:-none}"
 echo "  auto Aubo startup: ${AUTO_AUBO_START}"
 echo "  auto base+gripper: ${AUTO_BASE_GRIPPER}"
 echo "  auto camera: ${AUTO_CAMERA}"
-echo "  auto SLAM/Nav: ${AUTO_LIDAR_NAV}"
+echo "  auto Localization/Nav: ${AUTO_LIDAR_NAV}"
 echo "  auto grasp server: ${AUTO_GRASP_SERVER}"
 echo "  auto 2D viewer: ${WITH_VIEWER}"
 echo "  require odom before server: ${REQUIRE_ODOM}"
@@ -520,19 +523,20 @@ exec ros2 launch arachne_operator teach_panel.launch.py \
   with_camera:="${TEACH_WITH_CAMERA}" \
   with_visualization:="${TEACH_WITH_VISUALIZATION}" \
   visualization_with_rviz:="${TEACH_WITH_RVIZ}" \
+  visualization_with_lslidar_driver:="${TEACH_WITH_LSLIDAR_DRIVER}" \
   recording_dir:="${RECORDING_DIR}" \
   workspace_root:="${ROOT_DIR}" \
   runtime_log_root:="log/teach_panel" \
   camera_command:="ros2 launch arachne_sensors gemini335.launch.py publish_pointcloud:=false with_color_view:=false with_depth_view:=false with_tf:=true camera_parent_frame:=ee_camera_link projection_flip_x:=true projection_flip_y:=true color_width:=${CAMERA_COLOR_WIDTH} color_height:=${CAMERA_COLOR_HEIGHT} color_fps:=${CAMERA_COLOR_FPS} depth_width:=${CAMERA_DEPTH_WIDTH} depth_height:=${CAMERA_DEPTH_HEIGHT} depth_fps:=${CAMERA_DEPTH_FPS}" \
   camera_view_command:="\${ARACHNE_SYSTEM_PYTHON:-python3} scripts/vision/raw_image_viewer.py --topic ${VIEWER_IMAGE_TOPIC} --window \"Arachne Raw Camera\" --max-fps 15" \
-  slam_command:="scripts/hardware/real_lidar_nav.sh" \
+  slam_command:="ARACHNE_NAV_WITH_LSLIDAR_DRIVER=false scripts/hardware/real_lidar_nav.sh" \
   grasp_server_command:="scripts/vision/grasp_task_server.sh execute_real:=true confirm_execute_real:=true with_rviz:=false preview_on_start:=false planning_recovery_base_enabled:=false require_odom:=${REQUIRE_ODOM} require_camera_topics:=${REQUIRE_CAMERA_TOPICS} require_aubo_status:=false require_gripper_status:=false max_grasp_attempts:=3 retry_on_gripper_miss:=true extra_args:=\"${SERVER_EXTRA_ARGS}\"" \
   ${TEACH_EXTRA_ARGS}
 ')"
 
 nav_script="$(write_runner "45_lidar_nav" '
-echo "Starting lidar SLAM/Nav..."
-exec "${ROOT_DIR}/scripts/hardware/real_lidar_nav.sh"
+echo "Starting lidar localization/Nav..."
+exec env ARACHNE_NAV_WITH_LSLIDAR_DRIVER=false "${ROOT_DIR}/scripts/hardware/real_lidar_nav.sh"
 ')"
 
 viewer_script="$(write_runner "60_grasp_viewer" '
@@ -556,7 +560,7 @@ if [[ "${AUTO_CAMERA}" == "true" ]]; then
   open_terminal "Arachne Gemini Camera" "${camera_script}" "${LOG_DIR}/35_gemini_camera.log"
 fi
 if [[ "${AUTO_LIDAR_NAV}" == "true" ]]; then
-  open_terminal "Arachne Lidar SLAM/Nav" "${nav_script}" "${LOG_DIR}/45_lidar_nav.log"
+  open_terminal "Arachne Lidar Localization/Nav" "${nav_script}" "${LOG_DIR}/45_lidar_nav.log"
 fi
 if [[ "${AUTO_GRASP_SERVER}" == "true" ]]; then
   open_terminal "Arachne Grasp Server" "${server_script}" "${LOG_DIR}/40_grasp_task_server.log"
@@ -572,7 +576,7 @@ Logs and generated runner scripts:
   ${LOG_DIR}
 
 Teach panel grasp controls:
-  Runtime Services     -> start/stop camera, 2D viewer, SLAM/Nav, grasp server
+  Runtime Services     -> start/stop camera, 2D viewer, Localization/Nav, grasp server
   Aubo On / Aubo Start -> power on / startup the real arm
   Visual Grasp         -> start camera/viewer/server, preflight, then grasp
   Grasp Start          -> start one grasp task only

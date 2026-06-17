@@ -3,7 +3,7 @@ from pathlib import Path
 import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -24,8 +24,17 @@ def launch_setup(context, *args, **kwargs):
     nav2_share = Path(get_package_share_directory("nav2_bringup"))
     model_path = description_share / "urdf" / "arachne.urdf.xacro"
     params_path = Path(LaunchConfiguration("params_file").perform(context))
-    map_path = nav_share / "maps" / "empty.yaml"
+    map_arg = LaunchConfiguration("map").perform(context).strip()
+    map_path = Path(map_arg) if map_arg else nav_share / "maps" / "road_lab_apriltag.yaml"
     rviz_config = Path(LaunchConfiguration("rviz_config").perform(context))
+    slam_enabled = _as_bool(LaunchConfiguration("slam").perform(context))
+    use_composition = _launch_bool(context, "use_composition")
+    localization_lifecycle_delay_sec = float(
+        LaunchConfiguration("localization_lifecycle_delay_sec").perform(context)
+    )
+    navigation_lifecycle_delay_sec = float(
+        LaunchConfiguration("navigation_lifecycle_delay_sec").perform(context)
+    )
 
     robot_description = xacro.process_file(
         str(model_path),
@@ -39,18 +48,6 @@ def launch_setup(context, *args, **kwargs):
             parameters=[{"robot_description": robot_description, "use_sim_time": False}],
             output="screen",
             condition=IfCondition(LaunchConfiguration("with_robot_state_publisher")),
-        ),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(str(nav2_share / "launch" / "bringup_launch.py")),
-            launch_arguments={
-                "slam": "True",
-                "map": str(map_path),
-                "params_file": str(params_path),
-                "use_sim_time": "False",
-                "autostart": "True",
-                "use_composition": _launch_bool(context, "use_composition"),
-                "log_level": LaunchConfiguration("log_level").perform(context),
-            }.items(),
         ),
         Node(
             package="pointcloud_to_laserscan",
@@ -88,6 +85,111 @@ def launch_setup(context, *args, **kwargs):
         ),
     ]
 
+    if slam_enabled:
+        actions.insert(
+            1,
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(str(nav2_share / "launch" / "bringup_launch.py")),
+                launch_arguments={
+                    "slam": "True",
+                    "map": str(map_path),
+                    "params_file": str(params_path),
+                    "use_sim_time": "False",
+                    "autostart": "True",
+                    "use_composition": use_composition,
+                    "log_level": LaunchConfiguration("log_level").perform(context),
+                }.items(),
+            ),
+        )
+    else:
+        actions.insert(
+            1,
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(str(nav2_share / "launch" / "localization_launch.py")),
+                launch_arguments={
+                    "map": str(map_path),
+                    "params_file": str(params_path),
+                    "use_sim_time": "False",
+                    "autostart": "False",
+                    "use_composition": use_composition,
+                    "container_name": "nav2_container",
+                    "log_level": LaunchConfiguration("log_level").perform(context),
+                }.items(),
+            ),
+        )
+        actions.insert(
+            2,
+            TimerAction(
+                period=localization_lifecycle_delay_sec,
+                actions=[
+                    Node(
+                        package="nav2_lifecycle_manager",
+                        executable="lifecycle_manager",
+                        name="lifecycle_manager_localization_delayed",
+                        output="screen",
+                        arguments=[
+                            "--ros-args",
+                            "--log-level",
+                            LaunchConfiguration("log_level").perform(context),
+                        ],
+                        parameters=[
+                            {"use_sim_time": False},
+                            {"autostart": True},
+                            {"node_names": ["map_server", "amcl"]},
+                        ],
+                    )
+                ],
+            ),
+        )
+        actions.insert(
+            3,
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(str(nav2_share / "launch" / "navigation_launch.py")),
+                launch_arguments={
+                    "params_file": str(params_path),
+                    "use_sim_time": "False",
+                    "autostart": "False",
+                    "use_composition": use_composition,
+                    "container_name": "nav2_container",
+                    "log_level": LaunchConfiguration("log_level").perform(context),
+                }.items(),
+            ),
+        )
+        actions.insert(
+            4,
+            TimerAction(
+                period=navigation_lifecycle_delay_sec,
+                actions=[
+                    Node(
+                        package="nav2_lifecycle_manager",
+                        executable="lifecycle_manager",
+                        name="lifecycle_manager_navigation_delayed",
+                        output="screen",
+                        arguments=[
+                            "--ros-args",
+                            "--log-level",
+                            LaunchConfiguration("log_level").perform(context),
+                        ],
+                        parameters=[
+                            {"use_sim_time": False},
+                            {"autostart": True},
+                            {
+                                "node_names": [
+                                    "controller_server",
+                                    "smoother_server",
+                                    "planner_server",
+                                    "behavior_server",
+                                    "bt_navigator",
+                                    "waypoint_follower",
+                                    "velocity_smoother",
+                                ]
+                            },
+                        ],
+                    )
+                ],
+            ),
+        )
+
     if _as_bool(LaunchConfiguration("with_lslidar_driver").perform(context)):
         lslidar_share = Path(get_package_share_directory("lslidar_c16_decoder"))
         actions.insert(
@@ -113,6 +215,8 @@ def generate_launch_description():
                 "rviz_config",
                 default_value=str(nav_share / "rviz" / "arachne_nav_topdown.rviz"),
             ),
+            DeclareLaunchArgument("slam", default_value="false"),
+            DeclareLaunchArgument("map", default_value=""),
             DeclareLaunchArgument("with_lslidar_driver", default_value="false"),
             DeclareLaunchArgument("with_pointcloud_to_scan", default_value="true"),
             DeclareLaunchArgument("with_robot_state_publisher", default_value="false"),
@@ -120,7 +224,9 @@ def generate_launch_description():
             DeclareLaunchArgument("pointcloud_topic", default_value="/lslidar_point_cloud"),
             DeclareLaunchArgument("scan_topic", default_value="/scan"),
             DeclareLaunchArgument("laser_target_frame", default_value="lidar_link"),
-            DeclareLaunchArgument("use_composition", default_value="True"),
+            DeclareLaunchArgument("use_composition", default_value="False"),
+            DeclareLaunchArgument("localization_lifecycle_delay_sec", default_value="8.0"),
+            DeclareLaunchArgument("navigation_lifecycle_delay_sec", default_value="24.0"),
             DeclareLaunchArgument("log_level", default_value="warn"),
             OpaqueFunction(function=launch_setup),
         ]

@@ -309,9 +309,9 @@ class Gemini335V4L2Node(Node):
                     self._sleep_color_period(start, period)
                     continue
                 code = (
-                    cv2.COLOR_YUV2BGR_UYVY
+                    cv2.COLOR_YUV2RGB_UYVY
                     if pixelformat == "UYVY"
-                    else cv2.COLOR_YUV2BGR_YUY2
+                    else cv2.COLOR_YUV2RGB_YUY2
                 )
                 while not self.stop_event.is_set():
                     chunk = process.stdout.read(frame_bytes)
@@ -500,7 +500,7 @@ class Gemini335V4L2Node(Node):
             return
         stamp = self.get_clock().now()
         header = self._header(stamp, self.color_frame_id)
-        if not self._publish_safe(self.color_pub, _image_from_array(frame, header, "bgr8")):
+        if not self._publish_safe(self.color_pub, _image_from_array(frame, header, "rgb8")):
             return
         self.color_info.header = header
         self._publish_safe(self.color_info_pub, self.color_info)

@@ -63,7 +63,7 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("grasp_preflight_service", "/arachne/grasp_task/preflight")
         self.declare_parameter("base_stop_service", "/arachne/grasp_task/base_stop")
         self.declare_parameter("restart_search_topic", "/arachne/grasp_preview/restart_search")
-        self.declare_parameter("patrol_distance_m", 2.0)
+        self.declare_parameter("patrol_distance_m", 1.2)
         self.declare_parameter("patrol_step_m", 0.12)
         self.declare_parameter("detection_confidence", 0.35)
         self.declare_parameter("detection_timeout_sec", 1.2)

@@ -208,7 +208,7 @@ ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES \
 
 `grasp_task_server` 是真实抓取的常驻入口。服务启动一次后，每次调用 `/arachne/grasp_task/start` 都会执行一轮完整流程：同步真机姿态 -> YOLO-SEG/TACO 分割 -> depth ROI 定位 -> MoveIt/本地规划 -> Aubo SDK 运动和夹具开合 -> 投放 -> 回 home。重复抓取时不需要重启 server。
 
-现场优先使用施教器总控 console。这个入口会先打开施教器和 RViz，不再等待 Aubo 完全上电或等待 grasp server；相机、2D raw 画面、SLAM/Nav、grasp server 都在施教器 `Home -> Runtime Services` 里按需启动/停止，Aubo 上电/启动也在施教器按钮里完成。
+现场优先使用施教器总控 console。这个入口会先打开施教器和 RViz，不再等待 Aubo 完全上电或等待 grasp server；相机、2D raw 画面、Localization/Nav、grasp server 都在施教器 `Home -> Runtime Services` 里按需启动/停止，Aubo 上电/启动也在施教器按钮里完成。
 
 本机规划/调试：
 
@@ -628,7 +628,7 @@ source scripts/env/arachne_env.sh
 3. 启动施教器和 RViz 可视化。
 4. 启动 Aubo ROS2 driver 的 guarded prestart。
 5. 启动 Scout 底盘和 MS42DC 夹具 bringup。
-6. 把相机、2D raw 画面、SLAM/Nav、grasp server 的启停交给施教器 Runtime Services。
+6. 把相机、2D raw 画面、Localization/Nav、grasp server 的启停交给施教器 Runtime Services。
 
 默认不会自动远程执行 Aubo `poweron/startup`，施教器不需要等机械臂完全上电才能打开。需要远程上电时，在施教器里点 `Aubo On` / `Aubo Start`；如果确实要恢复旧的自动上电流程：
 
@@ -657,14 +657,14 @@ ARACHNE_CONSOLE_AUTO_GRASP_SERVER=true \
 - 目标移动：可输入指定关节角度或指定 TCP 的 X/Y/Z 位置。
 - Home / Install：顶部、`Home` 页和 `Move` 页面都有长按移动按钮。
 - Aubo On / Aubo Start / Aubo Off：施教器内远程上电、启动和断电，不要求面板启动前机械臂已经 Running。
-- Runtime Services：在 `Home` 页启动/停止 Gemini Camera、2D Raw View、SLAM/Nav、Grasp Server。Quick Control 里的 `Visual Grasp` 是推荐抓取入口，会自动启动相机、raw 画面和 grasp server 并等待 preflight；`Camera` 只启动相机驱动和 raw 画面。raw viewer 默认限制到 15 FPS，console 默认彩色流为 320x240、深度为 640x480，避免远程桌面卡顿。
+- Runtime Services：在 `Home` 页启动/停止 Gemini Camera、2D Raw View、Localization/Nav、Grasp Server。Quick Control 里的 `Visual Grasp` 是推荐抓取入口，会自动启动相机、raw 画面和 grasp server 并等待 preflight；`Camera` 只启动相机驱动和 raw 画面。raw viewer 默认限制到 15 FPS，console 默认彩色流为 320x240、深度为 640x480，避免远程桌面卡顿。
 - Grasp Start / Grasp Stop / Restore：调用常驻 grasp server 执行抓取、停止任务、恢复规划恢复时的小幅底盘移动。
 - 预设配置：`Configure` 页面可设置 Home / Install 位姿，并保存/加载本地配置。
 - 录制回放：`Program` 页面录制 waypoint、wait、保存、加载、回放。
 - 日志：面板状态和硬件状态变化写入 `log/teach_panel/latest/events.jsonl`；施教器启动的服务各自写入 `log/teach_panel/latest/<service>.log`。
 - 窗口缩放：各页面支持滚动，小窗口或远程桌面下不会裁掉底部控件。
 
-SLAM/Nav 按钮会启动 `real_lidar_nav.sh`，链路是 `LSlidar C16 /lslidar_point_cloud -> pointcloud_to_laserscan /scan -> slam_toolbox map->odom -> Nav2`。同时会打开 `arachne_nav_topdown.rviz` 的俯视窗口，固定坐标系为 `map`，显示 `/map`、`/scan`、局部/全局 costmap 和规划路径。使用 RViz 顶部 `Nav2 Goal` 工具可以给小车定点导航；若刚启动还没有地图，先让小车在安全范围内慢速移动几步，让 SLAM 建出足够环境轮廓。
+Localization/Nav 按钮会启动 `real_lidar_nav.sh`，默认使用 `src/arachne_nav/maps/road_lab_apriltag.yaml` 进入定位模式，链路是 `LSlidar C16 /lslidar_point_cloud -> pointcloud_to_laserscan /scan -> AMCL map->odom -> Nav2`。同时会打开 `arachne_nav_topdown.rviz` 的俯视窗口，固定坐标系为 `map`，显示 `/map`、`/scan`、局部/全局 costmap 和规划路径，RViz 中的小车位姿来自 `map -> odom -> base_link`。使用 RViz 顶部 `Nav2 Goal` 工具可以给小车定点导航；如需重新建图，显式设置 `ARACHNE_NAV_MODE=mapping` 后再启动 `scripts/hardware/real_lidar_nav.sh`。
 
 默认 Home 和 Install 位姿：
 

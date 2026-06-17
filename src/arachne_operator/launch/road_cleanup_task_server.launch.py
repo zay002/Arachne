@@ -18,7 +18,7 @@ def generate_launch_description():
                 "base_command_topic", default_value="/arachne/grasp_task/base_command"
             ),
             DeclareLaunchArgument("base_state_topic", default_value="/arachne/grasp_task/base_state"),
-            DeclareLaunchArgument("patrol_distance_m", default_value="2.0"),
+            DeclareLaunchArgument("patrol_distance_m", default_value="1.2"),
             DeclareLaunchArgument("patrol_step_m", default_value="0.12"),
             DeclareLaunchArgument("detection_confidence", default_value="0.35"),
             DeclareLaunchArgument("detection_timeout_sec", default_value="1.2"),

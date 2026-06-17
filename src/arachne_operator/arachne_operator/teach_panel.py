@@ -430,7 +430,7 @@ class TeachPanelNode(Node):
             "cleanup_server_command",
             (
                 "scripts/vision/road_cleanup_task_server.sh "
-                "patrol_distance_m:=2.0 patrol_step_m:=0.12 "
+                "patrol_distance_m:=1.2 patrol_step_m:=0.12 "
                 "detection_confidence:=0.35 loop:=true"
             ),
         )
@@ -1429,13 +1429,15 @@ class TeachPanelNode(Node):
             self.start_camera_stack()
             self._start_managed_process_worker("grasp_server")
             self._start_managed_process_worker("cleanup_server")
+            self._status("road cleanup: waiting for server startup")
         elif command == "stop":
             self.drive_base_manual("stop")
             self.stop_arm_velocity_hold()
 
         service_name = getattr(client, "srv_name", command)
         self._status(f"road cleanup {command} requested")
-        if not client.wait_for_service(timeout_sec=4.0):
+        wait_timeout = 75.0 if command == "start" else 4.0
+        if not client.wait_for_service(timeout_sec=wait_timeout):
             self._status(f"road cleanup {command} unavailable: {service_name}", warn=True)
             return
         future = client.call_async(Trigger.Request())
@@ -3347,6 +3349,8 @@ class TeachPanelApp:
         style.configure("Top.TLabel", background="#202833", foreground="#f6f8fb")
         style.configure("State.TLabel", font=("TkDefaultFont", 10, "bold"))
         style.configure("Danger.TButton", foreground="#8a1f11")
+        style.configure("Primary.TButton", foreground="#0f4c81")
+        style.configure("Service.TButton", foreground="#245b2a")
 
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=1)
@@ -3403,6 +3407,32 @@ class TeachPanelApp:
             widget.bind("<Button-5>", mousewheel, add=True)
         return content
 
+    def _build_button_group(
+        self,
+        parent: ttk.Frame,
+        title: str,
+        buttons: tuple[tuple[str, Any, str | None], ...],
+        *,
+        columns: int = 2,
+    ) -> ttk.LabelFrame:
+        frame = ttk.LabelFrame(parent, text=title)
+        for column in range(columns):
+            frame.columnconfigure(column, weight=1)
+        for index, (text, command, style_name) in enumerate(buttons):
+            button = ttk.Button(frame, text=text, command=command)
+            if style_name:
+                button.configure(style=style_name)
+            if text == "Program Rec":
+                self.program_record_buttons.append(button)
+            button.grid(
+                row=index // columns,
+                column=index % columns,
+                sticky="ew",
+                padx=5,
+                pady=4,
+            )
+        return frame
+
     def _build_top_bar(self) -> None:
         top = ttk.Frame(self.root, style="Top.TFrame", padding=(12, 8))
         top.grid(row=0, column=0, sticky="ew")
@@ -3423,48 +3453,32 @@ class TeachPanelApp:
             row=0, column=5, rowspan=2, sticky="ew", padx=(16, 8)
         )
         self._make_preset_hold_button(top, "Home", "home").grid(row=0, column=6, rowspan=2, padx=4)
-        self._make_preset_hold_button(top, "Install", "install").grid(
-            row=0, column=7, rowspan=2, padx=4
-        )
-        ttk.Button(top, text="Run", command=self._play).grid(row=0, column=8, rowspan=2, padx=4)
-        self.program_record_button = ttk.Button(
-            top, text="Program Rec Off", command=self._toggle_program_recording
-        )
-        self.program_record_buttons.append(self.program_record_button)
-        self.program_record_button.grid(row=0, column=9, rowspan=2, padx=4)
         ttk.Button(top, text="Stop", command=self.node.stop_all, style="Danger.TButton").grid(
-            row=0, column=10, rowspan=2, padx=4
-        )
-        ttk.Button(top, text="Visual Grasp", command=self.node.visual_grasp_start).grid(
-            row=0, column=11, rowspan=2, padx=4
-        )
-        ttk.Button(top, text="Road", command=lambda: self.node.call_cleanup_task("start")).grid(
-            row=0, column=12, rowspan=2, padx=4
+            row=0, column=7, rowspan=2, padx=4
         )
         ttk.Button(
             top,
-            text="G Stop",
+            text="Visual Grasp",
+            command=self.node.visual_grasp_start,
+            style="Primary.TButton",
+        ).grid(
+            row=0, column=8, rowspan=2, padx=4
+        )
+        ttk.Button(top, text="Road", command=lambda: self.node.call_cleanup_task("start")).grid(
+            row=0, column=9, rowspan=2, padx=4
+        )
+        ttk.Button(
+            top,
+            text="Task Stop",
             command=lambda: self.node.call_grasp_task("stop"),
             style="Danger.TButton",
-        ).grid(row=0, column=13, rowspan=2, padx=4)
+        ).grid(row=0, column=10, rowspan=2, padx=4)
         ttk.Button(
             top,
             text="Road Stop",
             command=lambda: self.node.call_cleanup_task("stop"),
             style="Danger.TButton",
-        ).grid(row=0, column=14, rowspan=2, padx=4)
-        ttk.Button(top, text="Restore", command=lambda: self.node.call_grasp_task("restore")).grid(
-            row=0, column=15, rowspan=2, padx=4
-        )
-        ttk.Button(top, text="Aubo On", command=lambda: self.node.command_aubo_lifecycle("power_on")).grid(
-            row=0, column=16, rowspan=2, padx=4
-        )
-        ttk.Button(top, text="Aubo Start", command=lambda: self.node.command_aubo_lifecycle("startup")).grid(
-            row=0, column=17, rowspan=2, padx=4
-        )
-        ttk.Button(top, text="Aubo Off", command=self._confirm_aubo_power_off, style="Danger.TButton").grid(
-            row=0, column=18, rowspan=2, padx=4
-        )
+        ).grid(row=0, column=11, rowspan=2, padx=4)
 
     def _confirm_aubo_power_off(self) -> None:
         if not messagebox.askyesno(
@@ -3508,53 +3522,96 @@ class TeachPanelApp:
             self.status_vars[key] = var
             ttk.Label(overview, textvariable=var).grid(row=row, column=1, sticky="ew", padx=6, pady=4)
 
-        quick = ttk.LabelFrame(tab, text="Quick Control")
+        quick = ttk.Frame(tab)
         quick.grid(row=0, column=1, sticky="nsew", pady=(0, 8))
-        self._make_preset_hold_button(quick, "Hold Home", "home").grid(
-            row=0, column=0, sticky="ew", padx=5, pady=5
-        )
-        self._make_preset_hold_button(quick, "Hold Install", "install").grid(
-            row=0, column=1, sticky="ew", padx=5, pady=5
-        )
-        ttk.Button(quick, text="Stop All", command=self.node.stop_all).grid(
-            row=0, column=2, sticky="ew", padx=5, pady=5
-        )
-        buttons = (
-            ("Aubo On", lambda: self.node.command_aubo_lifecycle("power_on")),
-            ("Aubo Start", lambda: self.node.command_aubo_lifecycle("startup")),
-            ("Aubo Off", self._confirm_aubo_power_off),
-            ("Teach On", lambda: self.node.set_aubo_teach(True)),
-            ("Teach Off", lambda: self.node.set_aubo_teach(False)),
-            ("Set Home", self._set_home_from_current),
-            ("Set Install", self._set_install_from_current),
-            ("Program Rec", self._toggle_program_recording),
-            ("Record", self._record),
-            ("Replay", self._play),
-            ("Visual Grasp", self.node.visual_grasp_start),
-            ("Grasp Start", lambda: self.node.call_grasp_task("start")),
-            ("Grasp Stop", lambda: self.node.call_grasp_task("stop")),
-            ("Restore", lambda: self.node.call_grasp_task("restore")),
-            ("Road Preflight", lambda: self.node.call_cleanup_task("preflight")),
-            ("Road Start", lambda: self.node.call_cleanup_task("start")),
-            ("Road Stop", lambda: self.node.call_cleanup_task("stop")),
-            ("Camera", self.node.start_camera_stack),
-            ("2D View", lambda: self.node.toggle_managed_process("viewer")),
-            ("SLAM", lambda: self.node.toggle_managed_process("slam")),
-            ("GraspSrv", lambda: self.node.toggle_managed_process("grasp_server")),
-            ("RoadSrv", lambda: self.node.toggle_managed_process("cleanup_server")),
-            ("Open", lambda: self.node.publish_gripper("open")),
-            ("Close", lambda: self.node.publish_gripper("close")),
-            ("Save Config", self._save_config),
-        )
-        for index, (text, command) in enumerate(buttons, start=3):
-            button = ttk.Button(quick, text=text, command=command)
-            if text == "Program Rec":
-                self.program_record_buttons.append(button)
-            button.grid(
-                row=index // 3, column=index % 3, sticky="ew", padx=5, pady=5
-            )
-        for column in range(3):
+        for column in range(2):
             quick.columnconfigure(column, weight=1)
+
+        task_group = self._build_button_group(
+            quick,
+            "Task Flow",
+            (
+                ("Visual Grasp", self.node.visual_grasp_start, "Primary.TButton"),
+                ("Road Start", lambda: self.node.call_cleanup_task("start"), "Primary.TButton"),
+                ("Grasp Start", lambda: self.node.call_grasp_task("start"), None),
+                ("Road Preflight", lambda: self.node.call_cleanup_task("preflight"), None),
+                ("Restore", lambda: self.node.call_grasp_task("restore"), None),
+                ("Road Stop", lambda: self.node.call_cleanup_task("stop"), "Danger.TButton"),
+                ("Grasp Stop", lambda: self.node.call_grasp_task("stop"), "Danger.TButton"),
+                ("Stop All", self.node.stop_all, "Danger.TButton"),
+            ),
+            columns=2,
+        )
+        task_group.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+
+        service_group = self._build_button_group(
+            quick,
+            "Runtime Services",
+            (
+                ("Camera + View", self.node.start_camera_stack, "Service.TButton"),
+                ("2D View", lambda: self.node.toggle_managed_process("viewer"), None),
+                ("Localize / Nav", lambda: self.node.toggle_managed_process("slam"), None),
+                ("Grasp Server", lambda: self.node.toggle_managed_process("grasp_server"), None),
+                ("Road Server", lambda: self.node.toggle_managed_process("cleanup_server"), None),
+            ),
+            columns=2,
+        )
+        service_group.grid(row=1, column=0, sticky="new", padx=(0, 5), pady=(0, 8))
+
+        arm_group = self._build_button_group(
+            quick,
+            "Aubo Power / Teach",
+            (
+                ("Aubo On", lambda: self.node.command_aubo_lifecycle("power_on"), None),
+                ("Aubo Start", lambda: self.node.command_aubo_lifecycle("startup"), None),
+                ("Teach On", lambda: self.node.set_aubo_teach(True), None),
+                ("Teach Off", lambda: self.node.set_aubo_teach(False), None),
+                ("Aubo Off", self._confirm_aubo_power_off, "Danger.TButton"),
+            ),
+            columns=2,
+        )
+        arm_group.grid(row=1, column=1, sticky="new", padx=(5, 0), pady=(0, 8))
+
+        preset_group = ttk.LabelFrame(quick, text="Pose Presets")
+        preset_group.grid(row=2, column=0, sticky="new", padx=(0, 5), pady=(0, 8))
+        for column in range(2):
+            preset_group.columnconfigure(column, weight=1)
+        self._make_preset_hold_button(preset_group, "Hold Home", "home").grid(
+            row=0, column=0, sticky="ew", padx=5, pady=4
+        )
+        self._make_preset_hold_button(preset_group, "Hold Install", "install").grid(
+            row=0, column=1, sticky="ew", padx=5, pady=4
+        )
+        ttk.Button(preset_group, text="Set Home", command=self._set_home_from_current).grid(
+            row=1, column=0, sticky="ew", padx=5, pady=4
+        )
+        ttk.Button(preset_group, text="Set Install", command=self._set_install_from_current).grid(
+            row=1, column=1, sticky="ew", padx=5, pady=4
+        )
+
+        program_group = self._build_button_group(
+            quick,
+            "Program",
+            (
+                ("Program Rec", self._toggle_program_recording, None),
+                ("Record", self._record, None),
+                ("Replay", self._play, None),
+                ("Save Config", self._save_config, None),
+            ),
+            columns=2,
+        )
+        program_group.grid(row=2, column=1, sticky="new", padx=(5, 0), pady=(0, 8))
+
+        gripper_group = self._build_button_group(
+            quick,
+            "Gripper",
+            (
+                ("Open", lambda: self.node.publish_gripper("open"), None),
+                ("Close", lambda: self.node.publish_gripper("close"), None),
+            ),
+            columns=2,
+        )
+        gripper_group.grid(row=3, column=0, columnspan=2, sticky="ew")
 
         services = ttk.LabelFrame(tab, text="Runtime Services")
         services.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
@@ -3563,7 +3620,7 @@ class TeachPanelApp:
             (
                 ("camera", "Gemini Camera"),
                 ("viewer", "2D Raw View"),
-                ("slam", "SLAM / Nav"),
+                ("slam", "Localize / Nav"),
                 ("grasp_server", "Grasp Server"),
                 ("cleanup_server", "Road Cleanup Server"),
             )

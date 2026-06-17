@@ -58,6 +58,10 @@ if [[ -n "${PYTHONPATH:-}" ]]; then
 fi
 export PYTHONNOUSERSITE="${PYTHONNOUSERSITE:-1}"
 
+# FastDDS shared-memory transport can leave stale lock files on the Jetson and
+# break lifecycle service calls. Use UDPv4 by default for local ROS graph traffic.
+export FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
+
 if ! arachne_require_ros_distro; then
   return 1
 fi
