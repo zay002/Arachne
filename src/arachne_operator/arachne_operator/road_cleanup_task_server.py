@@ -119,6 +119,7 @@ class RoadCleanupTaskServer(Node):
         self.patrol_heading_rad = 0.0
         self.completed_base_segments: list[dict[str, Any]] = []
         self.successful_grasps = 0
+        self.real_search_scan_enabled = False
 
         self.state_pub = self.create_publisher(String, "/arachne/road_cleanup/state", 10)
         self.event_pub = self.create_publisher(String, "/arachne/road_cleanup/event", 10)
@@ -176,6 +177,7 @@ class RoadCleanupTaskServer(Node):
         )
 
         self.create_timer(0.5, self._publish_state)
+        self.create_timer(0.5, self._publish_real_search_scan)
         self._event(
             "server_ready",
             {
@@ -845,10 +847,14 @@ class RoadCleanupTaskServer(Node):
         self._event("visual_search_restart", {"reason": reason})
 
     def _set_real_search_scan(self, enabled: bool) -> None:
-        msg = Bool()
-        msg.data = bool(enabled)
-        self.real_search_scan_pub.publish(msg)
+        self.real_search_scan_enabled = bool(enabled)
+        self._publish_real_search_scan()
         self._event("real_search_scan", {"enabled": bool(enabled)})
+
+    def _publish_real_search_scan(self) -> None:
+        msg = Bool()
+        msg.data = bool(self.real_search_scan_enabled)
+        self.real_search_scan_pub.publish(msg)
 
     def _fresh_candidate(self) -> Candidate | None:
         timeout = max(float(self.get_parameter("detection_timeout_sec").value), 0.1)
