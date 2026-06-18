@@ -552,6 +552,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--real-sdk-max-segment-joint-delta", type=float, default=0.55, help=hidden)
     parser.add_argument("--real-sdk-max-targets", type=int, default=8, help=hidden)
     parser.add_argument("--real-sdk-semantic-targets-only", action=argparse.BooleanOptionalAction, default=True, help=hidden)
+    parser.add_argument("--real-search-scan", action=argparse.BooleanOptionalAction, default=False, help=hidden)
+    parser.add_argument("--real-search-scan-period-sec", type=float, default=5.0, help=hidden)
+    parser.add_argument("--real-search-scan-shoulder-deg", type=float, default=4.0, help=hidden)
+    parser.add_argument("--real-search-scan-wrist3-deg", type=float, default=8.0, help=hidden)
+    parser.add_argument("--real-search-scan-speed", type=float, default=0.08, help=hidden)
+    parser.add_argument("--real-search-scan-accel", type=float, default=0.20, help=hidden)
     parser.add_argument(
         "--real-return-home",
         dest="real_return_home",
@@ -792,6 +798,7 @@ class GraspPreviewNode(Node):
         self.real_joint_state_time = 0.0
         self.real_execution_started = False
         self.real_execution_lock = threading.Lock()
+        self.real_scan_thread: threading.Thread | None = None
         self.preview_ik_joints = np.asarray(DEFAULT_ARM_JOINTS, dtype=float)
         self.preview_ik_velocity = np.zeros(6, dtype=float)
         self.preview_ik_accel = np.zeros(6, dtype=float)
@@ -894,6 +901,9 @@ class GraspPreviewNode(Node):
                 "real execution armed; motion will be sent only after confirmation and start-state checks "
                 f"backend={args.real_execute_backend}"
             )
+        if bool(args.real_search_scan):
+            self.real_scan_thread = threading.Thread(target=self._real_search_scan_loop, daemon=True)
+            self.real_scan_thread.start()
 
     def _clamp_basket_points_above_keepout(self) -> None:
         top = (
@@ -1419,6 +1429,7 @@ class GraspPreviewNode(Node):
 
         with AuboDirectJsonRpc(ip, port, timeout) as rpc:
             try:
+                self.get_logger().warn(f"Aubo SDK connect ok: robot={rpc.robot_name} rpc={ip}:{port}")
                 self._real_sdk_require_running(rpc)
                 owner_owned = self._real_sdk_enter_control_owner()
                 gate_owned = self._real_sdk_enter_gate()
@@ -1489,6 +1500,109 @@ class GraspPreviewNode(Node):
                 finally:
                     self._real_sdk_exit_gate(gate_owned)
                     self._real_sdk_exit_control_owner(owner_owned)
+
+    def _real_search_scan_loop(self) -> None:
+        ip = str(self.args.real_sdk_ip)
+        port = int(self.args.real_sdk_rpc_port)
+        timeout = max(float(self.args.real_sdk_rpc_timeout), 0.1)
+        speed = max(float(self.args.real_search_scan_speed), 0.01)
+        accel = max(float(self.args.real_search_scan_accel), 0.05)
+        period = max(float(self.args.real_search_scan_period_sec), 1.0)
+        shoulder = math.radians(float(self.args.real_search_scan_shoulder_deg))
+        wrist3 = math.radians(float(self.args.real_search_scan_wrist3_deg))
+        owner_owned = False
+        gate_owned = False
+        center: np.ndarray | None = None
+        phase = 0
+        rpc: AuboDirectJsonRpc | None = None
+        while rclpy.ok() and not self.stopping:
+            active = self._real_search_scan_active()
+            try:
+                if not active:
+                    if rpc is not None:
+                        if gate_owned:
+                            self._real_sdk_stop_joint(rpc, "search scan pause", warn_only=True)
+                    self._real_sdk_exit_gate(gate_owned)
+                    self._real_sdk_exit_control_owner(owner_owned)
+                    gate_owned = False
+                    owner_owned = False
+                    center = None
+                    if rpc is not None:
+                        rpc.close()
+                        rpc = None
+                    time.sleep(0.2)
+                    continue
+                if rpc is None:
+                    rpc = AuboDirectJsonRpc(ip, port, timeout)
+                    rpc.connect()
+                    self._real_sdk_require_running(rpc)
+                    owner_owned = self._real_sdk_enter_control_owner()
+                    gate_owned = self._real_sdk_enter_gate()
+                    self._real_sdk_exit_servo_mode(rpc)
+                    self._real_sdk_stop_joint(rpc, "search scan start", warn_only=True)
+                    center = self._real_sdk_joint_positions(rpc)
+                    self.get_logger().warn(
+                        "REAL search scan active: "
+                        f"shoulder=+/-{math.degrees(abs(shoulder)):.1f}deg "
+                        f"wrist3=+/-{math.degrees(abs(wrist3)):.1f}deg"
+                    )
+                if center is None:
+                    center = self._real_sdk_joint_positions(rpc)
+                target = np.asarray(center, dtype=float)
+                # ponytail: small joint-space arc; replace with full IK camera arc if this proves useful.
+                sign = -1.0 if phase % 2 == 0 else 1.0
+                target[0] = center[0] + sign * shoulder
+                target[5] = center[5] - sign * wrist3
+                result = rpc.robot_call(
+                    "MotionControl.moveJoint",
+                    [[float(value) for value in target], accel, speed, 0.0, 0.0],
+                )
+                self.get_logger().warn(
+                    f"REAL search scan moveJoint phase={phase % 2} result={result} error=None"
+                )
+                if result not in (0, None):
+                    time.sleep(1.0)
+                    continue
+                deadline = time.monotonic() + period * 0.5
+                while time.monotonic() < deadline and self._real_search_scan_active():
+                    time.sleep(0.05)
+                phase += 1
+                time.sleep(max(period * 0.10, 0.05))
+            except Exception as exc:  # pragma: no cover - live robot path.
+                self.get_logger().warning(f"REAL search scan stopped: {exc}")
+                try:
+                    if rpc is not None and gate_owned:
+                        self._real_sdk_stop_joint(rpc, "search scan error", warn_only=True)
+                finally:
+                    self._real_sdk_exit_gate(gate_owned)
+                    self._real_sdk_exit_control_owner(owner_owned)
+                    gate_owned = False
+                    owner_owned = False
+                    center = None
+                    if rpc is not None:
+                        rpc.close()
+                        rpc = None
+                time.sleep(1.0)
+        if rpc is not None:
+            try:
+                if gate_owned:
+                    self._real_sdk_stop_joint(rpc, "search scan shutdown", warn_only=True)
+            finally:
+                self._real_sdk_exit_gate(gate_owned)
+                self._real_sdk_exit_control_owner(owner_owned)
+                rpc.close()
+
+    def _real_search_scan_active(self) -> bool:
+        with self.real_execution_lock:
+            real_started = self.real_execution_started
+        planning = self.planning_thread
+        return bool(self.args.real_search_scan) and (
+            self.latest_color is not None
+            and not self.inference_paused
+            and self.depth_wait_detection is None
+            and (planning is None or not planning.is_alive())
+            and not real_started
+        )
 
     def _execute_real_follow_joint_trajectory(self, preview: GraspPreview) -> None:
         if self.real_arm_action_client is None:
@@ -1777,6 +1891,7 @@ class GraspPreviewNode(Node):
     def _real_sdk_require_running(self, rpc: AuboDirectJsonRpc) -> None:
         mode = str(rpc.robot_call("RobotState.getRobotModeType")).strip().lower()
         safety = str(rpc.robot_call("RobotState.getSafetyModeType")).strip().lower()
+        self.get_logger().warn(f"Aubo SDK mode check: mode={mode} safety={safety}")
         if mode != "running" or safety not in ("normal", "reducedmode"):
             raise RuntimeError(
                 "Aubo SDK execution requires Running/Normal or ReducedMode: "
@@ -1831,6 +1946,7 @@ class GraspPreviewNode(Node):
     def _real_sdk_exit_servo_mode(self, rpc: AuboDirectJsonRpc) -> None:
         try:
             result = rpc.robot_call("MotionControl.setServoModeSelect", [0])
+            self.get_logger().warn(f"Aubo SDK setServoModeSelect(0): result={result} error=None")
             if result not in (0, None):
                 self.get_logger().warn(f"Aubo SDK setServoModeSelect(0) result={result}")
             return
@@ -1839,6 +1955,7 @@ class GraspPreviewNode(Node):
                 f"Aubo SDK setServoModeSelect unavailable, trying setServoMode(false): {exc}"
             )
         result = rpc.robot_call("MotionControl.setServoMode", [False])
+        self.get_logger().warn(f"Aubo SDK setServoMode(false): result={result} error=None")
         if result not in (0, None):
             self.get_logger().warn(f"Aubo SDK setServoMode(false) result={result}")
 
@@ -1848,6 +1965,9 @@ class GraspPreviewNode(Node):
         accel = max(float(self.args.real_sdk_move_accel), 0.05)
         try:
             result = rpc.robot_call("MotionControl.stopJoint", [accel])
+            self.get_logger().warn(
+                f"Aubo SDK stopJoint during {reason}: result={result} error=None"
+            )
         except Exception as exc:
             if warn_only:
                 self.get_logger().warn(f"Aubo SDK stopJoint failed during {reason}: {exc}")

@@ -70,6 +70,10 @@ REAL_EXECUTE_BACKEND="${ARACHNE_GRASP_REAL_EXECUTE_BACKEND:-sdk_move_joint}"
 REAL_SDK_IP="${ARACHNE_GRASP_REAL_SDK_IP:-${AUBO_ROBOT_IP:-192.168.127.128}}"
 REAL_SDK_MOVE_SPEED="${ARACHNE_GRASP_REAL_SDK_MOVE_SPEED:-0.25}"
 REAL_SDK_MOVE_ACCEL="${ARACHNE_GRASP_REAL_SDK_MOVE_ACCEL:-0.45}"
+REAL_SEARCH_SCAN="${ARACHNE_GRASP_REAL_SEARCH_SCAN:-${EXECUTE_REAL}}"
+REAL_SEARCH_SCAN_PERIOD_SEC="${ARACHNE_GRASP_REAL_SEARCH_SCAN_PERIOD_SEC:-5.0}"
+REAL_SEARCH_SCAN_SHOULDER_DEG="${ARACHNE_GRASP_REAL_SEARCH_SCAN_SHOULDER_DEG:-4.0}"
+REAL_SEARCH_SCAN_WRIST3_DEG="${ARACHNE_GRASP_REAL_SEARCH_SCAN_WRIST3_DEG:-8.0}"
 REAL_SDK_TEACH_FLAG_PATH="${ARACHNE_GRASP_REAL_SDK_TEACH_FLAG_PATH:-/tmp/arachne_aubo_teach_mode}"
 REAL_SDK_CONTROL_OWNER_PATH="${ARACHNE_GRASP_AUBO_CONTROL_OWNER_PATH:-/tmp/arachne_aubo_control_owner}"
 REAL_SDK_CONTROL_OWNER_NAME="${ARACHNE_GRASP_AUBO_CONTROL_OWNER_NAME:-grasp_task_server}"
@@ -341,6 +345,20 @@ run_pipeline() {
     projection_args+=(--no-depth-projection-flip-y)
   fi
   local execute_args=()
+  local search_scan_arg="--real-search-scan"
+  if [[ "${REAL_SEARCH_SCAN}" != "true" ]]; then
+    search_scan_arg="--no-real-search-scan"
+  fi
+  local search_scan_args=(
+    "${search_scan_arg}"
+    --real-search-scan-period-sec "${REAL_SEARCH_SCAN_PERIOD_SEC}"
+    --real-search-scan-shoulder-deg "${REAL_SEARCH_SCAN_SHOULDER_DEG}"
+    --real-search-scan-wrist3-deg "${REAL_SEARCH_SCAN_WRIST3_DEG}"
+    --real-sdk-ip "${REAL_SDK_IP}"
+    --real-sdk-teach-flag-path "${REAL_SDK_TEACH_FLAG_PATH}"
+    --real-sdk-control-owner-path "${REAL_SDK_CONTROL_OWNER_PATH}"
+    --real-sdk-control-owner-name "${REAL_SDK_CONTROL_OWNER_NAME}"
+  )
   if [[ "${EXECUTE_REAL}" == "true" ]]; then
     local return_home_arg="--real-return-home"
     if [[ "${REAL_RETURN_HOME}" != "true" ]]; then
@@ -377,6 +395,7 @@ run_pipeline() {
     --remote-planner-url "${REMOTE_PLANNER_URL:-http://127.0.0.1:8767}" \
     --remote-planner-timeout "${REMOTE_PLANNER_TIMEOUT}" \
     "${projection_args[@]}" \
+    "${search_scan_args[@]}" \
     "${execute_args[@]}" \
     "$@"
 }

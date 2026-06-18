@@ -148,7 +148,7 @@ def generate_launch_description():
             DeclareLaunchArgument("trash_count", default_value="10"),
             DeclareLaunchArgument("scan_arc_radius_m", default_value="0.32"),
             DeclareLaunchArgument("scan_arc_angle_deg", default_value="72.0"),
-            DeclareLaunchArgument("scan_arc_samples", default_value="5"),
+            DeclareLaunchArgument("scan_arc_samples", default_value="9"),
             DeclareLaunchArgument("scan_cycle_duration_sec", default_value="4.2"),
             DeclareLaunchArgument("detection_lock_frames", default_value="1"),
             DeclareLaunchArgument("launch_demo_rviz", default_value="true"),

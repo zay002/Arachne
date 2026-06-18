@@ -88,6 +88,7 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("reach_recovery_step_m", 0.10)
         self.declare_parameter("reach_recovery_wait_detection_sec", 3.0)
         self.declare_parameter("reach_recovery_continue_on_exhausted", True)
+        self.declare_parameter("continue_on_grasp_failure", True)
         self.declare_parameter("loop", True)
 
         self.lock = threading.RLock()
@@ -651,6 +652,15 @@ class RoadCleanupTaskServer(Node):
             with self.lock:
                 self.last_grasp_failure = failure
             if not self._should_recover_after_grasp_failure(state, text):
+                if bool(self.get_parameter("continue_on_grasp_failure").value):
+                    self._event(
+                        "grasp_failed_continue",
+                        {"candidate": asdict(candidate), "failure": failure},
+                    )
+                    with self.lock:
+                        self.active_candidate = None
+                    self._set_state("patrol", f"skip failed {candidate.class_name}; continue patrol")
+                    return
                 self._finish("failed", failure)
                 return
             if attempt >= max_recovery:

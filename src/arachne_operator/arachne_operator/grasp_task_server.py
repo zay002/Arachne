@@ -471,6 +471,25 @@ class GraspTaskServer(Node):
         env["ARACHNE_GRASP_DISPLAY_FRAME_PREFIX"] = ""
         env["ARACHNE_GRASP_CAMERA_PARENT_FRAME"] = "ee_camera_link"
         env["ARACHNE_GRASP_EXECUTE_REAL"] = "false"
+        env["ARACHNE_GRASP_REAL_SEARCH_SCAN"] = (
+            "true" if bool(self.get_parameter("execute_real").value) else "false"
+        )
+        env["ARACHNE_GRASP_REAL_SDK_IP"] = str(self.get_parameter("real_sdk_ip").value)
+        env["ARACHNE_GRASP_REAL_SDK_MOVE_SPEED"] = str(
+            self.get_parameter("real_sdk_move_speed").value
+        )
+        env["ARACHNE_GRASP_REAL_SDK_MOVE_ACCEL"] = str(
+            self.get_parameter("real_sdk_move_accel").value
+        )
+        env["ARACHNE_GRASP_REAL_SDK_TEACH_FLAG_PATH"] = str(
+            self.get_parameter("aubo_teach_flag_path").value
+        )
+        env["ARACHNE_GRASP_AUBO_CONTROL_OWNER_PATH"] = str(
+            self.get_parameter("aubo_control_owner_path").value
+        )
+        env["ARACHNE_GRASP_AUBO_CONTROL_OWNER_NAME"] = str(
+            self.get_parameter("aubo_control_owner_name").value
+        )
         env["ARACHNE_GRASP_REAL_RETURN_HOME"] = "false"
         env["ARACHNE_GRASP_CLASSES"] = str(self.get_parameter("classes").value)
         env["ARACHNE_GRASP_CONF"] = str(self.get_parameter("confidence").value)
@@ -492,6 +511,38 @@ class GraspTaskServer(Node):
                 log_file.close()
             except Exception:
                 pass
+
+    def _wait_for_aubo_control_release(self, timeout: float) -> tuple[bool, str]:
+        deadline = time.monotonic() + max(float(timeout), 0.0)
+        last = ""
+        while time.monotonic() <= deadline:
+            owner_ok, owner_message = self._aubo_control_owner_available()
+            gate_ok, gate_message = self._aubo_teach_gate_available()
+            last = f"{owner_message}; {gate_message}"
+            if owner_ok and gate_ok:
+                return True, last
+            if owner_ok and self._clear_orphan_aubo_teach_gate():
+                return True, f"{owner_message}; cleared orphan teach gate"
+            time.sleep(0.05)
+        return False, last
+
+    def _clear_orphan_aubo_teach_gate(self) -> bool:
+        gate = Path(str(self.get_parameter("aubo_teach_flag_path").value))
+        owner = Path(str(self.get_parameter("aubo_control_owner_path").value))
+        if not gate.exists() or owner.exists():
+            return False
+        try:
+            text = gate.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            return False
+        if not text.startswith("1"):
+            return False
+        try:
+            gate.unlink(missing_ok=True)
+        except OSError:
+            return False
+        self._event("aubo_teach_gate_orphan_cleared", {"path": str(gate), "value": text})
+        return True
 
     def _base_stop_cb(self, _request, response):
         ok, message = self._stop_base("service stop")
@@ -1044,6 +1095,9 @@ class GraspTaskServer(Node):
 
     def _run_task(self) -> None:
         self._stop_idle_preview("grasp task starting")
+        ok, message = self._wait_for_aubo_control_release(4.0)
+        if not ok:
+            self._event("idle_preview_control_release_timeout", {"message": message})
         task_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
         run_dir = self._log_root() / task_id
         run_dir.mkdir(parents=True, exist_ok=True)

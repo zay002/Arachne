@@ -120,7 +120,7 @@ class UrbanTrashSortingDemo(Node):
         self.declare_parameter("trash_count", 10)
         self.declare_parameter("scan_arc_radius_m", 0.32)
         self.declare_parameter("scan_arc_angle_deg", 72.0)
-        self.declare_parameter("scan_arc_samples", 5)
+        self.declare_parameter("scan_arc_samples", 9)
         self.declare_parameter("scan_cycle_duration_sec", 4.2)
         self.declare_parameter("detection_lock_frames", 1)
 
@@ -263,10 +263,10 @@ class UrbanTrashSortingDemo(Node):
             achieved_error = float(np.linalg.norm(achieved[:3, 3] - position))
             if not ok or achieved_error > 0.025 or orientation_error > 0.35:
                 self.get_logger().warning(
-                    "camera arc IK failed; falling back to legacy scan poses "
+                    "camera arc IK failed; falling back to joint-space arc "
                     f"(err={achieved_error:.3f}m ori={orientation_error:.3f}rad)"
                 )
-                return [list(SCAN_LEFT), list(SCAN_CENTER), list(SCAN_RIGHT), list(SCAN_CENTER)], []
+                return self._fallback_scan_arc(samples)
             joints.append([float(v) for v in q_goal])
             camera_points.append((float(position[0]), float(position[1]), float(position[2])))
             q_seed = q_goal
@@ -277,6 +277,22 @@ class UrbanTrashSortingDemo(Node):
             f"Camera scan arc ready: radius={radius:.2f}m angle={math.degrees(max_angle):.1f}deg "
             f"keypoints={len(joints)} z_span={z_span * 1000.0:.1f}mm"
         )
+        return joints, camera_points
+
+    def _fallback_scan_arc(self, samples: int) -> tuple[list[list[float]], list[tuple[float, float, float]]]:
+        joints: list[list[float]] = []
+        camera_points: list[tuple[float, float, float]] = []
+        left = np.asarray(SCAN_LEFT, dtype=float)
+        center = np.asarray(SCAN_CENTER, dtype=float)
+        right = np.asarray(SCAN_RIGHT, dtype=float)
+        for t in np.linspace(0.0, 1.0, max(samples, 5)):
+            if t <= 0.5:
+                q = left + self._joint_delta(center, left) * (0.5 - 0.5 * math.cos(math.pi * t * 2.0))
+            else:
+                q = center + self._joint_delta(right, center) * (0.5 - 0.5 * math.cos(math.pi * (t - 0.5) * 2.0))
+            joints.append([float(value) for value in q])
+            camera = self._camera_pose_base(q)
+            camera_points.append(tuple(float(value) for value in camera[:3, 3]))
         return joints, camera_points
 
     def _make_trash_scene(self) -> list[TrashSpec]:
@@ -561,7 +577,7 @@ class UrbanTrashSortingDemo(Node):
         now = self.get_clock().now()
         elapsed = (now.nanoseconds - self.scan_started.nanoseconds) * 1e-9
         phase = (elapsed / self.scan_cycle_duration) % 1.0
-        sweep = 0.5 - 0.5 * math.cos(2.0 * math.pi * phase)
+        sweep = 0.5 + 0.5 * math.sin(2.0 * math.pi * phase)
         scaled = sweep * (len(self.scan_poses) - 1)
         lower = min(int(math.floor(scaled)), len(self.scan_poses) - 2)
         upper = lower + 1
