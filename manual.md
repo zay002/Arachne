@@ -423,15 +423,15 @@ r      reset 清空样本
 q      quit
 ```
 
-建议至少采 12 组以上，姿态要有明显平移和旋转变化。最新一次采用 H12 / `tagStandard41h2` 标定后，外参已写入 `src/arachne_description/config/physical_parameters.yaml`，并同步到 Gemini335 launch 和施教器相机命令。当前默认发布：
+建议至少采 12 组以上，姿态要有明显平移和旋转变化。2026-06-18 RViz 对齐检查后，真机默认让 Gemini335 optical frame 跟随模型中的 `ee_camera_link`，避免点云和可视化相机模型分离。当前默认发布：
 
 ```text
-tool0 -> camera_color_optical_frame
-xyz = -0.239469796, 0.181459396, 0.190102132
-rpy =  0.0,0.0,3.128380060
+ee_camera_link -> camera_color_optical_frame
+xyz = 0.0, 0.0, 0.0
+rpy = 0.0, 0.0, 0.0
 ```
 
-2026-06-18 road_cleanup 真机调试中，机械臂 tool0 已调整到光轴向下的搜索姿态；为避免把相机点云投影到远离真实瓶子的位置，当前默认保留手眼标定得到的 `tool0 -> camera` 平移，只将 roll/pitch 按模型对齐到 0，使 `camera_*_optical_frame` 的 z 轴跟 tool0 向下方向一致。不要把 tool0 原点当作相机原点。
+2026-06-18 road_cleanup 真机调试中，机械臂 tool0 已调整到光轴向下的搜索姿态；点云必须跟随模型相机 `ee_camera_link`，不要把旧的 `tool0 -> camera_*_optical_frame` 手眼结果当作 RViz 相机位置。
 
 如果 Aubo 还没有 Running，`/joint_states` 可能不会发布；施教器可视化节点会用只读 Aubo SDK fallback 发布当前 6 轴到 `/arachne/teach_visualization/joint_states`，让 `base_link -> tool0 -> camera_*_optical_frame` 仍跟随手动摆出的真实姿态。日志应出现 `RViz visualization is following Aubo SDK joint positions while /joint_states is idle.`。
 

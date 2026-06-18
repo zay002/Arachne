@@ -7,8 +7,12 @@ Visualization Manager:
     - Class: rviz_default_plugins/Grid
       Enabled: true
       Name: Grid
+      Offset:
+        X: 0
+        Y: 0
+        Z: -0.2
       Plane: XY
-      Reference Frame: lidar_link
+      Reference Frame: base_link
     - Class: rviz_default_plugins/RobotModel
       Alpha: 1
       Description Source: Topic
@@ -94,10 +98,10 @@ Visualization Manager:
       Use rainbow: false
       Value: true
   Enabled: true
-  Fixed Frame: lidar_link
+  Fixed Frame: base_link
   Global Options:
     Background Color: 248; 248; 245
-    Fixed Frame: lidar_link
+    Fixed Frame: base_link
     Frame Rate: 30
   Name: root
   Tools:
@@ -115,5 +119,5 @@ Views:
       Z: 0.25
     Name: Current View
     Pitch: 0.65
-    Target Frame: lidar_link
+    Target Frame: base_link
     Yaw: 0.75

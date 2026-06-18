@@ -412,12 +412,12 @@ class TeachPanelNode(Node):
             (
                 "ros2 launch arachne_sensors gemini335.launch.py "
                 "publish_pointcloud:=false with_color_view:=false with_depth_view:=false "
-                "with_tf:=true camera_parent_frame:=tool0 "
+                "with_tf:=true camera_parent_frame:=ee_camera_link "
                 "color_width:=960 color_height:=540 color_fps:=15.0 "
                 "depth_width:=960 depth_height:=540 depth_fps:=15.0 "
-                "camera_optical_x:=-0.239469796 camera_optical_y:=0.181459396 "
-                "camera_optical_z:=0.190102132 camera_optical_roll:=0.0 "
-                "camera_optical_pitch:=0.0 camera_optical_yaw:=3.128380060 "
+                "camera_optical_x:=0.0 camera_optical_y:=0.0 "
+                "camera_optical_z:=0.0 camera_optical_roll:=0.0 "
+                "camera_optical_pitch:=0.0 camera_optical_yaw:=0.0 "
                 "projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YUYV"
             ),
         )

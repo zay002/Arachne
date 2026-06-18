@@ -145,7 +145,7 @@ ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/hardwa
 ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/hardware/real_aubo_remote_start.sh
 ```
 
-日常真机启动优先使用施教器总控。它会先打开施教器和 RViz，不要求 Aubo 已经 Running；Aubo 上电/启动、Gemini 相机、2D raw 画面、Localization/Nav 和 grasp server 都可以在施教器里开关。视觉抓取优先点 `Visual Grasp`，它会自动启动 Camera、2D raw view 和 grasp server，并等待 preflight 通过后再开始任务；默认会按“娃娃机式垂直逼近”抓取，夹爪反馈判断为空抓时会重新拍摄并最多重试 3 次。`Grasp Start` 只作为底层调试入口。console 默认彩色流为 320x240、深度为 640x480，优先保证远程观察流畅。Gemini335 彩色流按 YUYV 读取，避免旧版 v4l2 配置输出污染导致紫绿偏色；当前手眼外参直接发布 `tool0 -> camera_color_optical_frame` 和 `tool0 -> camera_depth_optical_frame`。`tool0` 是法兰中心，不是相机原点；点云投影必须使用模型中的 `tool0 -> camera_*_optical_frame` 平移和姿态。没有新鲜 `/joint_states` 时，施教器可视化节点会只读轮询 Aubo SDK 当前关节，避免 TF 回落到默认机械臂姿态。
+日常真机启动优先使用施教器总控。它会先打开施教器和 RViz，不要求 Aubo 已经 Running；Aubo 上电/启动、Gemini 相机、2D raw 画面、Localization/Nav 和 grasp server 都可以在施教器里开关。视觉抓取优先点 `Visual Grasp`，它会自动启动 Camera、2D raw view 和 grasp server，并等待 preflight 通过后再开始任务；默认会按“娃娃机式垂直逼近”抓取，夹爪反馈判断为空抓时会重新拍摄并最多重试 3 次。`Grasp Start` 只作为底层调试入口。console 默认彩色流为 320x240、深度为 640x480，优先保证远程观察流畅。Gemini335 彩色流按 YUYV 读取，避免旧版 v4l2 配置输出污染导致紫绿偏色；当前 `camera_color_optical_frame` 和 `camera_depth_optical_frame` 挂在模型里的 `ee_camera_link` 下，避免 RViz 点云和相机模型分离。`tool0` 是法兰中心，不是相机原点。没有新鲜 `/joint_states` 时，施教器可视化节点会只读轮询 Aubo SDK 当前关节，避免 TF 回落到默认机械臂姿态。
 
 已完成的教室地图保存在 `src/arachne_nav/maps/road_lab_apriltag.yaml`。AprilTag/H12 仅用于一次性建图初始朝向和手眼标定，不属于正常 road_clean 启动流程；后续默认通过已有地图和定位链路同步 RViz 位姿。为降低 Jetson 负载，真机施教器正常启动时不自动打开 topdown 导航 RViz；需要定位/Nav 时再从面板或脚本显式启动。`Localization/Nav` 会启动 C16 点云转 `/scan`、AMCL/Nav2 和定位相关节点：
 
