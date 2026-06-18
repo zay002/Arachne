@@ -426,6 +426,7 @@ class GraspTaskServer(Node):
         self._start_idle_preview()
 
     def _start_idle_preview(self) -> None:
+        self._clear_orphan_aubo_teach_gate()
         command, env = self._idle_preview_command()
         log_dir = self._log_root() / "idle_preview"
         log_dir.mkdir(parents=True, exist_ok=True)

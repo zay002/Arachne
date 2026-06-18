@@ -558,6 +558,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--real-search-scan-wrist3-deg", type=float, default=8.0, help=hidden)
     parser.add_argument("--real-search-scan-speed", type=float, default=0.08, help=hidden)
     parser.add_argument("--real-search-scan-accel", type=float, default=0.20, help=hidden)
+    parser.add_argument("--perception-only-restart-sec", type=float, default=1.0, help=hidden)
     parser.add_argument(
         "--real-return-home",
         dest="real_return_home",
@@ -799,6 +800,8 @@ class GraspPreviewNode(Node):
         self.real_execution_started = False
         self.real_execution_lock = threading.Lock()
         self.real_scan_thread: threading.Thread | None = None
+        self._last_real_scan_warning = ""
+        self._last_real_scan_warning_time = 0.0
         self.preview_ik_joints = np.asarray(DEFAULT_ARM_JOINTS, dtype=float)
         self.preview_ik_velocity = np.zeros(6, dtype=float)
         self.preview_ik_accel = np.zeros(6, dtype=float)
@@ -1300,6 +1303,7 @@ class GraspPreviewNode(Node):
             self.plan_lock_time = time.monotonic()
             self._publish_preview(perception, preview_header)
             self.get_logger().info("3D snapshot published; arm planning skipped")
+            self._restart_perception_only_search_later()
             return
         with self.planning_lock:
             if self.planning_thread is not None and self.planning_thread.is_alive():
@@ -1429,7 +1433,7 @@ class GraspPreviewNode(Node):
 
         with AuboDirectJsonRpc(ip, port, timeout) as rpc:
             try:
-                self.get_logger().warn(f"Aubo SDK connect ok: robot={rpc.robot_name} rpc={ip}:{port}")
+                self.get_logger().info(f"Aubo SDK connect ok: robot={rpc.robot_name} rpc={ip}:{port}")
                 self._real_sdk_require_running(rpc)
                 owner_owned = self._real_sdk_enter_control_owner()
                 gate_owned = self._real_sdk_enter_gate()
@@ -1492,7 +1496,7 @@ class GraspPreviewNode(Node):
                             if settle > 0.0:
                                 time.sleep(settle)
                 if not self.stopping and rclpy.ok():
-                    self.get_logger().warn("REAL arm SDK moveJoint sequence complete")
+                    self.get_logger().info("REAL arm SDK moveJoint sequence complete")
             finally:
                 try:
                     if gate_owned:
@@ -1541,7 +1545,7 @@ class GraspPreviewNode(Node):
                     self._real_sdk_exit_servo_mode(rpc)
                     self._real_sdk_stop_joint(rpc, "search scan start", warn_only=True)
                     center = self._real_sdk_joint_positions(rpc)
-                    self.get_logger().warn(
+                    self.get_logger().info(
                         "REAL search scan active: "
                         f"shoulder=+/-{math.degrees(abs(shoulder)):.1f}deg "
                         f"wrist3=+/-{math.degrees(abs(wrist3)):.1f}deg"
@@ -1557,7 +1561,7 @@ class GraspPreviewNode(Node):
                     "MotionControl.moveJoint",
                     [[float(value) for value in target], accel, speed, 0.0, 0.0],
                 )
-                self.get_logger().warn(
+                self.get_logger().info(
                     f"REAL search scan moveJoint phase={phase % 2} result={result} error=None"
                 )
                 if result not in (0, None):
@@ -1569,7 +1573,7 @@ class GraspPreviewNode(Node):
                 phase += 1
                 time.sleep(max(period * 0.10, 0.05))
             except Exception as exc:  # pragma: no cover - live robot path.
-                self.get_logger().warning(f"REAL search scan stopped: {exc}")
+                self._warn_real_search_scan_stopped(str(exc))
                 try:
                     if rpc is not None and gate_owned:
                         self._real_sdk_stop_joint(rpc, "search scan error", warn_only=True)
@@ -1592,6 +1596,14 @@ class GraspPreviewNode(Node):
                 self._real_sdk_exit_control_owner(owner_owned)
                 rpc.close()
 
+    def _warn_real_search_scan_stopped(self, message: str) -> None:
+        now = time.monotonic()
+        if message == self._last_real_scan_warning and now - self._last_real_scan_warning_time < 10.0:
+            return
+        self._last_real_scan_warning = message
+        self._last_real_scan_warning_time = now
+        self.get_logger().warning(f"REAL search scan stopped: {message}")
+
     def _real_search_scan_active(self) -> bool:
         with self.real_execution_lock:
             real_started = self.real_execution_started
@@ -1603,6 +1615,20 @@ class GraspPreviewNode(Node):
             and (planning is None or not planning.is_alive())
             and not real_started
         )
+
+    def _restart_perception_only_search_later(self) -> None:
+        delay = max(float(self.args.perception_only_restart_sec), 0.0)
+        if delay <= 0.0:
+            return
+
+        def worker() -> None:
+            time.sleep(delay)
+            if self.stopping or not rclpy.ok():
+                return
+            if str(self.args.planner_backend) == "none" and self.inference_paused:
+                self._restart_search("perception-only auto restart")
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _execute_real_follow_joint_trajectory(self, preview: GraspPreview) -> None:
         if self.real_arm_action_client is None:
@@ -1891,7 +1917,7 @@ class GraspPreviewNode(Node):
     def _real_sdk_require_running(self, rpc: AuboDirectJsonRpc) -> None:
         mode = str(rpc.robot_call("RobotState.getRobotModeType")).strip().lower()
         safety = str(rpc.robot_call("RobotState.getSafetyModeType")).strip().lower()
-        self.get_logger().warn(f"Aubo SDK mode check: mode={mode} safety={safety}")
+        self.get_logger().info(f"Aubo SDK mode check: mode={mode} safety={safety}")
         if mode != "running" or safety not in ("normal", "reducedmode"):
             raise RuntimeError(
                 "Aubo SDK execution requires Running/Normal or ReducedMode: "
@@ -1905,15 +1931,41 @@ class GraspPreviewNode(Node):
                 text = path.read_text(encoding="utf-8", errors="replace").strip()
             except OSError as exc:
                 raise RuntimeError(f"real SDK teach gate is unreadable: {path}: {exc}") from exc
+            owner_path = Path(str(self.args.real_sdk_control_owner_path))
+            owner = str(self.args.real_sdk_control_owner_name).strip() or "grasp_task_server"
+            if text.startswith("1") and self._real_sdk_owner_is_self(owner_path, owner):
+                try:
+                    path.unlink(missing_ok=True)
+                    self.get_logger().info(
+                        f"cleared stale real SDK teach gate before taking control: {path}"
+                    )
+                except OSError as exc:
+                    raise RuntimeError(
+                        f"stale real SDK teach gate could not be cleared: {path}: {exc}"
+                    ) from exc
+            else:
+                raise RuntimeError(
+                    "real SDK teach gate is already active; turn teach/jog off before grasp "
+                    f"path={path} value={text!r}"
+                )
+        if path.exists():
             raise RuntimeError(
                 "real SDK teach gate is already active; turn teach/jog off before grasp "
-                f"path={path} value={text!r}"
+                f"path={path}"
             )
         path.write_text("1\n", encoding="utf-8")
         settle = max(float(self.args.real_sdk_gate_settle_sec), 0.0)
         if settle > 0.0:
             time.sleep(settle)
         return True
+
+    def _real_sdk_owner_is_self(self, path: Path, owner: str) -> bool:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+        active_owner, pid = _parse_control_owner(text)
+        return active_owner == owner and pid == os.getpid()
 
     def _real_sdk_enter_control_owner(self) -> bool:
         path = Path(str(self.args.real_sdk_control_owner_path))
@@ -1924,7 +1976,7 @@ class GraspPreviewNode(Node):
                 "Aubo control is busy; stop teach/manual jog before real grasp: "
                 f"{message}"
             )
-        self.get_logger().warn(f"REAL Aubo control owner acquired: {message}")
+        self.get_logger().info(f"REAL Aubo control owner acquired: {message}")
         return True
 
     def _real_sdk_exit_control_owner(self, owner_owned: bool) -> None:
@@ -1946,7 +1998,7 @@ class GraspPreviewNode(Node):
     def _real_sdk_exit_servo_mode(self, rpc: AuboDirectJsonRpc) -> None:
         try:
             result = rpc.robot_call("MotionControl.setServoModeSelect", [0])
-            self.get_logger().warn(f"Aubo SDK setServoModeSelect(0): result={result} error=None")
+            self.get_logger().info(f"Aubo SDK setServoModeSelect(0): result={result} error=None")
             if result not in (0, None):
                 self.get_logger().warn(f"Aubo SDK setServoModeSelect(0) result={result}")
             return
@@ -1955,7 +2007,7 @@ class GraspPreviewNode(Node):
                 f"Aubo SDK setServoModeSelect unavailable, trying setServoMode(false): {exc}"
             )
         result = rpc.robot_call("MotionControl.setServoMode", [False])
-        self.get_logger().warn(f"Aubo SDK setServoMode(false): result={result} error=None")
+        self.get_logger().info(f"Aubo SDK setServoMode(false): result={result} error=None")
         if result not in (0, None):
             self.get_logger().warn(f"Aubo SDK setServoMode(false) result={result}")
 
@@ -1965,7 +2017,7 @@ class GraspPreviewNode(Node):
         accel = max(float(self.args.real_sdk_move_accel), 0.05)
         try:
             result = rpc.robot_call("MotionControl.stopJoint", [accel])
-            self.get_logger().warn(
+            self.get_logger().info(
                 f"Aubo SDK stopJoint during {reason}: result={result} error=None"
             )
         except Exception as exc:

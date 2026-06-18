@@ -32,6 +32,8 @@ PATTERNS=(
   "rviz2.*arachne_model.rviz"
   "ros2 launch arachne_operator grasp_task_server.launch.py"
   "/install/arachne_operator/lib/arachne_operator/grasp_task_server"
+  "ros2 launch arachne_operator road_cleanup_task_server.launch.py"
+  "/install/arachne_operator/lib/arachne_operator/road_cleanup_task_server"
   "/scripts/hardware/real_grasp_console.sh"
   "/scripts/vision/grasp_preview.sh"
   "grasp_preview_pipeline.py"

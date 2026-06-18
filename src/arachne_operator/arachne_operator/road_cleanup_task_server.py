@@ -82,6 +82,7 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("candidate_max_abs_base_y_m", 0.60)
         self.declare_parameter("candidate_max_depth_m", 0.85)
         self.declare_parameter("base_step_timeout_sec", 8.0)
+        self.declare_parameter("base_stop_wait_sec", 3.0)
         self.declare_parameter("grasp_timeout_sec", 90.0)
         self.declare_parameter("reach_recovery_enabled", True)
         self.declare_parameter("reach_recovery_max_attempts", 3)
@@ -630,7 +631,12 @@ class RoadCleanupTaskServer(Node):
                 f"detected {candidate.class_name}; stop base and run grasp{suffix}",
             )
             self._call_trigger(self.base_stop_client, 1.0)
+            if not self._wait_for_base_idle(float(self.get_parameter("base_stop_wait_sec").value)):
+                self._event("base_stop_wait_timeout", {"base": self._query_base_status()})
             ok, message = self._call_trigger(self.grasp_start_client, 3.0)
+            if not ok and self._grasp_start_retryable(message):
+                time.sleep(0.3)
+                ok, message = self._call_trigger(self.grasp_start_client, 3.0)
             if not ok:
                 self._finish("failed", f"grasp start failed: {message}")
                 return
@@ -838,6 +844,24 @@ class RoadCleanupTaskServer(Node):
         state = str(snapshot.get("state", "")).lower()
         worker_busy = bool(snapshot.get("worker_busy", False))
         return state in ("succeeded", "failed", "canceled", "idle") and not worker_busy
+
+    def _wait_for_base_idle(self, timeout: float) -> bool:
+        deadline = time.monotonic() + max(float(timeout), 0.0)
+        while rclpy.ok() and time.monotonic() <= deadline:
+            if self._base_terminal(self._query_base_status()):
+                return True
+            time.sleep(0.05)
+        return self._base_terminal(self._query_base_status())
+
+    def _grasp_start_retryable(self, message: str) -> bool:
+        snapshot = self._parse_json_object(message)
+        if not snapshot:
+            return False
+        state = str(snapshot.get("state", "")).lower()
+        base = snapshot.get("base", {})
+        worker_busy = bool(snapshot.get("worker_busy", False))
+        base_busy = isinstance(base, dict) and bool(base.get("worker_busy", False))
+        return state in ("idle", "preflight", "running") or worker_busy or base_busy
 
     def _query_base_status(self) -> dict[str, Any]:
         ok, message = self._call_trigger(self.base_status_client, 0.2)
