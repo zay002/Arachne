@@ -340,6 +340,8 @@ candidate_max_depth_m = 0.85
 
 如果 YOLO 和点云正常但目标在过滤范围内仍规划失败，`road_cleanup_task_server` 会进入 reach recovery：沿当前巡检方向小步移动底盘，向 `/arachne/grasp_preview/restart_search` 周期性发重搜信号，清掉旧候选，等待新检测后重新计算点云和抓取规划。默认最多 3 次，每次 0.10 m；超过次数后记录 skip 并继续巡检。
 
+施教器默认 road demo 使用快速抓取 profile，而不是完整调试规划：`grasp_server` 以本地 IK 运行，只保留 `grasp,basket_over` 两个语义关键点，碰撞采样降到 2，碰撞半径/裕量收紧，并且只做 1 次抓取尝试；`road_cleanup_task_server` 等待抓取的上限是 `25 s`。如果需要回到完整规划调试，手动启动 `scripts/vision/grasp_task_server.sh` 并覆盖 `extra_args`。
+
 命令行底层调试入口：
 
 ```bash

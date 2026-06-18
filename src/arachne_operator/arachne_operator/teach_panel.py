@@ -432,10 +432,17 @@ class TeachPanelNode(Node):
             (
                 "scripts/vision/grasp_task_server.sh "
                 "execute_real:=true confirm_execute_real:=true with_rviz:=false "
+                "extra_args:='--planner-backend local --planning-key-waypoints grasp,basket_over "
+                "--arm-collision-samples-per-link 2 --arm-collision-radius 0.025 "
+                "--collision-margin 0.005 --rear-rack-collision-margin 0.0 "
+                "--trajectory-max-duration 12 --max-grasp-orientation-candidates 3 "
+                "--grasp-orientation-yaw-offsets-deg 0,15,-15 --grasp-orientation-tilt-offsets-deg 0 "
+                "--local-position-tolerance 0.045 --local-orientation-tolerance 0.50 "
+                "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "
                 "preview_on_start:=true planning_recovery_base_enabled:=false "
                 "require_odom:=false require_camera_topics:=true "
                 "require_aubo_status:=false require_gripper_status:=false "
-                "max_grasp_attempts:=3 retry_on_gripper_miss:=true"
+                "max_grasp_attempts:=1 retry_on_gripper_miss:=false"
             ),
         )
         self.declare_parameter(
@@ -445,6 +452,7 @@ class TeachPanelNode(Node):
                 "patrol_pattern:=box_entry patrol_box_width_m:=1.0 "
                 "patrol_box_height_m:=1.2 patrol_entry_m:=0.3 max_round_trips:=2 "
                 "patrol_base_speed_mps:=0.06 base_step_timeout_sec:=32.0 "
+                "grasp_timeout_sec:=25.0 "
                 "candidate_min_base_z_m:=-0.18 candidate_max_reach_m:=1.03 "
                 "initial_detection_wait_sec:=8.0 patrol_turn_scale:=1.0 "
                 "detection_confidence:=0.35 loop:=true"
