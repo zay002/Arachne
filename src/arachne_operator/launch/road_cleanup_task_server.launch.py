@@ -36,7 +36,10 @@ def generate_launch_description():
             DeclareLaunchArgument("candidate_min_base_x_m", default_value="0.25"),
             DeclareLaunchArgument("candidate_max_base_x_m", default_value="0.95"),
             DeclareLaunchArgument("candidate_max_abs_base_y_m", default_value="0.60"),
+            DeclareLaunchArgument("candidate_min_base_z_m", default_value="-0.08"),
+            DeclareLaunchArgument("candidate_max_reach_m", default_value="0.70"),
             DeclareLaunchArgument("candidate_max_depth_m", default_value="0.85"),
+            DeclareLaunchArgument("patrol_turn_scale", default_value="1.11"),
             DeclareLaunchArgument("base_step_timeout_sec", default_value="8.0"),
             DeclareLaunchArgument("grasp_timeout_sec", default_value="90.0"),
             DeclareLaunchArgument("reach_recovery_enabled", default_value="true"),
@@ -100,8 +103,17 @@ def generate_launch_description():
                         "candidate_max_abs_base_y_m": ParameterValue(
                             LaunchConfiguration("candidate_max_abs_base_y_m"), value_type=float
                         ),
+                        "candidate_min_base_z_m": ParameterValue(
+                            LaunchConfiguration("candidate_min_base_z_m"), value_type=float
+                        ),
+                        "candidate_max_reach_m": ParameterValue(
+                            LaunchConfiguration("candidate_max_reach_m"), value_type=float
+                        ),
                         "candidate_max_depth_m": ParameterValue(
                             LaunchConfiguration("candidate_max_depth_m"), value_type=float
+                        ),
+                        "patrol_turn_scale": ParameterValue(
+                            LaunchConfiguration("patrol_turn_scale"), value_type=float
                         ),
                         "base_step_timeout_sec": ParameterValue(
                             LaunchConfiguration("base_step_timeout_sec"), value_type=float

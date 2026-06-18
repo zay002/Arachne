@@ -444,6 +444,9 @@ class TeachPanelNode(Node):
                 "scripts/vision/road_cleanup_task_server.sh "
                 "patrol_pattern:=box_entry patrol_box_width_m:=1.0 "
                 "patrol_box_height_m:=1.2 patrol_entry_m:=0.3 max_round_trips:=2 "
+                "patrol_base_speed_mps:=0.06 base_step_timeout_sec:=32.0 "
+                "candidate_min_base_z_m:=-0.08 candidate_max_reach_m:=0.70 "
+                "patrol_turn_scale:=1.11 "
                 "detection_confidence:=0.35 loop:=true"
             ),
         )

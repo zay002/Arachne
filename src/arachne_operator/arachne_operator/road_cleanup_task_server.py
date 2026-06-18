@@ -83,7 +83,10 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("candidate_min_base_x_m", 0.25)
         self.declare_parameter("candidate_max_base_x_m", 0.95)
         self.declare_parameter("candidate_max_abs_base_y_m", 0.60)
+        self.declare_parameter("candidate_min_base_z_m", -0.08)
+        self.declare_parameter("candidate_max_reach_m", 0.70)
         self.declare_parameter("candidate_max_depth_m", 0.85)
+        self.declare_parameter("patrol_turn_scale", 1.11)
         self.declare_parameter("base_step_timeout_sec", 8.0)
         self.declare_parameter("base_stop_wait_sec", 3.0)
         self.declare_parameter("grasp_timeout_sec", 90.0)
@@ -413,15 +416,16 @@ class RoadCleanupTaskServer(Node):
 
         desired_heading = math.atan2(dy, dx)
         turn = self._angle_diff(desired_heading, self.patrol_heading_rad)
+        commanded_turn = turn * max(float(self.get_parameter("patrol_turn_scale").value), 0.1)
         speed = max(float(self.get_parameter("patrol_base_speed_mps").value), 0.0)
         segments: list[dict[str, Any]] = []
         if abs(turn) > math.radians(2.0):
             segments.append(
                 {
                     "type": "angular",
-                    "action": "left" if turn >= 0.0 else "right",
-                    "angle_rad": abs(turn),
-                    "signed_angle_rad": turn,
+                    "action": "left" if commanded_turn >= 0.0 else "right",
+                    "angle_rad": abs(commanded_turn),
+                    "signed_angle_rad": commanded_turn,
                 }
             )
         segments.append(
@@ -437,7 +441,7 @@ class RoadCleanupTaskServer(Node):
             "patrol",
             (
                 f"sim box patrol leg {self.patrol_current_index + 1}->{self.patrol_target_index + 1} "
-                f"distance={distance:.2f}m turn={math.degrees(turn):.1f}deg"
+                f"distance={distance:.2f}m turn={math.degrees(commanded_turn):.1f}deg"
             ),
         )
         payload = {
@@ -971,6 +975,7 @@ class RoadCleanupTaskServer(Node):
         if isinstance(base_xyz, list) and len(base_xyz) >= 2:
             x = self._optional_float(base_xyz[0])
             y = self._optional_float(base_xyz[1])
+            z = self._optional_float(base_xyz[2]) if len(base_xyz) >= 3 else None
             if x is not None:
                 min_x = float(self.get_parameter("candidate_min_base_x_m").value)
                 max_x = float(self.get_parameter("candidate_max_base_x_m").value)
@@ -978,10 +983,18 @@ class RoadCleanupTaskServer(Node):
                     return False, f"base_x {x:.2f}m < {min_x:.2f}m"
                 if x > max_x:
                     return False, f"base_x {x:.2f}m > {max_x:.2f}m"
+                reach = math.hypot(x, y or 0.0)
+                max_reach = float(self.get_parameter("candidate_max_reach_m").value)
+                if reach > max_reach:
+                    return False, f"reach {reach:.2f}m > {max_reach:.2f}m"
             if y is not None:
                 max_abs_y = float(self.get_parameter("candidate_max_abs_base_y_m").value)
                 if abs(y) > max_abs_y:
                     return False, f"base_y {y:.2f}m outside ±{max_abs_y:.2f}m"
+            if z is not None:
+                min_z = float(self.get_parameter("candidate_min_base_z_m").value)
+                if z < min_z:
+                    return False, f"base_z {z:.2f}m < {min_z:.2f}m"
         elif bool(self.get_parameter("require_3d_candidate").value):
             return False, "3D candidate missing base grasp"
         return True, "reachable"
