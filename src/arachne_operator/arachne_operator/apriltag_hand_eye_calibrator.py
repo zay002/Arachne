@@ -143,6 +143,7 @@ def _ros_transform_to_matrix(msg: Any) -> np.ndarray:
 @dataclass
 class Detection:
     tag_id: int
+    tag_ids: list[int]
     target_to_camera: np.ndarray
     reprojection_error_px: float
 
@@ -151,6 +152,7 @@ class Detection:
 class Sample:
     stamp: str
     tag_id: int
+    tag_ids: list[int]
     base_to_gripper: np.ndarray
     target_to_camera: np.ndarray
     reprojection_error_px: float
@@ -446,6 +448,7 @@ class AprilTagHandEyeCalibrator(Node):
             return None
         return Detection(
             tag_id=tag_id,
+            tag_ids=[tag_id],
             target_to_camera=_make_transform(rotation, tvec.reshape(3)),
             reprojection_error_px=error,
         )
@@ -520,6 +523,7 @@ class AprilTagHandEyeCalibrator(Node):
         tag_label = used_ids[0] if len(used_ids) == 1 else -1
         return Detection(
             tag_id=tag_label,
+            tag_ids=sorted(set(used_ids)),
             target_to_camera=_make_transform(rotation, tvec.reshape(3)),
             reprojection_error_px=error,
         )
@@ -589,6 +593,7 @@ class AprilTagHandEyeCalibrator(Node):
             return None
         return Detection(
             tag_id=-1,
+            tag_ids=[],
             target_to_camera=_make_transform(rotation, tvec.reshape(3)),
             reprojection_error_px=error,
         )
@@ -640,14 +645,19 @@ class AprilTagHandEyeCalibrator(Node):
             Sample(
                 stamp=stamp,
                 tag_id=detection.tag_id,
+                tag_ids=detection.tag_ids,
                 base_to_gripper=base_to_gripper,
                 target_to_camera=detection.target_to_camera,
                 reprojection_error_px=detection.reprojection_error_px,
             )
         )
         response.success = True
+        if detection.tag_ids:
+            tag_text = f"board_tags={detection.tag_ids}"
+        else:
+            tag_text = f"tag_id={detection.tag_id}"
         response.message = (
-            f"captured sample {len(self.samples)} tag={detection.tag_id} "
+            f"captured sample {len(self.samples)} {tag_text} "
             f"reproj={detection.reprojection_error_px:.2f}px"
         )
         self.get_logger().info(response.message)
@@ -717,6 +727,7 @@ class AprilTagHandEyeCalibrator(Node):
                 {
                     "stamp": sample.stamp,
                     "tag_id": sample.tag_id,
+                    "tag_ids": sample.tag_ids,
                     "reprojection_error_px": sample.reprojection_error_px,
                     "base_to_gripper": _transform_to_dict(sample.base_to_gripper),
                     "target_to_camera": _transform_to_dict(sample.target_to_camera),

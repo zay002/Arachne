@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -15,6 +16,7 @@ from std_srvs.srv import Trigger
 
 
 TERMINAL_STATES = {"succeeded", "failed", "canceled"}
+STARTABLE_STATES = ("idle", "paused", *TERMINAL_STATES)
 
 
 @dataclass
@@ -62,13 +64,23 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("grasp_status_service", "/arachne/grasp_task/status")
         self.declare_parameter("grasp_preflight_service", "/arachne/grasp_task/preflight")
         self.declare_parameter("base_stop_service", "/arachne/grasp_task/base_stop")
+        self.declare_parameter("base_status_service", "/arachne/grasp_task/base_status")
         self.declare_parameter("restart_search_topic", "/arachne/grasp_preview/restart_search")
+        self.declare_parameter("patrol_pattern", "box_entry")
         self.declare_parameter("patrol_distance_m", 1.2)
         self.declare_parameter("patrol_step_m", 1.2)
+        self.declare_parameter("patrol_box_width_m", 1.0)
+        self.declare_parameter("patrol_box_height_m", 1.2)
+        self.declare_parameter("patrol_entry_m", 0.3)
         self.declare_parameter("patrol_base_speed_mps", 0.06)
         self.declare_parameter("max_round_trips", 2)
         self.declare_parameter("detection_confidence", 0.35)
         self.declare_parameter("detection_timeout_sec", 1.2)
+        self.declare_parameter("require_3d_candidate", True)
+        self.declare_parameter("candidate_min_base_x_m", 0.25)
+        self.declare_parameter("candidate_max_base_x_m", 0.95)
+        self.declare_parameter("candidate_max_abs_base_y_m", 0.60)
+        self.declare_parameter("candidate_max_depth_m", 0.85)
         self.declare_parameter("base_step_timeout_sec", 8.0)
         self.declare_parameter("grasp_timeout_sec", 90.0)
         self.declare_parameter("reach_recovery_enabled", True)
@@ -94,6 +106,12 @@ class RoadCleanupTaskServer(Node):
         self.last_grasp_failure = ""
         self.base_state: dict[str, Any] = {}
         self.grasp_state: dict[str, Any] = {}
+        self.patrol_waypoints: list[tuple[float, float]] = []
+        self.patrol_current_index = 0
+        self.patrol_target_index = 1
+        self.patrol_loop_start_index = 0
+        self.patrol_heading_rad = 0.0
+        self.completed_base_segments: list[dict[str, Any]] = []
 
         self.state_pub = self.create_publisher(String, "/arachne/road_cleanup/state", 10)
         self.event_pub = self.create_publisher(String, "/arachne/road_cleanup/event", 10)
@@ -118,6 +136,10 @@ class RoadCleanupTaskServer(Node):
         self.create_subscription(String, "/arachne/grasp_task/state", self._grasp_state_cb, 10)
 
         self.start_srv = self.create_service(Trigger, "/arachne/road_cleanup/start", self._start_cb)
+        self.pause_srv = self.create_service(Trigger, "/arachne/road_cleanup/pause", self._pause_cb)
+        self.return_home_srv = self.create_service(
+            Trigger, "/arachne/road_cleanup/return_home", self._return_home_cb
+        )
         self.stop_srv = self.create_service(Trigger, "/arachne/road_cleanup/stop", self._stop_cb)
         self.status_srv = self.create_service(Trigger, "/arachne/road_cleanup/status", self._status_cb)
         self.preflight_srv = self.create_service(
@@ -139,6 +161,9 @@ class RoadCleanupTaskServer(Node):
         self.base_stop_client = self.create_client(
             Trigger, str(self.get_parameter("base_stop_service").value)
         )
+        self.base_status_client = self.create_client(
+            Trigger, str(self.get_parameter("base_status_service").value)
+        )
 
         self.create_timer(0.5, self._publish_state)
         self._event(
@@ -153,12 +178,38 @@ class RoadCleanupTaskServer(Node):
     def _start_cb(self, _request, response):
         with self.lock:
             busy = self.worker is not None and self.worker.is_alive()
-            if busy or self.state not in ("idle", *TERMINAL_STATES):
+            if busy or self.state not in STARTABLE_STATES:
                 response.success = False
                 response.message = self._snapshot_json()
                 return response
             self.cancel_event.clear()
             self.worker = threading.Thread(target=self._run_task, daemon=True)
+            self.worker.start()
+        response.success = True
+        response.message = self._snapshot_json()
+        return response
+
+    def _pause_cb(self, _request, response):
+        self.cancel_event.set()
+        self._call_trigger_background(self.base_stop_client, 1.0, "base_stop")
+        self._call_trigger_background(self.grasp_stop_client, 1.0, "grasp_stop")
+        self._set_state("paused", "road cleanup paused")
+        response.success = True
+        response.message = self._snapshot_json()
+        return response
+
+    def _return_home_cb(self, _request, response):
+        with self.lock:
+            busy = self.worker is not None and self.worker.is_alive()
+            if busy:
+                self.cancel_event.set()
+                self._call_trigger_background(self.base_stop_client, 1.0, "base_stop")
+                self._call_trigger_background(self.grasp_stop_client, 1.0, "grasp_stop")
+                response.success = False
+                response.message = "road cleanup is busy; pause first, then return home"
+                return response
+            self.cancel_event.clear()
+            self.worker = threading.Thread(target=self._run_return_home, daemon=True)
             self.worker.start()
         response.success = True
         response.message = self._snapshot_json()
@@ -179,7 +230,7 @@ class RoadCleanupTaskServer(Node):
         return response
 
     def _preflight_cb(self, _request, response):
-        ok, message = self._call_trigger(self.grasp_preflight_client, 4.0)
+        ok, message = self._call_trigger(self.grasp_preflight_client, 30.0)
         response.success = ok
         response.message = message
         return response
@@ -190,6 +241,10 @@ class RoadCleanupTaskServer(Node):
             return
         threshold = float(self.get_parameter("detection_confidence").value)
         if candidate.confidence < threshold:
+            return
+        ok, reason = self._candidate_reachable(candidate)
+        if not ok:
+            self._event("candidate_ignored", {**asdict(candidate), "reason": reason})
             return
         with self.lock:
             self.latest_candidate = candidate
@@ -210,16 +265,22 @@ class RoadCleanupTaskServer(Node):
             self.direction = 1
             self.progress_m = 0.0
             self.cycle_count = 0
+            self.completed_base_segments = []
+            self.patrol_waypoints = self._make_patrol_waypoints()
+            self.patrol_current_index = 0
+            self.patrol_target_index = 1 if len(self.patrol_waypoints) > 1 else 0
+            self.patrol_heading_rad = 0.0
             self.active_candidate = None
             self.recovery_attempts = 0
             self.last_grasp_failure = ""
         self._set_state("preflight", "checking camera, base and grasp primitive")
-        ok, message = self._call_trigger(self.grasp_preflight_client, 5.0)
+        ok, message = self._call_trigger(self.grasp_preflight_client, 30.0)
         if not ok:
             self._finish("failed", f"preflight failed: {message}")
             return
 
-        self._set_state("patrol", "patrol forward/back while grasp_server YOLO-SEG watches")
+        self._restart_visual_search("road cleanup start")
+        self._set_state("patrol", "patrol route while grasp_server YOLO-SEG watches")
         while rclpy.ok() and not self.cancel_event.is_set():
             candidate = self._fresh_candidate()
             if candidate is not None:
@@ -229,17 +290,54 @@ class RoadCleanupTaskServer(Node):
                 if self.cancel_event.is_set():
                     break
                 self._set_state("patrol", "resume patrol after grasp")
+                self._restart_visual_search("resume patrol after grasp")
                 continue
 
             if not self._patrol_step():
                 break
 
-        if self.cancel_event.is_set():
+        if self.cancel_event.is_set() and self.state != "paused":
             self._finish("canceled", "road cleanup canceled")
         elif self.state not in TERMINAL_STATES:
             self._finish("succeeded", "road cleanup complete")
 
+    def _run_return_home(self) -> None:
+        self._set_state("returning", "returning to road cleanup start")
+        with self.lock:
+            completed = [dict(item) for item in self.completed_base_segments]
+        inverse_segments = self._inverse_base_segments(completed)
+        if not inverse_segments:
+            self._finish("succeeded", "return home complete: no completed base legs")
+            return
+        payload = {
+            "command": "replay_segments",
+            "label": "road_cleanup_return_home",
+            "segments": inverse_segments,
+            "request_id": self._new_base_request_id("return"),
+        }
+        ok = self._execute_base_payload(
+            payload,
+            0.0,
+            "return_home_done",
+            monitor_candidates=False,
+            record_completed=False,
+        )
+        if ok and not self.cancel_event.is_set():
+            with self.lock:
+                self.completed_base_segments = []
+                self.progress_m = 0.0
+                self.patrol_current_index = 0
+                self.patrol_target_index = 1
+                self.patrol_heading_rad = 0.0
+            self._finish("succeeded", "return home complete")
+
     def _patrol_step(self) -> bool:
+        pattern = str(self.get_parameter("patrol_pattern").value).strip().lower()
+        if pattern in ("box_entry", "rectangle_entry", "real_box", "sim_box"):
+            return self._waypoint_patrol_step()
+        return self._line_patrol_step()
+
+    def _line_patrol_step(self) -> bool:
         distance_limit = abs(float(self.get_parameter("patrol_distance_m").value))
         step = abs(float(self.get_parameter("patrol_step_m").value))
         remaining = distance_limit - abs(self.progress_m)
@@ -264,23 +362,141 @@ class RoadCleanupTaskServer(Node):
             "command": "drive_relative",
             "distance_m": distance,
             "speed_m_s": max(float(self.get_parameter("patrol_base_speed_mps").value), 0.0),
+            "request_id": self._new_base_request_id("line"),
         }
+        self._restart_visual_search("line patrol step start")
+        return self._execute_base_payload(payload, distance, "base_step_done")
+
+    def _waypoint_patrol_step(self) -> bool:
+        if len(self.patrol_waypoints) < 2:
+            self._finish("failed", "patrol route has fewer than 2 waypoints")
+            return False
+        if self.patrol_target_index >= len(self.patrol_waypoints):
+            return False
+        if self.patrol_target_index <= 0:
+            self.patrol_target_index = 1
+
+        self.patrol_current_index = min(
+            max(self.patrol_current_index, 0), len(self.patrol_waypoints) - 1
+        )
+        start = self.patrol_waypoints[self.patrol_current_index]
+        target = self.patrol_waypoints[self.patrol_target_index]
+        dx = target[0] - start[0]
+        dy = target[1] - start[1]
+        distance = math.hypot(dx, dy)
+        if distance <= 1e-3:
+            self._advance_patrol_index()
+            return True
+
+        desired_heading = math.atan2(dy, dx)
+        turn = self._angle_diff(desired_heading, self.patrol_heading_rad)
+        speed = max(float(self.get_parameter("patrol_base_speed_mps").value), 0.0)
+        segments: list[dict[str, Any]] = []
+        if abs(turn) > math.radians(2.0):
+            segments.append(
+                {
+                    "type": "angular",
+                    "action": "left" if turn >= 0.0 else "right",
+                    "angle_rad": abs(turn),
+                    "signed_angle_rad": turn,
+                }
+            )
+        segments.append(
+            {
+                "type": "linear",
+                "action": "forward",
+                "distance_m": distance,
+                "signed_distance_m": distance,
+                "linear_x": speed,
+            }
+        )
+        self._set_state(
+            "patrol",
+            (
+                f"sim box patrol leg {self.patrol_current_index + 1}->{self.patrol_target_index + 1} "
+                f"distance={distance:.2f}m turn={math.degrees(turn):.1f}deg"
+            ),
+        )
+        payload = {
+            "command": "replay_segments",
+            "label": "road_cleanup_sim_box",
+            "segments": segments,
+            "request_id": self._new_base_request_id("box"),
+        }
+        self._restart_visual_search("sim box patrol leg start")
+        ok = self._execute_base_payload(payload, distance, "base_leg_done")
+        if ok:
+            with self.lock:
+                self.patrol_heading_rad = desired_heading
+            self._advance_patrol_index()
+        return ok
+
+    def _execute_base_payload(
+        self,
+        payload: dict[str, Any],
+        progress_delta_m: float,
+        event_kind: str,
+        *,
+        monitor_candidates: bool = True,
+        record_completed: bool = True,
+    ) -> bool:
         msg = String()
         msg.data = json.dumps(payload, sort_keys=True)
         self.base_command_pub.publish(msg)
+        command_started = False
         started = time.monotonic()
         timeout = max(float(self.get_parameter("base_step_timeout_sec").value), 1.0)
         while rclpy.ok() and not self.cancel_event.is_set() and time.monotonic() - started < timeout:
-            candidate = self._fresh_candidate()
-            if candidate is not None:
-                self._call_trigger(self.base_stop_client, 1.0)
-                self._handle_candidate(candidate)
-                if self._is_terminal():
-                    return False
-                return True
-            if self._base_terminal():
+            if monitor_candidates:
+                candidate = self._fresh_candidate()
+                if candidate is not None:
+                    self._call_trigger(self.base_stop_client, 1.0)
+                    self._handle_candidate(candidate)
+                    if self._is_terminal():
+                        return False
+                    return True
+            base_snapshot = self._query_base_status()
+            if self._base_matches_command(base_snapshot, payload):
+                state = str(base_snapshot.get("state", "")).lower()
+                worker_busy = bool(base_snapshot.get("worker_busy", False))
+                command_started = command_started or worker_busy or state == "running"
+                if command_started and self._base_terminal(base_snapshot):
+                    result = base_snapshot.get("latest_result", {})
+                    progress = float(result.get("progress_m", progress_delta_m))
+                    target = float(result.get("target_m", progress_delta_m))
+                    if state == "failed":
+                        self._finish("failed", str(base_snapshot.get("message", "base failed")))
+                        return False
+                    if state == "canceled":
+                        return False
+                    with self.lock:
+                        self.progress_m += progress_delta_m
+                        if record_completed:
+                            self.completed_base_segments.extend(
+                                self._segments_from_base_payload(payload)
+                            )
+                    self._event(
+                        event_kind,
+                        {
+                            "distance_m": progress_delta_m,
+                            "state": state,
+                            "progress_m": progress,
+                            "target_m": target,
+                        },
+                    )
+                    return True
+            elif not command_started:
+                msg = String()
+                msg.data = json.dumps(payload, sort_keys=True)
+                self.base_command_pub.publish(msg)
+            elif self._base_terminal(base_snapshot):
+                self._finish("failed", "base command ended without matching active command")
+                return False
+            if self._base_terminal() and command_started:
                 with self.lock:
-                    self.progress_m += distance
+                    self.progress_m += progress_delta_m
+                    if record_completed:
+                        self.completed_base_segments.extend(self._segments_from_base_payload(payload))
                 return True
             time.sleep(0.05)
         self._call_trigger(self.base_stop_client, 1.0)
@@ -288,6 +504,112 @@ class RoadCleanupTaskServer(Node):
             return False
         self._finish("failed", "base patrol step timeout")
         return False
+
+    def _make_patrol_waypoints(self) -> list[tuple[float, float]]:
+        pattern = str(self.get_parameter("patrol_pattern").value).strip().lower()
+        if pattern not in ("box_entry", "rectangle_entry", "real_box", "sim_box"):
+            self.patrol_loop_start_index = 0
+            return []
+        width = max(float(self.get_parameter("patrol_box_width_m").value), 0.2)
+        height = max(float(self.get_parameter("patrol_box_height_m").value), 0.2)
+        entry = max(float(self.get_parameter("patrol_entry_m").value), 0.0)
+        half_width = width * 0.5
+        bottom_x = entry
+        top_x = entry + height
+        self.patrol_loop_start_index = 2
+        route = [
+            (0.0, 0.0),
+            (bottom_x, 0.0),
+            (bottom_x, -half_width),
+            (top_x, -half_width),
+            (top_x, half_width),
+            (bottom_x, half_width),
+        ]
+        self._event(
+            "patrol_route",
+            {
+                "pattern": "box_entry",
+                "entry_m": entry,
+                "box_width_m": width,
+                "box_height_m": height,
+                "waypoints": route,
+                "loop_start_index": self.patrol_loop_start_index,
+            },
+        )
+        return route
+
+    def _advance_patrol_index(self) -> None:
+        with self.lock:
+            self.patrol_current_index = self.patrol_target_index
+            if self.patrol_target_index >= len(self.patrol_waypoints) - 1:
+                self.patrol_target_index = min(
+                    max(self.patrol_loop_start_index, 0), len(self.patrol_waypoints) - 1
+                )
+                self.cycle_count += 1
+            else:
+                self.patrol_target_index += 1
+            max_round_trips = int(self.get_parameter("max_round_trips").value)
+            if max_round_trips > 0 and self.cycle_count >= max_round_trips:
+                self.patrol_target_index = len(self.patrol_waypoints)
+
+    def _new_base_request_id(self, label: str) -> str:
+        return f"{label}-{time.monotonic_ns()}"
+
+    def _angle_diff(self, target: float, source: float) -> float:
+        return math.atan2(math.sin(target - source), math.cos(target - source))
+
+    def _segments_from_base_payload(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        command = str(payload.get("command", "")).strip().lower()
+        if command in ("replay_segments", "replay"):
+            segments = payload.get("segments", [])
+            if isinstance(segments, list):
+                return [dict(item) for item in segments if isinstance(item, dict)]
+            return []
+        if command == "drive_relative":
+            distance = float(payload.get("distance_m", payload.get("distance", 0.0)))
+            return [
+                {
+                    "type": "linear",
+                    "action": "forward" if distance >= 0.0 else "back",
+                    "distance_m": abs(distance),
+                    "signed_distance_m": distance,
+                    "linear_x": float(payload.get("speed_m_s", payload.get("speed_mps", 0.0))),
+                }
+            ]
+        if command == "turn_relative":
+            angle = float(payload.get("angle_rad", 0.0))
+            return [
+                {
+                    "type": "angular",
+                    "action": "left" if angle >= 0.0 else "right",
+                    "angle_rad": abs(angle),
+                    "signed_angle_rad": angle,
+                }
+            ]
+        return []
+
+    def _inverse_base_segments(self, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        inverse: list[dict[str, Any]] = []
+        for segment in reversed(segments):
+            item = dict(segment)
+            motion_type = str(item.get("type", "")).strip().lower()
+            if motion_type == "linear":
+                signed = float(item.get("signed_distance_m", item.get("distance_m", 0.0)))
+                item["signed_distance_m"] = -signed
+                item["distance_m"] = abs(float(item["signed_distance_m"]))
+                item["action"] = "forward" if float(item["signed_distance_m"]) >= 0.0 else "back"
+            elif motion_type == "angular":
+                signed = float(item.get("signed_angle_rad", item.get("angle_rad", 0.0)))
+                item["signed_angle_rad"] = -signed
+                item["angle_rad"] = abs(float(item["signed_angle_rad"]))
+                item["action"] = "left" if float(item["signed_angle_rad"]) >= 0.0 else "right"
+            else:
+                linear = float(item.get("linear_x", 0.0))
+                angular = float(item.get("angular_z", 0.0))
+                item["linear_x"] = -linear
+                item["angular_z"] = -angular
+            inverse.append(item)
+        return inverse
 
     def _handle_candidate(self, candidate: Candidate) -> None:
         max_recovery = (
@@ -422,10 +744,36 @@ class RoadCleanupTaskServer(Node):
         msg.data = json.dumps(payload, sort_keys=True)
         self.base_command_pub.publish(msg)
 
+        command_started = False
         started = time.monotonic()
         timeout = max(float(self.get_parameter("base_step_timeout_sec").value), 1.0)
         while rclpy.ok() and not self.cancel_event.is_set() and time.monotonic() - started < timeout:
-            if self._base_terminal():
+            base_snapshot = self._query_base_status()
+            if self._base_matches_command(base_snapshot, payload):
+                state = str(base_snapshot.get("state", "")).lower()
+                worker_busy = bool(base_snapshot.get("worker_busy", False))
+                command_started = command_started or worker_busy or state == "running"
+                if command_started and self._base_terminal(base_snapshot):
+                    if state == "failed":
+                        self._finish("failed", str(base_snapshot.get("message", "base failed")))
+                        return False
+                    if state == "canceled":
+                        return False
+                    result = base_snapshot.get("latest_result", {})
+                    target = float(result.get("target_m", distance))
+                    with self.lock:
+                        self.progress_m += target if abs(target) > 1e-6 else distance
+                    self._restart_visual_search("reach recovery after base move")
+                    self._event("reach_recovery_done", {"attempt": attempt, "distance_m": distance})
+                    return True
+            elif not command_started:
+                msg = String()
+                msg.data = json.dumps(payload, sort_keys=True)
+                self.base_command_pub.publish(msg)
+            elif self._base_terminal(base_snapshot):
+                self._finish("failed", "base recovery command ended without matching active command")
+                return False
+            if self._base_terminal() and command_started:
                 with self.lock:
                     self.progress_m += distance
                 self._restart_visual_search("reach recovery after base move")
@@ -473,11 +821,41 @@ class RoadCleanupTaskServer(Node):
             age = 0.0
         return candidate if age <= timeout else None
 
-    def _base_terminal(self) -> bool:
-        with self.lock:
-            state = str(self.base_state.get("state", "")).lower()
-            worker_busy = bool(self.base_state.get("worker_busy", False))
+    def _base_terminal(self, snapshot: dict[str, Any] | None = None) -> bool:
+        if snapshot is None:
+            with self.lock:
+                snapshot = dict(self.base_state)
+        state = str(snapshot.get("state", "")).lower()
+        worker_busy = bool(snapshot.get("worker_busy", False))
         return state in ("succeeded", "failed", "canceled", "idle") and not worker_busy
+
+    def _query_base_status(self) -> dict[str, Any]:
+        ok, message = self._call_trigger(self.base_status_client, 0.2)
+        if ok:
+            snapshot = self._parse_json_object(message)
+            if snapshot:
+                with self.lock:
+                    self.base_state = snapshot
+                return snapshot
+        with self.lock:
+            return dict(self.base_state)
+
+    def _base_matches_command(self, snapshot: dict[str, Any], payload: dict[str, Any]) -> bool:
+        active = snapshot.get("active_command", {})
+        if not isinstance(active, dict):
+            return False
+        if "request_id" in payload:
+            return str(active.get("request_id", "")) == str(payload.get("request_id", ""))
+        if str(active.get("command", "")).strip().lower() != str(payload.get("command", "")).strip().lower():
+            return False
+        for key in ("distance_m", "speed_m_s"):
+            if key in payload:
+                try:
+                    if abs(float(active.get(key, 0.0)) - float(payload[key])) > 1e-4:
+                        return False
+                except (TypeError, ValueError):
+                    return False
+        return True
 
     def _is_terminal(self) -> bool:
         with self.lock:
@@ -511,6 +889,54 @@ class RoadCleanupTaskServer(Node):
             received_at=datetime.now().isoformat(timespec="milliseconds"),
             raw=dict(best),
         )
+
+    def _candidate_reachable(self, candidate: Candidate) -> tuple[bool, str]:
+        raw = candidate.raw
+        has_3d = bool(raw.get("has_3d", False))
+        if bool(self.get_parameter("require_3d_candidate").value) and not has_3d:
+            return False, "waiting for 3D candidate"
+        depth = self._optional_float(raw.get("depth_m"))
+        max_depth = float(self.get_parameter("candidate_max_depth_m").value)
+        if depth is not None and depth > max_depth:
+            return False, f"depth {depth:.2f}m > {max_depth:.2f}m"
+        base_xyz = raw.get("base_grasp_xyz")
+        if not isinstance(base_xyz, list) or len(base_xyz) < 2:
+            base_xyz = self._planning_waypoint_xyz(raw, "grasp")
+        if isinstance(base_xyz, list) and len(base_xyz) >= 2:
+            x = self._optional_float(base_xyz[0])
+            y = self._optional_float(base_xyz[1])
+            if x is not None:
+                min_x = float(self.get_parameter("candidate_min_base_x_m").value)
+                max_x = float(self.get_parameter("candidate_max_base_x_m").value)
+                if x < min_x:
+                    return False, f"base_x {x:.2f}m < {min_x:.2f}m"
+                if x > max_x:
+                    return False, f"base_x {x:.2f}m > {max_x:.2f}m"
+            if y is not None:
+                max_abs_y = float(self.get_parameter("candidate_max_abs_base_y_m").value)
+                if abs(y) > max_abs_y:
+                    return False, f"base_y {y:.2f}m outside ±{max_abs_y:.2f}m"
+        elif bool(self.get_parameter("require_3d_candidate").value):
+            return False, "3D candidate missing base grasp"
+        return True, "reachable"
+
+    def _planning_waypoint_xyz(self, raw: dict[str, Any], name: str) -> list[float]:
+        for key in ("planning_key_waypoints", "waypoints_base"):
+            items = raw.get(key)
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("name", "")).strip() == name and isinstance(item.get("xyz"), list):
+                    return item["xyz"]
+        return []
+
+    def _optional_float(self, value: Any) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     def _parse_json_object(self, text: str) -> dict[str, Any]:
         try:

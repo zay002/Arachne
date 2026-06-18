@@ -1,6 +1,6 @@
 # Arachne Jetson 操作手册
 
-更新日期：2026-06-16
+更新日期：2026-06-18
 
 本手册适用于当前 Jetson Orin Nano 上的 Arachne `jetson` 分支。
 
@@ -9,7 +9,7 @@
 - ROS 2：Humble
 - 机器人：Scout 2.0 底盘 + Aubo i5 机械臂 + MS42DC 夹具
 - 当前模型：底盘、Aubo i5、夹具、后置传感器架、C16 雷达、末端 Orbbec 相机、车头吊篮
-- 当前重点：真机施教、联合验收、RViz 可视化、后置架防碰撞安全区、Gemini335/C16 感知、静态垃圾拾取与充电枪拔插任务准备
+- 当前重点：真机施教、RViz/地图定位、Gemini335/C16 感知、TACO 垃圾 3D 候选过滤、Aubo SDK 抓取执行、road_clean 巡检/暂停/返航
 
 ## 1. 基础准备
 
@@ -315,22 +315,40 @@ source install/setup.bash
 
 道路垃圾巡检使用同一个施教器入口：
 
-1. 在 `Runtime Services` 启动 `Road Cleanup Server`，或点击 `RoadSrv`。
-2. 确认 `Camera`、`2D Raw View` 和 `Grasp Server` 已启动；`grasp_server` 空闲时会持续用 YOLO-SEG 发布 `/arachne/perception/taco_instances`。
-3. 点击 `Road Preflight` 做抓取 primitive 检查。
-4. 点击顶部 `Road` 或 Home 页 `Road Start`，底盘开始默认 2 m 前进/后退巡检。
-5. 检测到目标后任务服务器会停底盘，调用 `/arachne/grasp_task/start` 完成点云 ROI、规划、抓取和投篮。
+1. 确认 `Camera`、`2D Raw View`、`Grasp Server`、`Road Cleanup Server` 已启动；`grasp_server` 空闲时会持续用 YOLO-SEG 发布 `/arachne/perception/taco_instances`。
+2. 点击 `Road Preflight` 做抓取 primitive 检查。若这个按钮偶发超时，先看 `Grasp Preflight` 或 `ros2 service call /arachne/grasp_task/preflight std_srvs/srv/Trigger "{}"`；底层抓取 preflight 通过即可继续测试。
+3. 点击顶部 `Road` 或 Home 页 `Road Start`，底盘开始按仿真 `box_entry` 轨迹巡检：入口前进 `0.3 m`，再进入 `1.0 m x 1.2 m` 矩形环绕。
+4. 测试中需要立刻暂停时点 `Road Pause`；它会停止底盘和当前抓取，状态保持 `paused`，便于现场观察或人工干预。
+5. 需要回到 road_clean 起点时点 `Return` / `Road Return`；server 会按已完成的底盘段反向 replay。若还没有完成任何底盘段，不会移动，只会返回 `return home complete: no completed base legs`。
+6. 检测到带 3D 位姿且可达的目标后任务服务器会停底盘，调用 `/arachne/grasp_task/start` 完成点云 ROI、规划、Aubo SDK `MotionControl.moveJoint` 抓取和投篮。
 
-如果 YOLO 和点云正常但目标超出机械臂可达范围或规划失败，`road_cleanup_task_server` 会进入 reach recovery：沿当前巡检方向小步移动底盘，向 `/arachne/grasp_preview/restart_search` 周期性发重搜信号，清掉旧候选，等待新检测后重新计算点云和抓取规划。默认最多 3 次，每次 0.10 m；超过次数后记录 skip 并继续巡检。
+当前 road_clean 会忽略过远或不可达目标，避免看到 2D 检测后机械臂原地不动还反复失败。默认过滤条件：
+
+```text
+require_3d_candidate = true
+candidate_min_base_x_m = 0.25
+candidate_max_base_x_m = 0.95
+candidate_max_abs_base_y_m = 0.60
+candidate_max_depth_m = 0.85
+```
+
+2D-only 事件只用于视觉预览，不触发抓取；3D 事件来自 `grasp_preview_pipeline`，包含 `depth_m`、`base_grasp_xyz` 和规划关键点。被过滤的候选会在 `/arachne/road_cleanup/event` 里以 `candidate_ignored` 记录原因。
+
+如果 YOLO 和点云正常但目标在过滤范围内仍规划失败，`road_cleanup_task_server` 会进入 reach recovery：沿当前巡检方向小步移动底盘，向 `/arachne/grasp_preview/restart_search` 周期性发重搜信号，清掉旧候选，等待新检测后重新计算点云和抓取规划。默认最多 3 次，每次 0.10 m；超过次数后记录 skip 并继续巡检。
 
 命令行底层调试入口：
 
 ```bash
 ./scripts/vision/road_cleanup_task_server.sh \
-  patrol_distance_m:=2.0 \
-  patrol_step_m:=0.12 \
-  reach_recovery_step_m:=0.10
+  patrol_pattern:=box_entry \
+  patrol_box_width_m:=1.0 \
+  patrol_box_height_m:=1.2 \
+  patrol_entry_m:=0.3 \
+  require_3d_candidate:=true \
+  candidate_max_depth_m:=0.85
 ros2 service call /arachne/road_cleanup/start std_srvs/srv/Trigger "{}"
+ros2 service call /arachne/road_cleanup/pause std_srvs/srv/Trigger "{}"
+ros2 service call /arachne/road_cleanup/return_home std_srvs/srv/Trigger "{}"
 ros2 service call /arachne/road_cleanup/status std_srvs/srv/Trigger "{}"
 ```
 
@@ -384,31 +402,30 @@ REAL arm SDK moveJoint sequence complete
 ARACHNE_GRASP_BASE_OFFSET=0.04,0.10,-0.06 ./scripts/vision/grasp_preview_real_sync.sh
 ```
 
-AprilTag 手眼标定用于求解真实 `gripper_adapter_link -> camera` 外参。当前默认使用 `/home/jetson/zhaoyang/arachne_floor_apriltag_board_a3.png` 这张 A3 横版标定板，物理尺寸按 `0.420 x 0.297 m` 处理。先启动相机和施教器，让标定板出现在彩色相机中，然后启动标定节点：
+AprilTag 手眼标定用于求解真实 `tool0 -> camera_color_optical_frame` 外参。当前实机使用 `tagStandard41h2`，可直接用交互脚本同时看相机画面、按空格采样、按 `s` 求解：
 
 ```bash
-./scripts/vision/apriltag_hand_eye_calibration.sh
+./scripts/vision/apriltag_hand_eye_interactive.sh
 ```
 
-节点会优先尝试标准 AprilTag/ArUco 检测；如果 OpenCV 不能直接识别这块板上的 tag，会使用整张 A3 PNG 做平面模板匹配，再用相机内参求板位姿。
+快捷键：
 
-每移动到一个新的机械臂姿态并稳定后采一组，建议至少 8 到 12 组，姿态要有明显的平移和旋转变化：
-
-```bash
-ros2 service call /arachne_apriltag_hand_eye_calibrator/capture std_srvs/srv/Trigger "{}"
+```text
+Space  capture 当前 tag + 当前 Aubo 姿态
+s      solve 并保存 hand_eye_*.json
+r      reset 清空样本
+q      quit
 ```
 
-采完后求解：
+建议至少采 12 组以上，姿态要有明显平移和旋转变化。最新一次采用 H12 / `tagStandard41h2` 标定后，外参已写入 `src/arachne_description/config/physical_parameters.yaml`，并同步到 Gemini335 launch 和施教器相机命令。当前默认发布：
 
-```bash
-ros2 service call /arachne_apriltag_hand_eye_calibrator/solve std_srvs/srv/Trigger "{}"
+```text
+tool0 -> camera_color_optical_frame
+xyz = -0.239469796, 0.181459396, 0.190102132
+rpy =  0.083404947,-0.300045345, 3.128380060
 ```
 
-结果会保存到 `log/calibration/hand_eye/hand_eye_*.json`，重点看 `gripper_to_camera.xyz` 和 `gripper_to_camera.rpy`。如果采错了可以清空：
-
-```bash
-ros2 service call /arachne_apriltag_hand_eye_calibrator/reset std_srvs/srv/Trigger "{}"
-```
+AprilTag 也曾用于教室建图前确定初始朝向：车头正对墙面 tag，按 `tagStandard41h2` 初始化建图姿态。但这是一次性建图辅助，不属于正常 road_clean 流程。后续默认使用已保存地图 `src/arachne_nav/maps/road_lab_apriltag.yaml` 和定位链路同步 RViz 中小车位姿，不再在每次启动 road_clean 时依赖 AprilTag。
 
 抓取姿态可以在 RX/RY/RZ 上搜索多个候选，但默认按“娃娃机”方式从上往下接近。`--grasp-topdown-max-tilt-deg` 限制夹具 z 轴偏离向下方向的最大角度，`--ground-min-z-base`、`--ground-clearance` 和 `--tool-ground-clearance` 会拒绝任何机械臂连杆、tool0 到 grasp TCP 的夹具线段低于地面安全线的候选。
 
@@ -658,13 +675,14 @@ ARACHNE_CONSOLE_AUTO_GRASP_SERVER=true \
 - Home / Install：顶部、`Home` 页和 `Move` 页面都有长按移动按钮。
 - Aubo On / Aubo Start / Aubo Off：施教器内远程上电、启动和断电，不要求面板启动前机械臂已经 Running。
 - Runtime Services：在 `Home` 页启动/停止 Gemini Camera、2D Raw View、Localization/Nav、Grasp Server。Quick Control 里的 `Visual Grasp` 是推荐抓取入口，会自动启动相机、raw 画面和 grasp server 并等待 preflight；`Camera` 只启动相机驱动和 raw 画面。raw viewer 默认限制到 15 FPS，console 默认彩色流为 320x240、深度为 640x480，避免远程桌面卡顿。
+- Road Start / Road Pause / Return / Road Stop：调用 road cleanup server 启动巡检、暂停、按已完成底盘段返航、取消任务。现场调试优先用 `Road Pause`，保留现场状态；`Road Stop` 用于直接取消。
 - Grasp Start / Grasp Stop / Restore：调用常驻 grasp server 执行抓取、停止任务、恢复规划恢复时的小幅底盘移动。
 - 预设配置：`Configure` 页面可设置 Home / Install 位姿，并保存/加载本地配置。
 - 录制回放：`Program` 页面录制 waypoint、wait、保存、加载、回放。
 - 日志：面板状态和硬件状态变化写入 `log/teach_panel/latest/events.jsonl`；施教器启动的服务各自写入 `log/teach_panel/latest/<service>.log`。
 - 窗口缩放：各页面支持滚动，小窗口或远程桌面下不会裁掉底部控件。
 
-Localization/Nav 按钮会启动 `real_lidar_nav.sh`，默认使用 `src/arachne_nav/maps/road_lab_apriltag.yaml` 进入定位模式，链路是 `LSlidar C16 /lslidar_point_cloud -> pointcloud_to_laserscan /scan -> AMCL map->odom -> Nav2`。同时会打开 `arachne_nav_topdown.rviz` 的俯视窗口，固定坐标系为 `map`，显示 `/map`、`/scan`、局部/全局 costmap 和规划路径，RViz 中的小车位姿来自 `map -> odom -> base_link`。使用 RViz 顶部 `Nav2 Goal` 工具可以给小车定点导航；如需重新建图，显式设置 `ARACHNE_NAV_MODE=mapping` 后再启动 `scripts/hardware/real_lidar_nav.sh`。
+Localization/Nav 按钮会启动 `real_lidar_nav.sh`，默认使用 `src/arachne_nav/maps/road_lab_apriltag.yaml` 进入定位模式，链路是 `LSlidar C16 /lslidar_point_cloud -> pointcloud_to_laserscan /scan -> AMCL map->odom -> Nav2`。当前真机施教器默认不自动打开 topdown RViz，避免 Jetson 负载过高；需要俯视定位窗口时再显式启动 `scripts/hardware/real_lidar_nav.sh` 或设置对应 Nav/RViz 开关。topdown RViz 固定坐标系为 `map`，小车位姿来自 `map -> odom -> base_link`。使用 RViz 顶部 `Nav2 Goal` 工具可以给小车定点导航；如需重新建图，显式设置 `ARACHNE_NAV_MODE=mapping` 后再启动 `scripts/hardware/real_lidar_nav.sh`。
 
 默认 Home 和 Install 位姿：
 

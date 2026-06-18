@@ -28,6 +28,10 @@ class MockWorld(Node):
         super().__init__("road_cleanup_mock_world")
         self.grasp_starts = 0
         self.base_commands: list[dict] = []
+        self.base_state = "idle"
+        self.base_message = "mock base idle"
+        self.base_active_command: dict = {}
+        self.base_latest_result: dict = {}
         self.restart_count = 0
         self.events: list[dict] = []
         self._mock_timers: list[threading.Timer] = []
@@ -40,6 +44,7 @@ class MockWorld(Node):
         self.create_service(Trigger, "/arachne/grasp_task/preflight", self._ok)
         self.create_service(Trigger, "/arachne/grasp_task/stop", self._ok)
         self.create_service(Trigger, "/arachne/grasp_task/base_stop", self._base_stop)
+        self.create_service(Trigger, "/arachne/grasp_task/base_status", self._base_status)
         self.create_service(Trigger, "/arachne/grasp_task/status", self._status)
         self.create_service(Trigger, "/arachne/grasp_task/start", self._grasp_start)
 
@@ -57,6 +62,20 @@ class MockWorld(Node):
         self._publish_base("idle", "mock base stop")
         response.success = True
         response.message = "mock base stop"
+        return response
+
+    def _base_status(self, _request, response):
+        response.success = True
+        response.message = json.dumps(
+            {
+                "state": self.base_state,
+                "message": self.base_message,
+                "worker_busy": self.base_state == "running",
+                "active_command": self.base_active_command,
+                "latest_result": self.base_latest_result,
+            },
+            sort_keys=True,
+        )
         return response
 
     def _grasp_start(self, _request, response):
@@ -78,6 +97,11 @@ class MockWorld(Node):
     def _base_command_cb(self, msg: String) -> None:
         payload = json.loads(msg.data)
         self.base_commands.append(payload)
+        self.base_active_command = dict(payload)
+        self.base_latest_result = {
+            "target_m": float(payload.get("distance_m", 0.0)),
+            "progress_m": float(payload.get("distance_m", 0.0)),
+        }
         self._publish_base("running", "mock base moving")
         self._schedule(0.12, self._publish_base, "succeeded", "mock base done")
 
@@ -107,6 +131,8 @@ class MockWorld(Node):
         self.grasp_state_pub.publish(msg)
 
     def _publish_base(self, state: str, message: str) -> None:
+        self.base_state = state
+        self.base_message = message
         msg = String()
         msg.data = json.dumps(
             {"state": state, "message": message, "worker_busy": state == "running"},
@@ -151,6 +177,7 @@ def main() -> None:
     server = RoadCleanupTaskServer()
     server.set_parameters(
         [
+            Parameter("patrol_pattern", Parameter.Type.STRING, "line"),
             Parameter("patrol_distance_m", Parameter.Type.DOUBLE, 0.4),
             Parameter("patrol_step_m", Parameter.Type.DOUBLE, 0.1),
             Parameter("base_step_timeout_sec", Parameter.Type.DOUBLE, 2.0),

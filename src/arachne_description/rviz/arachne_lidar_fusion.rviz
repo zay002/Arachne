@@ -23,10 +23,10 @@ Visualization Manager:
       Visual Enabled: true
       Collision Enabled: false
     - Class: rviz_default_plugins/TF
-      Enabled: true
+      Enabled: false
       Name: TF
     - Class: rviz_default_plugins/Axes
-      Enabled: true
+      Enabled: false
       Length: 0.18
       Name: LidarOrigin
       Radius: 0.01

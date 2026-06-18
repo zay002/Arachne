@@ -18,12 +18,21 @@ def generate_launch_description():
                 "base_command_topic", default_value="/arachne/grasp_task/base_command"
             ),
             DeclareLaunchArgument("base_state_topic", default_value="/arachne/grasp_task/base_state"),
+            DeclareLaunchArgument("patrol_pattern", default_value="box_entry"),
             DeclareLaunchArgument("patrol_distance_m", default_value="1.2"),
             DeclareLaunchArgument("patrol_step_m", default_value="1.2"),
+            DeclareLaunchArgument("patrol_box_width_m", default_value="1.0"),
+            DeclareLaunchArgument("patrol_box_height_m", default_value="1.2"),
+            DeclareLaunchArgument("patrol_entry_m", default_value="0.3"),
             DeclareLaunchArgument("patrol_base_speed_mps", default_value="0.06"),
             DeclareLaunchArgument("max_round_trips", default_value="2"),
             DeclareLaunchArgument("detection_confidence", default_value="0.35"),
             DeclareLaunchArgument("detection_timeout_sec", default_value="1.2"),
+            DeclareLaunchArgument("require_3d_candidate", default_value="true"),
+            DeclareLaunchArgument("candidate_min_base_x_m", default_value="0.25"),
+            DeclareLaunchArgument("candidate_max_base_x_m", default_value="0.95"),
+            DeclareLaunchArgument("candidate_max_abs_base_y_m", default_value="0.60"),
+            DeclareLaunchArgument("candidate_max_depth_m", default_value="0.85"),
             DeclareLaunchArgument("base_step_timeout_sec", default_value="8.0"),
             DeclareLaunchArgument("grasp_timeout_sec", default_value="90.0"),
             DeclareLaunchArgument("reach_recovery_enabled", default_value="true"),
@@ -43,11 +52,21 @@ def generate_launch_description():
                         "restart_search_topic": LaunchConfiguration("restart_search_topic"),
                         "base_command_topic": LaunchConfiguration("base_command_topic"),
                         "base_state_topic": LaunchConfiguration("base_state_topic"),
+                        "patrol_pattern": LaunchConfiguration("patrol_pattern"),
                         "patrol_distance_m": ParameterValue(
                             LaunchConfiguration("patrol_distance_m"), value_type=float
                         ),
                         "patrol_step_m": ParameterValue(
                             LaunchConfiguration("patrol_step_m"), value_type=float
+                        ),
+                        "patrol_box_width_m": ParameterValue(
+                            LaunchConfiguration("patrol_box_width_m"), value_type=float
+                        ),
+                        "patrol_box_height_m": ParameterValue(
+                            LaunchConfiguration("patrol_box_height_m"), value_type=float
+                        ),
+                        "patrol_entry_m": ParameterValue(
+                            LaunchConfiguration("patrol_entry_m"), value_type=float
                         ),
                         "patrol_base_speed_mps": ParameterValue(
                             LaunchConfiguration("patrol_base_speed_mps"), value_type=float
@@ -60,6 +79,21 @@ def generate_launch_description():
                         ),
                         "detection_timeout_sec": ParameterValue(
                             LaunchConfiguration("detection_timeout_sec"), value_type=float
+                        ),
+                        "require_3d_candidate": ParameterValue(
+                            LaunchConfiguration("require_3d_candidate"), value_type=bool
+                        ),
+                        "candidate_min_base_x_m": ParameterValue(
+                            LaunchConfiguration("candidate_min_base_x_m"), value_type=float
+                        ),
+                        "candidate_max_base_x_m": ParameterValue(
+                            LaunchConfiguration("candidate_max_base_x_m"), value_type=float
+                        ),
+                        "candidate_max_abs_base_y_m": ParameterValue(
+                            LaunchConfiguration("candidate_max_abs_base_y_m"), value_type=float
+                        ),
+                        "candidate_max_depth_m": ParameterValue(
+                            LaunchConfiguration("candidate_max_depth_m"), value_type=float
                         ),
                         "base_step_timeout_sec": ParameterValue(
                             LaunchConfiguration("base_step_timeout_sec"), value_type=float

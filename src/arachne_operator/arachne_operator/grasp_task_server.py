@@ -199,9 +199,9 @@ class GraspTaskServer(Node):
         self.declare_parameter("base_linear_speed", 0.08)
         self.declare_parameter("base_angular_speed", 0.30)
         self.declare_parameter("base_replay_linear_speed", 0.20)
-        self.declare_parameter("base_replay_angular_speed", 0.24)
+        self.declare_parameter("base_replay_angular_speed", 0.18)
         self.declare_parameter("base_position_tolerance", 0.02)
-        self.declare_parameter("base_yaw_tolerance_deg", 2.0)
+        self.declare_parameter("base_yaw_tolerance_deg", 0.5)
         self.declare_parameter("base_manual_publish_rate", 12.0)
         self.declare_parameter("base_motion_max_segment_sec", 20.0)
         self.declare_parameter("base_pose_timeout_sec", 3.0)
@@ -1798,7 +1798,11 @@ class GraspTaskServer(Node):
         text = json.dumps(event, ensure_ascii=False, sort_keys=True)
         msg = String()
         msg.data = text
-        self.event_pub.publish(msg)
+        try:
+            self.event_pub.publish(msg)
+        except Exception as exc:
+            if "context is invalid" not in str(exc) and "publisher's context is invalid" not in str(exc):
+                raise
         run_dir = self.run_dir
         if run_dir is not None:
             try:
@@ -1859,11 +1863,23 @@ def main() -> None:
         if rclpy.ok():
             node._publish_base_stop()
         node._terminate_process("shutdown")
-        node._stop_idle_preview("shutdown")
+        try:
+            node._stop_idle_preview("shutdown")
+        except Exception:
+            pass
     finally:
-        executor.remove_node(node)
-        node._stop_idle_preview("shutdown")
-        node.destroy_node()
+        try:
+            executor.remove_node(node)
+        except Exception:
+            pass
+        try:
+            node._stop_idle_preview("shutdown")
+        except Exception:
+            pass
+        try:
+            node.destroy_node()
+        except Exception:
+            pass
         if rclpy.ok():
             rclpy.shutdown()
 

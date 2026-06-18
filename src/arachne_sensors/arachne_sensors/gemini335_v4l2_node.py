@@ -75,7 +75,7 @@ class Gemini335V4L2Node(Node):
         self.declare_parameter("color_height", 480)
         self.declare_parameter("color_fps", 30.0)
         self.declare_parameter("color_fourcc", "YUYV")
-        self.declare_parameter("color_yuv_layout", "YVYU")
+        self.declare_parameter("color_yuv_layout", "YUYV")
         self.declare_parameter("color_batch_frames", 30)
         self.declare_parameter("color_capture_timeout_sec", 4.0)
         self.declare_parameter("color_frame_id", "camera_color_optical_frame")
@@ -280,12 +280,19 @@ class Gemini335V4L2Node(Node):
             return
         frame_bytes = self.color_width * self.color_height * bytes_per_pixel
         period = 1.0 / max(self.color_fps, 0.1)
-        command = [
+        configure_command = [
             "v4l2-ctl",
+            "--silent",
             "-d",
             self.color_device,
             f"--set-fmt-video=width={self.color_width},height={self.color_height},pixelformat={pixelformat}",
             f"--set-parm={max(self.color_fps, 1.0):g}",
+        ]
+        command = [
+            "v4l2-ctl",
+            "--silent",
+            "-d",
+            self.color_device,
             "--stream-mmap=4",
             "--stream-count=0",
             "--stream-to=-",
@@ -294,6 +301,12 @@ class Gemini335V4L2Node(Node):
             start = time.monotonic()
             process: subprocess.Popen[bytes] | None = None
             try:
+                subprocess.run(
+                    configure_command,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=True,
+                )
                 process = subprocess.Popen(
                     command,
                     stdout=subprocess.PIPE,

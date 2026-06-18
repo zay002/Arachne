@@ -65,9 +65,9 @@ source install/setup.bash
 1. `./scripts/model/view_model.sh` 检查 URDF/TF/mesh 是否正常。
 2. `./scripts/sim/urban_trash_sorting_demo.sh` 在 RViz 里复现道路垃圾巡检、识别、点云、抓取和投篮流程。
 3. `./scripts/hardware/real_grasp_console.sh --yes --quick` 打开真机施教器总控。
-4. 在施教器里用 `Visual Grasp` 做单次视觉抓取；用 `RoadSrv` + `Road Start` 做道路垃圾巡检分拣。
+4. 在施教器里用 `Visual Grasp` 做单次视觉抓取；用 `Road Start` 做道路垃圾巡检分拣，测试中可随时点 `Road Pause` 暂停，点 `Return` 按已完成底盘段反向返航。
 
-真机道路任务复用同一套 `grasp_server`：空闲时 YOLO-SEG 持续发布 `/arachne/perception/taco_instances`，检测到目标后 `road_cleanup_task_server` 停车并调用 `/arachne/grasp_task/start`。如果 YOLO 和点云正常但机械臂不可达或规划失败，任务服务器会让底盘继续小步移动，发布 `/arachne/grasp_preview/restart_search` 让相机重新捕获目标，再重新计算点云和抓取规划。当前默认权重是 `yolo_workspace/weights/yolo26n_seg_taco_best.pt`，缺失时不会自动下载官方 YOLO 权重。
+真机道路任务复用同一套 `grasp_server`：空闲时 YOLO-SEG 持续发布 `/arachne/perception/taco_instances`，检测到带 3D 位姿的可达目标后 `road_cleanup_task_server` 停车并调用 `/arachne/grasp_task/start`。当前默认只接受 `base_link` 下 `x=0.25~0.95 m`、`|y|<=0.60 m`、深度不超过 `0.85 m` 的候选；2D-only 或过远目标只记录为 ignored，不触发机械臂。道路巡检默认按仿真 `box_entry` 路径：入口 `0.3 m` 后进入 `1.0 m x 1.2 m` 矩形环绕，活动范围不再是旧版 2 m 直线往返。底盘转弯由 grasp server 的 replay_segments 执行，默认 yaw 容差 `0.5 deg`、角速度 `0.18 rad/s`，优先保证 90 度转角准确。当前默认权重是 `yolo_workspace/weights/yolo26n_seg_taco_best.pt`，缺失时不会自动下载官方 YOLO 权重。
 
 ## 常用入口
 
@@ -91,6 +91,7 @@ source install/setup.bash
 | 抓取任务服务器（底层调试） | `./scripts/vision/grasp_task_server.sh` |
 | 道路巡检任务服务器（底层调试） | `./scripts/vision/road_cleanup_task_server.sh` |
 | Road cleanup mock 回归 | `python3 scripts/vision/mock_road_cleanup_task_test.py` |
+| AprilTag 手眼交互标定 | `./scripts/vision/apriltag_hand_eye_interactive.sh` |
 | 服务器 MoveIt 规划栈 | `./scripts/remote/remote_moveit_planner_stack.sh restart` |
 | Agent Bridge | `./scripts/agent/agent_bridge.sh` |
 | 真机环境检查 | `./scripts/hardware/check_real_hardware_env.sh` |
@@ -144,7 +145,9 @@ ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/hardwa
 ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/hardware/real_aubo_remote_start.sh
 ```
 
-日常真机启动优先使用施教器总控。它会先打开施教器和 RViz，不要求 Aubo 已经 Running；Aubo 上电/启动、Gemini 相机、2D raw 画面、SLAM/Nav 和 grasp server 都可以在施教器里开关。视觉抓取优先点 `Visual Grasp`，它会自动启动 Camera、2D raw view 和 grasp server，并等待 preflight 通过后再开始任务；默认会按“娃娃机式垂直逼近”抓取，夹爪反馈判断为空抓时会重新拍摄并最多重试 3 次。`Grasp Start` 只作为底层调试入口。console 默认彩色流为 320x240、深度为 640x480，优先保证远程观察流畅。`SLAM` 会启动 C16 点云转 `/scan`、slam_toolbox、Nav2 和俯视导航 RViz：
+日常真机启动优先使用施教器总控。它会先打开施教器和 RViz，不要求 Aubo 已经 Running；Aubo 上电/启动、Gemini 相机、2D raw 画面、Localization/Nav 和 grasp server 都可以在施教器里开关。视觉抓取优先点 `Visual Grasp`，它会自动启动 Camera、2D raw view 和 grasp server，并等待 preflight 通过后再开始任务；默认会按“娃娃机式垂直逼近”抓取，夹爪反馈判断为空抓时会重新拍摄并最多重试 3 次。`Grasp Start` 只作为底层调试入口。console 默认彩色流为 320x240、深度为 640x480，优先保证远程观察流畅。Gemini335 彩色流按 YUYV 读取，避免旧版 v4l2 配置输出污染导致紫绿偏色；当前手眼外参直接发布 `tool0 -> camera_color_optical_frame` 和 `tool0 -> camera_depth_optical_frame`。
+
+已完成的教室地图保存在 `src/arachne_nav/maps/road_lab_apriltag.yaml`。AprilTag/H12 仅用于一次性建图初始朝向和手眼标定，不属于正常 road_clean 启动流程；后续默认通过已有地图和定位链路同步 RViz 位姿。为降低 Jetson 负载，真机施教器正常启动时不自动打开 topdown 导航 RViz；需要定位/Nav 时再从面板或脚本显式启动。`Localization/Nav` 会启动 C16 点云转 `/scan`、AMCL/Nav2 和定位相关节点：
 
 ```bash
 ./scripts/hardware/real_grasp_console.sh --yes --quick

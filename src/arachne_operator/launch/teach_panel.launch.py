@@ -268,6 +268,10 @@ def generate_launch_description():
                 "grasp_task_status_service": LaunchConfiguration("grasp_task_status_service"),
                 "cleanup_task_state_topic": LaunchConfiguration("cleanup_task_state_topic"),
                 "cleanup_task_start_service": LaunchConfiguration("cleanup_task_start_service"),
+                "cleanup_task_pause_service": LaunchConfiguration("cleanup_task_pause_service"),
+                "cleanup_task_return_home_service": LaunchConfiguration(
+                    "cleanup_task_return_home_service"
+                ),
                 "cleanup_task_stop_service": LaunchConfiguration("cleanup_task_stop_service"),
                 "cleanup_task_status_service": LaunchConfiguration("cleanup_task_status_service"),
                 "cleanup_task_preflight_service": LaunchConfiguration("cleanup_task_preflight_service"),
@@ -302,7 +306,7 @@ def generate_launch_description():
             DeclareLaunchArgument("camera_publish_depth", default_value="false"),
             DeclareLaunchArgument("camera_publish_depth_color", default_value="false"),
             DeclareLaunchArgument("camera_publish_pointcloud", default_value="false"),
-            DeclareLaunchArgument("camera_parent_frame", default_value="ee_camera_link"),
+            DeclareLaunchArgument("camera_parent_frame", default_value="tool0"),
             DeclareLaunchArgument("camera_projection_flip_x", default_value="true"),
             DeclareLaunchArgument("camera_projection_flip_y", default_value="true"),
             DeclareLaunchArgument(
@@ -436,8 +440,11 @@ def generate_launch_description():
                 default_value=(
                     "ros2 launch arachne_sensors gemini335.launch.py "
                     "publish_pointcloud:=false with_color_view:=false with_depth_view:=false "
-                    "with_tf:=true camera_parent_frame:=ee_camera_link "
-                    "projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YVYU"
+                    "with_tf:=true camera_parent_frame:=tool0 "
+                    "camera_optical_x:=-0.239469796 camera_optical_y:=0.181459396 "
+                    "camera_optical_z:=0.190102132 camera_optical_roll:=0.083404947 "
+                    "camera_optical_pitch:=-0.300045345 camera_optical_yaw:=3.128380060 "
+                    "projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YUYV"
                 ),
             ),
             DeclareLaunchArgument(
@@ -464,7 +471,8 @@ def generate_launch_description():
                 "cleanup_server_command",
                 default_value=(
                     "scripts/vision/road_cleanup_task_server.sh "
-                    "patrol_distance_m:=1.2 patrol_step_m:=1.2 max_round_trips:=2 "
+                    "patrol_pattern:=box_entry patrol_box_width_m:=1.0 "
+                    "patrol_box_height_m:=1.2 patrol_entry_m:=0.3 max_round_trips:=2 "
                     "patrol_base_speed_mps:=0.06 base_step_timeout_sec:=32.0 "
                     "detection_confidence:=0.35 loop:=true"
                 ),
@@ -478,6 +486,10 @@ def generate_launch_description():
             DeclareLaunchArgument("grasp_task_status_service", default_value="/arachne/grasp_task/status"),
             DeclareLaunchArgument("cleanup_task_state_topic", default_value="/arachne/road_cleanup/state"),
             DeclareLaunchArgument("cleanup_task_start_service", default_value="/arachne/road_cleanup/start"),
+            DeclareLaunchArgument("cleanup_task_pause_service", default_value="/arachne/road_cleanup/pause"),
+            DeclareLaunchArgument(
+                "cleanup_task_return_home_service", default_value="/arachne/road_cleanup/return_home"
+            ),
             DeclareLaunchArgument("cleanup_task_stop_service", default_value="/arachne/road_cleanup/stop"),
             DeclareLaunchArgument("cleanup_task_status_service", default_value="/arachne/road_cleanup/status"),
             DeclareLaunchArgument("cleanup_task_preflight_service", default_value="/arachne/road_cleanup/preflight"),

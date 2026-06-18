@@ -2172,6 +2172,7 @@ class GraspPreviewNode(Node):
     def _publish_detection_event(self, detection: Detection, header: Header) -> None:
         payload = {
             "source": "grasp_preview_yolo_seg",
+            "has_3d": False,
             "stamp": {
                 "sec": int(header.stamp.sec),
                 "nanosec": int(header.stamp.nanosec),
@@ -2188,6 +2189,47 @@ class GraspPreviewNode(Node):
                     "mask_area_px": float(detection.mask_area_px),
                 }
             ],
+        }
+        msg = String()
+        msg.data = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        self.detection_pub.publish(msg)
+
+    def _publish_preview_detection_event(self, preview: GraspPreview, header: Header) -> None:
+        instance = {
+            "label": preview.detection.label,
+            "class_name": preview.detection.label,
+            "taco_class": preview.detection.label,
+            "class_id": int(preview.detection.class_id),
+            "confidence": float(preview.detection.confidence),
+            "bbox_xyxy": [float(value) for value in preview.detection.xyxy],
+            "has_mask": preview.detection.mask_xy is not None,
+            "mask_area_px": float(preview.detection.mask_area_px),
+            "has_3d": True,
+            "depth_m": float(preview.depth_m),
+            "grasp_camera_xyz": [float(value) for value in preview.grasp_xyz],
+            "base_grasp_xyz": (
+                [float(value) for value in preview.base_grasp_xyz]
+                if preview.base_grasp_xyz is not None
+                else []
+            ),
+            "waypoints_base": [
+                {"name": name, "xyz": [float(value) for value in xyz]}
+                for name, xyz in preview.base_waypoints
+            ],
+            "planning_key_waypoints": [
+                {"name": name, "xyz": [float(value) for value in xyz]}
+                for name, xyz, _progress in self._planning_target_samples(preview)
+            ],
+            "trajectory_message": str(preview.ik_message),
+        }
+        payload = {
+            "source": "grasp_preview_3d",
+            "has_3d": True,
+            "stamp": {
+                "sec": int(header.stamp.sec),
+                "nanosec": int(header.stamp.nanosec),
+            },
+            "instances": [instance],
         }
         msg = String()
         msg.data = json.dumps(payload, ensure_ascii=False, sort_keys=True)
@@ -2454,6 +2496,7 @@ class GraspPreviewNode(Node):
         header = _header(source_header.stamp, source_header.frame_id)
         if preview.base_path_xyz:
             preview.basket_safe = self._basket_path_safe(preview.base_path_xyz)
+        self._publish_preview_detection_event(preview, header)
         self.markers_pub.publish(self._markers(preview, header))
         self.cloud_pub.publish(point_cloud2.create_cloud_xyz32(header, preview.roi_points))
         self.path_pub.publish(self._path(preview, header))

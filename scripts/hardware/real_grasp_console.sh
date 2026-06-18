@@ -474,7 +474,13 @@ exec ros2 launch arachne_sensors gemini335.launch.py \
   with_color_view:=false \
   with_depth_view:=false \
   with_tf:=true \
-  camera_parent_frame:=ee_camera_link \
+  camera_parent_frame:=tool0 \
+  camera_optical_x:=-0.239469796 \
+  camera_optical_y:=0.181459396 \
+  camera_optical_z:=0.190102132 \
+  camera_optical_roll:=0.083404947 \
+  camera_optical_pitch:=-0.300045345 \
+  camera_optical_yaw:=3.128380060 \
   "color_width:=${CAMERA_COLOR_WIDTH}" \
   "color_height:=${CAMERA_COLOR_HEIGHT}" \
   "color_fps:=${CAMERA_COLOR_FPS}" \
@@ -528,11 +534,11 @@ exec ros2 launch arachne_operator teach_panel.launch.py \
   recording_dir:="${RECORDING_DIR}" \
   workspace_root:="${ROOT_DIR}" \
   runtime_log_root:="log/teach_panel" \
-  camera_command:="ros2 launch arachne_sensors gemini335.launch.py publish_pointcloud:=false with_color_view:=false with_depth_view:=false with_tf:=true camera_parent_frame:=ee_camera_link projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YVYU color_width:=${CAMERA_COLOR_WIDTH} color_height:=${CAMERA_COLOR_HEIGHT} color_fps:=${CAMERA_COLOR_FPS} depth_width:=${CAMERA_DEPTH_WIDTH} depth_height:=${CAMERA_DEPTH_HEIGHT} depth_fps:=${CAMERA_DEPTH_FPS}" \
+  camera_command:="ros2 launch arachne_sensors gemini335.launch.py publish_pointcloud:=false with_color_view:=false with_depth_view:=false with_tf:=true camera_parent_frame:=tool0 camera_optical_x:=-0.239469796 camera_optical_y:=0.181459396 camera_optical_z:=0.190102132 camera_optical_roll:=0.083404947 camera_optical_pitch:=-0.300045345 camera_optical_yaw:=3.128380060 projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YUYV color_width:=${CAMERA_COLOR_WIDTH} color_height:=${CAMERA_COLOR_HEIGHT} color_fps:=${CAMERA_COLOR_FPS} depth_width:=${CAMERA_DEPTH_WIDTH} depth_height:=${CAMERA_DEPTH_HEIGHT} depth_fps:=${CAMERA_DEPTH_FPS}" \
   camera_view_command:="\${ARACHNE_SYSTEM_PYTHON:-python3} scripts/vision/raw_image_viewer.py --topic ${VIEWER_IMAGE_TOPIC} --window \"Arachne Raw Camera\" --max-fps 15" \
   slam_command:="ARACHNE_NAV_WITH_LSLIDAR_DRIVER=false scripts/hardware/real_lidar_nav.sh" \
   grasp_server_command:="scripts/vision/grasp_task_server.sh execute_real:=true confirm_execute_real:=true with_rviz:=false real_sdk_move_speed:=0.18 preview_on_start:=true planning_recovery_base_enabled:=false require_odom:=${REQUIRE_ODOM} require_camera_topics:=${REQUIRE_CAMERA_TOPICS} require_aubo_status:=false require_gripper_status:=false max_grasp_attempts:=3 retry_on_gripper_miss:=true extra_args:=\"${SERVER_EXTRA_ARGS}\"" \
-  cleanup_server_command:="scripts/vision/road_cleanup_task_server.sh patrol_distance_m:=1.2 patrol_step_m:=1.2 patrol_base_speed_mps:=0.06 max_round_trips:=2 base_step_timeout_sec:=32.0 detection_confidence:=0.35 loop:=true" \
+  cleanup_server_command:="scripts/vision/road_cleanup_task_server.sh patrol_pattern:=box_entry patrol_box_width_m:=1.0 patrol_box_height_m:=1.2 patrol_entry_m:=0.3 patrol_base_speed_mps:=0.06 max_round_trips:=2 base_step_timeout_sec:=32.0 detection_confidence:=0.35 loop:=true" \
   autostart_managed_processes:="camera,viewer,grasp_server,cleanup_server" \
   ${TEACH_EXTRA_ARGS}
 ')"

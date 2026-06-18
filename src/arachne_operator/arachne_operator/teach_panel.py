@@ -234,6 +234,10 @@ def _yaw_from_odom(msg: Odometry) -> float:
 
 
 def _parse_names(text: str) -> list[str]:
+    disabled = {"", "0", "false", "none", "off", "no"}
+    text = str(text).strip()
+    if text.lower() in disabled:
+        return []
     return [item.strip() for item in text.split(",") if item.strip()]
 
 
@@ -408,8 +412,11 @@ class TeachPanelNode(Node):
             (
                 "ros2 launch arachne_sensors gemini335.launch.py "
                 "publish_pointcloud:=false with_color_view:=false with_depth_view:=false "
-                "with_tf:=true camera_parent_frame:=ee_camera_link "
-                "projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YVYU"
+                "with_tf:=true camera_parent_frame:=tool0 "
+                "camera_optical_x:=-0.239469796 camera_optical_y:=0.181459396 "
+                "camera_optical_z:=0.190102132 camera_optical_roll:=0.083404947 "
+                "camera_optical_pitch:=-0.300045345 camera_optical_yaw:=3.128380060 "
+                "projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YUYV"
             ),
         )
         self.declare_parameter(
@@ -435,7 +442,8 @@ class TeachPanelNode(Node):
             "cleanup_server_command",
             (
                 "scripts/vision/road_cleanup_task_server.sh "
-                "patrol_distance_m:=1.2 patrol_step_m:=1.2 max_round_trips:=2 "
+                "patrol_pattern:=box_entry patrol_box_width_m:=1.0 "
+                "patrol_box_height_m:=1.2 patrol_entry_m:=0.3 max_round_trips:=2 "
                 "detection_confidence:=0.35 loop:=true"
             ),
         )
@@ -447,6 +455,10 @@ class TeachPanelNode(Node):
         self.declare_parameter("grasp_task_preflight_service", "/arachne/grasp_task/preflight")
         self.declare_parameter("cleanup_task_state_topic", "/arachne/road_cleanup/state")
         self.declare_parameter("cleanup_task_start_service", "/arachne/road_cleanup/start")
+        self.declare_parameter("cleanup_task_pause_service", "/arachne/road_cleanup/pause")
+        self.declare_parameter(
+            "cleanup_task_return_home_service", "/arachne/road_cleanup/return_home"
+        )
         self.declare_parameter("cleanup_task_stop_service", "/arachne/road_cleanup/stop")
         self.declare_parameter("cleanup_task_status_service", "/arachne/road_cleanup/status")
         self.declare_parameter("cleanup_task_preflight_service", "/arachne/road_cleanup/preflight")
@@ -507,6 +519,12 @@ class TeachPanelNode(Node):
         self.cleanup_task_clients = {
             "start": self.create_client(
                 Trigger, str(self.get_parameter("cleanup_task_start_service").value)
+            ),
+            "pause": self.create_client(
+                Trigger, str(self.get_parameter("cleanup_task_pause_service").value)
+            ),
+            "return_home": self.create_client(
+                Trigger, str(self.get_parameter("cleanup_task_return_home_service").value)
             ),
             "stop": self.create_client(
                 Trigger, str(self.get_parameter("cleanup_task_stop_service").value)
@@ -601,7 +619,7 @@ class TeachPanelNode(Node):
             return
         self.autostart_requested = True
         for name in self.autostart_managed_processes:
-            if name not in MANAGED_PROCESS_COMMAND_PARAMS:
+            if name not in MANAGED_SERVICE_COMMAND_PARAMS:
                 self._status(f"autostart ignored unknown service: {name}", warn=True)
                 continue
             self._start_worker(lambda service=name: self._start_managed_process_worker(service))
@@ -1450,7 +1468,7 @@ class TeachPanelNode(Node):
             self._start_managed_process_worker("grasp_server")
             self._start_managed_process_worker("cleanup_server")
             self._status("road cleanup: waiting for server startup")
-        elif command == "stop":
+        elif command in {"pause", "return_home", "stop"}:
             self.drive_base_manual("stop")
             self.stop_arm_velocity_hold()
 
@@ -1461,7 +1479,8 @@ class TeachPanelNode(Node):
             self._status(f"road cleanup {command} unavailable: {service_name}", warn=True)
             return
         future = client.call_async(Trigger.Request())
-        if not self._wait_service_future(future, 8.0):
+        response_timeout = 12.0 if command == "return_home" else 8.0
+        if not self._wait_service_future(future, response_timeout):
             self._status(f"road cleanup {command} timeout: {service_name}", warn=True)
             return
         response = future.result()
@@ -3499,6 +3518,17 @@ class TeachPanelApp:
             command=lambda: self.node.call_cleanup_task("stop"),
             style="Danger.TButton",
         ).grid(row=0, column=11, rowspan=2, padx=4)
+        ttk.Button(
+            top,
+            text="Road Pause",
+            command=lambda: self.node.call_cleanup_task("pause"),
+            style="Danger.TButton",
+        ).grid(row=0, column=12, rowspan=2, padx=4)
+        ttk.Button(
+            top,
+            text="Return",
+            command=lambda: self.node.call_cleanup_task("return_home"),
+        ).grid(row=0, column=13, rowspan=2, padx=4)
 
     def _confirm_aubo_power_off(self) -> None:
         if not messagebox.askyesno(
@@ -3553,6 +3583,8 @@ class TeachPanelApp:
             (
                 ("Visual Grasp", self.node.visual_grasp_start, "Primary.TButton"),
                 ("Road Start", lambda: self.node.call_cleanup_task("start"), "Primary.TButton"),
+                ("Road Pause", lambda: self.node.call_cleanup_task("pause"), "Danger.TButton"),
+                ("Road Return", lambda: self.node.call_cleanup_task("return_home"), None),
                 ("Grasp Start", lambda: self.node.call_grasp_task("start"), None),
                 ("Road Preflight", lambda: self.node.call_cleanup_task("preflight"), None),
                 ("Restore", lambda: self.node.call_grasp_task("restore"), None),
