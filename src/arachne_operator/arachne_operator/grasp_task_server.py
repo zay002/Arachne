@@ -146,7 +146,7 @@ class GraspTaskServer(Node):
         self.declare_parameter("confirm_execute_real", False)
         self.declare_parameter("with_rviz", False)
         self.declare_parameter("classes", "")
-        self.declare_parameter("confidence", 0.25)
+        self.declare_parameter("confidence", 0.08)
         self.declare_parameter("device_id", 0)
         self.declare_parameter("real_execute_backend", "sdk_move_joint")
         self.declare_parameter("real_return_home", True)
@@ -165,7 +165,7 @@ class GraspTaskServer(Node):
         )
         self.declare_parameter("preview_on_start", False)
         self.declare_parameter("preview_runner_script", "scripts/vision/grasp_preview.sh")
-        self.declare_parameter("preview_extra_args", "--planner-backend none")
+        self.declare_parameter("preview_extra_args", "--planner-backend none --imgsz 768")
         self.declare_parameter("planning_recovery_base_enabled", False)
         self.declare_parameter(
             "planning_recovery_base_sequence",

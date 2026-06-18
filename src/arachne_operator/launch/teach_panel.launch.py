@@ -441,9 +441,11 @@ def generate_launch_description():
                     "ros2 launch arachne_sensors gemini335.launch.py "
                     "publish_pointcloud:=false with_color_view:=false with_depth_view:=false "
                     "with_tf:=true camera_parent_frame:=tool0 "
+                    "color_width:=960 color_height:=540 color_fps:=15.0 "
+                    "depth_width:=960 depth_height:=540 depth_fps:=15.0 "
                     "camera_optical_x:=-0.239469796 camera_optical_y:=0.181459396 "
-                    "camera_optical_z:=0.190102132 camera_optical_roll:=0.083404947 "
-                    "camera_optical_pitch:=-0.300045345 camera_optical_yaw:=3.128380060 "
+                    "camera_optical_z:=0.190102132 camera_optical_roll:=0.0 "
+                    "camera_optical_pitch:=0.0 camera_optical_yaw:=3.128380060 "
                     "projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YUYV"
                 ),
             ),
@@ -460,12 +462,14 @@ def generate_launch_description():
                 default_value=(
                     "scripts/vision/grasp_task_server.sh "
                     "execute_real:=true confirm_execute_real:=true with_rviz:=false "
-                    "real_sdk_move_speed:=0.18 "
-                    "extra_args:='--planner-backend local --planning-key-waypoints grasp,basket_over "
-                    "--arm-collision-samples-per-link 2 --arm-collision-radius 0.025 "
-                    "--collision-margin 0.005 --rear-rack-collision-margin 0.0 "
-                    "--trajectory-max-duration 12 --max-grasp-orientation-candidates 3 "
-                    "--grasp-orientation-yaw-offsets-deg 0,15,-15 --grasp-orientation-tilt-offsets-deg 0 "
+                    "confidence:=0.08 "
+                    "real_sdk_move_speed:=0.28 "
+                    "extra_args:='--planner-backend local --imgsz 768 --planning-key-waypoints grasp,safe_mid,basket_over "
+                    "--arm-collision-samples-per-link 1 --arm-collision-radius 0.018 "
+                    "--collision-margin 0.0 --rear-rack-collision-margin 0.0 "
+                    "--trajectory-max-duration 8 --max-grasp-orientation-candidates 1 "
+                    "--local-planning-timeout-sec 3.0 "
+                    "--grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0 "
                     "--local-position-tolerance 0.045 --local-orientation-tolerance 0.50 "
                     "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "
                     "preview_on_start:=true planning_recovery_base_enabled:=false "
@@ -484,7 +488,7 @@ def generate_launch_description():
                     "grasp_timeout_sec:=25.0 "
                     "candidate_min_base_z_m:=-0.18 candidate_max_reach_m:=1.03 "
                     "initial_detection_wait_sec:=8.0 patrol_turn_scale:=1.0 "
-                    "detection_confidence:=0.35 loop:=true"
+                    "detection_confidence:=0.08 loop:=true"
                 ),
             ),
             DeclareLaunchArgument("grasp_task_state_topic", default_value="/arachne/grasp_task/state"),

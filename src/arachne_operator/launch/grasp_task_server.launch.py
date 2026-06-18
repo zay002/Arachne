@@ -12,7 +12,7 @@ def generate_launch_description():
             DeclareLaunchArgument("confirm_execute_real", default_value="false"),
             DeclareLaunchArgument("with_rviz", default_value="false"),
             DeclareLaunchArgument("classes", default_value=""),
-            DeclareLaunchArgument("confidence", default_value="0.25"),
+            DeclareLaunchArgument("confidence", default_value="0.08"),
             DeclareLaunchArgument("device_id", default_value="0"),
             DeclareLaunchArgument("real_execute_backend", default_value="sdk_move_joint"),
             DeclareLaunchArgument("real_return_home", default_value="true"),
@@ -42,7 +42,7 @@ def generate_launch_description():
                 ),
             ),
             DeclareLaunchArgument("preview_on_start", default_value="false"),
-            DeclareLaunchArgument("preview_extra_args", default_value="--planner-backend none"),
+            DeclareLaunchArgument("preview_extra_args", default_value="--planner-backend none --imgsz 768"),
             DeclareLaunchArgument("planning_recovery_base_enabled", default_value="false"),
             DeclareLaunchArgument(
                 "planning_recovery_base_sequence",

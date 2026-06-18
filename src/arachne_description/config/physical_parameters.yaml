@@ -15,13 +15,13 @@ mounts:
     parent: tool0
     child: camera_color_optical_frame
     xyz: [-0.239469796, 0.181459396, 0.190102132]
-    rpy: [0.083404947, -0.300045345, 3.128380060]
+    rpy: [0.0, 0.0, 3.128380060]
     quaternion_xyzw: [0.149599671, 0.040234693, 0.987927639, 0.000295434]
     source: log/calibration/hand_eye/hand_eye_20260618_103230.json
     sample_count: 19
     mean_reprojection_error_px: 1.468705044
     selected_method: DANIILIDIS
-    status: current_real_hand_eye_calibration
+    status: current_real_hand_eye_translation_with_model_aligned_optical_axis
 aubo_i5:
   default_home_pose:
     source: real_hardware_defaults.yaml

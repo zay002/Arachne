@@ -337,6 +337,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--yolo-task", default="segment", help=hidden)
     parser.add_argument("--classes", default="")
     parser.add_argument("--conf", type=float, default=0.25)
+    parser.add_argument("--min-detection-mask-area-px", type=float, default=1200.0, help=hidden)
+    parser.add_argument("--detection-edge-margin-ratio", type=float, default=0.06, help=hidden)
+    parser.add_argument("--detection-min-center-y-ratio", type=float, default=0.30, help=hidden)
+    parser.add_argument("--detection-max-center-y-ratio", type=float, default=0.86, help=hidden)
+    parser.add_argument("--reject-label-keywords", default="cap,lid", help=hidden)
+    parser.add_argument("--green-bottle-fallback", action=argparse.BooleanOptionalAction, default=False, help=hidden)
+    parser.add_argument("--green-bottle-min-area-px", type=float, default=450.0, help=hidden)
+    parser.add_argument("--green-bottle-bbox-pad-ratio", type=float, default=0.35, help=hidden)
     parser.add_argument("--imgsz", type=int, default=640, help=hidden)
     parser.add_argument("--device-id", default="0", help=hidden)
     parser.add_argument(
@@ -428,6 +436,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--collision-margin", type=float, default=0.015, help=hidden)
     parser.add_argument("--rear-rack-collision-margin", type=float, default=0.005, help=hidden)
     parser.add_argument("--ground-min-z-base", type=float, default=-0.22, help=hidden)
+    parser.add_argument("--grasp-min-z-base", type=float, default=-0.30, help=hidden)
+    parser.add_argument("--grasp-max-z-base", type=float, default=-0.10, help=hidden)
     parser.add_argument("--ground-clearance", type=float, default=0.02, help=hidden)
     parser.add_argument("--tool-ground-clearance", type=float, default=0.015, help=hidden)
     parser.add_argument("--allow-colliding-best-effort", action="store_true", help=hidden)
@@ -485,6 +495,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--local-position-tolerance", type=float, default=0.035, help=hidden)
     parser.add_argument("--local-orientation-tolerance", type=float, default=0.35, help=hidden)
+    parser.add_argument("--local-planning-timeout-sec", type=float, default=0.0, help=hidden)
     parser.add_argument(
         "--moveit-local-first",
         action=argparse.BooleanOptionalAction,
@@ -1114,6 +1125,10 @@ class GraspPreviewNode(Node):
         detection = self._best_detection(result)
         annotated = result.plot()
         header = self.latest_color.header
+        if detection is None:
+            detection = self._green_bottle_fallback_detection(color)
+            if detection is not None:
+                self._draw_detection_overlay(annotated, detection, "GREEN_FALLBACK")
         if detection is None:
             self.missing_frames += 1
             cv2.putText(
@@ -2332,21 +2347,71 @@ class GraspPreviewNode(Node):
         boxes = result.boxes
         if boxes is None or len(boxes) == 0:
             return None
-        best_idx = int(np.argmax(boxes.conf.cpu().numpy()))
-        xyxy = tuple(float(v) for v in boxes.xyxy[best_idx].cpu().numpy())
-        class_id = int(boxes.cls[best_idx].item())
-        confidence = float(boxes.conf[best_idx].item())
-        label = str(result.names.get(class_id, class_id))
-        mask_xy: tuple[tuple[float, float], ...] | None = None
-        mask_area_px = 0.0
+        confs = boxes.conf.cpu().numpy()
+        xyxys = boxes.xyxy.cpu().numpy()
+        classes = boxes.cls.cpu().numpy()
         masks = getattr(result, "masks", None)
         polygons = getattr(masks, "xy", None) if masks is not None else None
-        if polygons is not None and len(polygons) > best_idx:
-            points = np.asarray(polygons[best_idx], dtype=np.float32)
-            if points.ndim == 2 and points.shape[0] >= 3 and points.shape[1] >= 2:
-                points = points[:, :2]
-                mask_xy = tuple((float(x), float(y)) for x, y in points)
-                mask_area_px = float(abs(cv2.contourArea(points)))
+        image_h, image_w = getattr(result, "orig_shape", (0, 0))[:2]
+        edge_margin = max(float(self.args.detection_edge_margin_ratio), 0.0)
+        edge_x = float(image_w) * edge_margin
+        edge_y = float(image_h) * edge_margin
+        min_center_y = float(self.args.detection_min_center_y_ratio)
+        max_center_y = float(self.args.detection_max_center_y_ratio)
+        min_mask_area = max(float(self.args.min_detection_mask_area_px), 0.0)
+        reject_words = [
+            token.strip().lower()
+            for token in str(self.args.reject_label_keywords).split(",")
+            if token.strip()
+        ]
+
+        best: tuple[float, int, tuple[tuple[float, float], ...] | None, float] | None = None
+        for index in range(len(boxes)):
+            xyxy = tuple(float(v) for v in xyxys[index])
+            class_id = int(classes[index])
+            confidence = float(confs[index])
+            label = str(result.names.get(class_id, class_id))
+            label_l = label.lower()
+            if any(word in label_l for word in reject_words):
+                continue
+            x1, y1, x2, y2 = xyxy
+            if image_w > 0 and image_h > 0:
+                if x1 < edge_x or y1 < edge_y or x2 > float(image_w) - edge_x or y2 > float(image_h) - edge_y:
+                    continue
+            mask_xy: tuple[tuple[float, float], ...] | None = None
+            mask_area_px = 0.0
+            if polygons is not None and len(polygons) > index:
+                points = np.asarray(polygons[index], dtype=np.float32)
+                if points.ndim == 2 and points.shape[0] >= 3 and points.shape[1] >= 2:
+                    points = points[:, :2]
+                    mask_xy = tuple((float(x), float(y)) for x, y in points)
+                    mask_area_px = float(abs(cv2.contourArea(points)))
+            box_area = max((x2 - x1) * (y2 - y1), 0.0)
+            area_px = max(mask_area_px, box_area)
+            if area_px < min_mask_area:
+                continue
+            cx = (x1 + x2) * 0.5
+            cy = (y1 + y2) * 0.5
+            if image_h > 0:
+                center_y_ratio = cy / float(image_h)
+                if center_y_ratio < min_center_y or center_y_ratio > max_center_y:
+                    continue
+            center_penalty = 0.0
+            if image_w > 0 and image_h > 0:
+                center_penalty = (
+                    abs(cx - image_w * 0.5) / max(float(image_w), 1.0)
+                    + abs(cy - image_h * 0.5) / max(float(image_h), 1.0)
+                )
+            score = confidence + min(area_px / 12000.0, 0.25) - 0.25 * center_penalty
+            if best is None or score > best[0]:
+                best = (score, index, mask_xy, mask_area_px)
+        if best is None:
+            return None
+        _score, best_idx, mask_xy, mask_area_px = best
+        xyxy = tuple(float(v) for v in xyxys[best_idx])
+        class_id = int(classes[best_idx])
+        confidence = float(confs[best_idx])
+        label = str(result.names.get(class_id, class_id))
         return Detection(
             label=label,
             class_id=class_id,
@@ -2354,6 +2419,94 @@ class GraspPreviewNode(Node):
             xyxy=xyxy,
             mask_xy=mask_xy,
             mask_area_px=mask_area_px,
+        )
+
+    def _green_bottle_fallback_detection(self, image: np.ndarray) -> Detection | None:
+        if not bool(self.args.green_bottle_fallback):
+            return None
+        image_h, image_w = image.shape[:2]
+        if image_h <= 0 or image_w <= 0:
+            return None
+
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, np.array([35, 35, 25]), np.array([95, 255, 255]))
+
+        edge = max(float(self.args.detection_edge_margin_ratio), 0.0)
+        min_y = int(np.clip(float(self.args.detection_min_center_y_ratio) * image_h, 0, image_h))
+        max_y = int(np.clip(float(self.args.detection_max_center_y_ratio) * image_h, 0, image_h))
+        edge_x = int(np.clip(edge * image_w, 0, image_w))
+        mask[:min_y, :] = 0
+        mask[max_y:, :] = 0
+        mask[:, :edge_x] = 0
+        mask[:, image_w - edge_x :] = 0
+
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_DILATE, np.ones((7, 7), dtype=np.uint8))
+        contours, _hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        min_area = max(float(self.args.green_bottle_min_area_px), 1.0)
+        candidates: list[tuple[float, int, int, int, int, float, float]] = []
+        for contour in contours:
+            area = float(cv2.contourArea(contour))
+            if area < min_area:
+                continue
+            x, y, w, h = cv2.boundingRect(contour)
+            cx = float(x) + 0.5 * float(w)
+            cy = float(y) + 0.5 * float(h)
+            if image_h > 0:
+                cy_ratio = cy / float(image_h)
+                if (
+                    cy_ratio < float(self.args.detection_min_center_y_ratio)
+                    or cy_ratio > float(self.args.detection_max_center_y_ratio)
+                ):
+                    continue
+            candidates.append((area, x, y, w, h, cx, cy))
+        if not candidates:
+            return None
+
+        def score(item: tuple[float, int, int, int, int, float, float]) -> float:
+            area, _x, _y, _w, _h, cx, cy = item
+            center_penalty = (
+                abs(cx - image_w * 0.5) / max(float(image_w), 1.0)
+                + abs(cy - image_h * 0.5) / max(float(image_h), 1.0)
+            )
+            return area - 700.0 * center_penalty
+
+        seed = max(candidates, key=score)
+        _area, sx, sy, sw, sh, scx, _scy = seed
+        x_tolerance = max(70.0, float(sw) * 2.5)
+        grouped = [item for item in candidates if abs(item[5] - scx) <= x_tolerance]
+        if not grouped:
+            grouped = [seed]
+        x1 = min(item[1] for item in grouped)
+        y1 = min(item[2] for item in grouped)
+        x2 = max(item[1] + item[3] for item in grouped)
+        y2 = max(item[2] + item[4] for item in grouped)
+        width = max(float(x2 - x1), 1.0)
+        height = max(float(y2 - y1), 1.0)
+        pad_ratio = max(float(self.args.green_bottle_bbox_pad_ratio), 0.0)
+        pad_x = max(28.0, width * (0.6 + pad_ratio))
+        pad_y = max(45.0, height * pad_ratio)
+        bx1 = float(np.clip(x1 - pad_x, 0, image_w - 1))
+        by1 = float(np.clip(y1 - pad_y, 0, image_h - 1))
+        bx2 = float(np.clip(x2 + pad_x, bx1 + 2.0, image_w))
+        by2 = float(np.clip(y2 + pad_y, by1 + 2.0, image_h))
+        mx1 = float(np.clip(x1 - 4.0, 0, image_w - 1))
+        my1 = float(np.clip(y1 - 4.0, 0, image_h - 1))
+        mx2 = float(np.clip(x2 + 4.0, mx1 + 2.0, image_w))
+        my2 = float(np.clip(y2 + 4.0, my1 + 2.0, image_h))
+        mask_xy = ((mx1, my1), (mx2, my1), (mx2, my2), (mx1, my2))
+        area_px = float((mx2 - mx1) * (my2 - my1))
+        self._throttled_log(
+            f"YOLO missed target; using green bottle fallback bbox="
+            f"({bx1:.0f},{by1:.0f},{bx2:.0f},{by2:.0f}) green_components={len(grouped)}"
+        )
+        return Detection(
+            label="Plastic bottle green fallback",
+            class_id=-1,
+            confidence=0.12,
+            xyxy=(bx1, by1, bx2, by2),
+            mask_xy=mask_xy,
+            mask_area_px=area_px,
         )
 
     def _publish_detection_event(self, detection: Detection, header: Header) -> None:
@@ -2546,6 +2699,16 @@ class GraspPreviewNode(Node):
             visual_axis_camera,
             visual_axis_confidence,
         )
+        if base_grasp is not None:
+            min_z = float(self.args.grasp_min_z_base)
+            max_z = float(self.args.grasp_max_z_base)
+            if base_grasp[2] < min_z or base_grasp[2] > max_z:
+                self._throttled_log(
+                    f"reject detection outside road grasp z window: "
+                    f"label={detection.label} base_z={base_grasp[2]:.3f} "
+                    f"window=[{min_z:.3f},{max_z:.3f}]"
+                )
+                return None
         return GraspPreview(
             detection=detection,
             depth_m=depth_m,
@@ -3668,7 +3831,7 @@ class GraspPreviewNode(Node):
         base_from_aubo: np.ndarray,
     ) -> tuple[bool, float, str | None]:
         delta = self._joint_delta(np.asarray(q_goal, dtype=float), np.asarray(q_start, dtype=float))
-        samples = max(int(self.args.arm_collision_samples_per_link), 3)
+        samples = max(int(self.args.arm_collision_samples_per_link), 2)
         min_clearance = float("inf")
         min_hit_name: str | None = None
         for alpha in np.linspace(0.0, 1.0, samples):
@@ -4043,6 +4206,10 @@ class GraspPreviewNode(Node):
         max_position_error = 0.0
         max_orientation_error = 0.0
         orientation_candidates = 0
+        local_deadline = 0.0
+        local_timeout = max(float(self.args.local_planning_timeout_sec), 0.0)
+        if local_timeout > 0.0:
+            local_deadline = time.monotonic() + local_timeout
         for target_name, point, progress in targets:
             best_candidate = None
             for candidate_index, target_rotation_base in enumerate(
@@ -4115,6 +4282,8 @@ class GraspPreviewNode(Node):
                 )
                 if best_candidate is None or score < best_candidate[0]:
                     best_candidate = candidate
+                if local_deadline > 0.0 and time.monotonic() >= local_deadline:
+                    return [], f"local planning timeout after {local_timeout:.1f}s"
 
             if best_candidate is None:
                 failures += 1

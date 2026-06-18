@@ -340,7 +340,7 @@ candidate_max_depth_m = 0.85
 
 如果 YOLO 和点云正常但目标在过滤范围内仍规划失败，`road_cleanup_task_server` 会进入 reach recovery：沿当前巡检方向小步移动底盘，向 `/arachne/grasp_preview/restart_search` 周期性发重搜信号，清掉旧候选，等待新检测后重新计算点云和抓取规划。默认最多 3 次，每次 0.10 m；超过次数后记录 skip 并继续巡检。
 
-施教器默认 road demo 使用快速抓取 profile，而不是完整调试规划：`grasp_server` 以本地 IK 运行，只保留 `grasp,basket_over` 两个语义关键点，碰撞采样降到 2，碰撞半径/裕量收紧，并且只做 1 次抓取尝试；`road_cleanup_task_server` 等待抓取的上限是 `25 s`。如果需要回到完整规划调试，手动启动 `scripts/vision/grasp_task_server.sh` 并覆盖 `extra_args`。
+施教器默认 road demo 使用快速抓取 profile，而不是完整调试规划：`grasp_server` 以本地 IK 运行，只保留 `grasp,basket_over` 两个语义关键点，碰撞采样降到 2，碰撞半径/裕量收紧，本地规划硬时限为 `6 s`，并且只做 1 次抓取尝试；`road_cleanup_task_server` 等待抓取的上限是 `25 s`。如果需要回到完整规划调试，手动启动 `scripts/vision/grasp_task_server.sh` 并覆盖 `extra_args`。
 
 命令行底层调试入口：
 
@@ -428,8 +428,12 @@ q      quit
 ```text
 tool0 -> camera_color_optical_frame
 xyz = -0.239469796, 0.181459396, 0.190102132
-rpy =  0.083404947,-0.300045345, 3.128380060
+rpy =  0.0,0.0,3.128380060
 ```
+
+2026-06-18 road_cleanup 真机调试中，机械臂 tool0 已调整到光轴向下的搜索姿态；为避免把相机点云投影到远离真实瓶子的位置，当前默认保留手眼标定得到的 `tool0 -> camera` 平移，只将 roll/pitch 按模型对齐到 0，使 `camera_*_optical_frame` 的 z 轴跟 tool0 向下方向一致。不要把 tool0 原点当作相机原点。
+
+如果 Aubo 还没有 Running，`/joint_states` 可能不会发布；施教器可视化节点会用只读 Aubo SDK fallback 发布当前 6 轴到 `/arachne/teach_visualization/joint_states`，让 `base_link -> tool0 -> camera_*_optical_frame` 仍跟随手动摆出的真实姿态。日志应出现 `RViz visualization is following Aubo SDK joint positions while /joint_states is idle.`。
 
 AprilTag 也曾用于教室建图前确定初始朝向：车头正对墙面 tag，按 `tagStandard41h2` 初始化建图姿态。但这是一次性建图辅助，不属于正常 road_clean 流程。后续默认使用已保存地图 `src/arachne_nav/maps/road_lab_apriltag.yaml` 和定位链路同步 RViz 中小车位姿，不再在每次启动 road_clean 时依赖 AprilTag。
 
