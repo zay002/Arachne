@@ -123,6 +123,7 @@ class RoadCleanupTaskServer(Node):
         self.patrol_heading_rad = 0.0
         self.completed_base_segments: list[dict[str, Any]] = []
         self.successful_grasps = 0
+        self.base_segment_interrupted_by_grasp = False
         self.real_search_scan_enabled = False
 
         self.state_pub = self.create_publisher(String, "/arachne/road_cleanup/state", 10)
@@ -473,7 +474,8 @@ class RoadCleanupTaskServer(Node):
         }
         self._restart_visual_search("sim box patrol leg start")
         ok = self._execute_base_payload(payload, distance, "base_leg_done")
-        if ok:
+        interrupted = self.base_segment_interrupted_by_grasp
+        if ok and not interrupted:
             with self.lock:
                 self.patrol_heading_rad = desired_heading
             self._advance_patrol_index()
@@ -490,6 +492,7 @@ class RoadCleanupTaskServer(Node):
     ) -> bool:
         msg = String()
         msg.data = json.dumps(payload, sort_keys=True)
+        self.base_segment_interrupted_by_grasp = False
         self.base_command_pub.publish(msg)
         command_started = False
         started = time.monotonic()
@@ -498,6 +501,7 @@ class RoadCleanupTaskServer(Node):
             if monitor_candidates:
                 candidate = self._fresh_candidate()
                 if candidate is not None:
+                    self.base_segment_interrupted_by_grasp = True
                     self._call_trigger(self.base_stop_client, 1.0)
                     self._handle_candidate(candidate)
                     if self._is_terminal():

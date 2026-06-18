@@ -1189,10 +1189,6 @@ class GraspTaskServer(Node):
                 if gripper_miss:
                     final_failure_message = "gripper did not capture object"
                     break
-                if runner_success or returncode == 0:
-                    task_succeeded = True
-                    final_failure_message = ""
-                    break
                 if (
                     planning_failed
                     and not real_started
@@ -1210,6 +1206,13 @@ class GraspTaskServer(Node):
                         self._event("planning_recovery_failed", {"step": step, "error": str(exc)})
                         final_failure_message = f"planning recovery failed: {exc}"
                         break
+                if planning_failed and not real_started:
+                    final_failure_message = "planning failed before real motion"
+                    break
+                if runner_success or returncode == 0:
+                    task_succeeded = True
+                    final_failure_message = ""
+                    break
                 final_failure_message = f"grasp task failed with return code {returncode}"
                 break
 
