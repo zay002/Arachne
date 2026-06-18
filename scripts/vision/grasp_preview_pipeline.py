@@ -2843,7 +2843,8 @@ class GraspPreviewNode(Node):
         return (float(x), float(y), float(z))
 
     def _publish_preview(self, preview: GraspPreview, source_header: Header) -> None:
-        header = _header(source_header.stamp, source_header.frame_id)
+        # ponytail: preview markers/clouds need current TF; keep coordinates in the camera frame.
+        header = _header(self.get_clock().now().to_msg(), source_header.frame_id)
         if preview.base_path_xyz:
             preview.basket_safe = self._basket_path_safe(preview.base_path_xyz)
         self._publish_preview_detection_event(preview, header)

@@ -428,7 +428,7 @@ q      quit
 ```text
 ee_camera_link -> camera_color_optical_frame
 xyz = 0.0, 0.0, 0.0
-rpy = 0.0, 0.0, 0.0
+rpy = 0.0, 0.0, 1.570796327
 ```
 
 2026-06-18 road_cleanup 真机调试中，机械臂 tool0 已调整到光轴向下的搜索姿态；点云必须跟随模型相机 `ee_camera_link`，不要把旧的 `tool0 -> camera_*_optical_frame` 手眼结果当作 RViz 相机位置。

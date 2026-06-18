@@ -186,7 +186,7 @@ def generate_launch_description():
             DeclareLaunchArgument("camera_optical_z", default_value="0.0"),
             DeclareLaunchArgument("camera_optical_roll", default_value="0.0"),
             DeclareLaunchArgument("camera_optical_pitch", default_value="0.0"),
-            DeclareLaunchArgument("camera_optical_yaw", default_value="0.0"),
+            DeclareLaunchArgument("camera_optical_yaw", default_value="1.570796327"),
             DeclareLaunchArgument("with_tf", default_value="true"),
             DeclareLaunchArgument("with_color_view", default_value="false"),
             DeclareLaunchArgument("with_depth_view", default_value="false"),
