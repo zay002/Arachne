@@ -31,7 +31,7 @@ def generate_launch_description():
             DeclareLaunchArgument("patrol_base_speed_mps", default_value="0.06"),
             DeclareLaunchArgument("max_round_trips", default_value="2"),
             DeclareLaunchArgument("detection_confidence", default_value="0.08"),
-            DeclareLaunchArgument("detection_timeout_sec", default_value="1.2"),
+            DeclareLaunchArgument("detection_timeout_sec", default_value="3.0"),
             DeclareLaunchArgument("initial_detection_wait_sec", default_value="8.0"),
             DeclareLaunchArgument("require_3d_candidate", default_value="true"),
             DeclareLaunchArgument("candidate_min_base_x_m", default_value="0.25"),

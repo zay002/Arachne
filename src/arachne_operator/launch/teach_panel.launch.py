@@ -488,7 +488,7 @@ def generate_launch_description():
                     "grasp_timeout_sec:=25.0 "
                     "candidate_min_base_z_m:=-0.18 candidate_max_reach_m:=1.03 "
                     "initial_detection_wait_sec:=8.0 patrol_turn_scale:=1.0 "
-                    "detection_confidence:=0.08 loop:=true"
+                    "detection_confidence:=0.08 detection_timeout_sec:=3.0 loop:=true"
                 ),
             ),
             DeclareLaunchArgument("grasp_task_state_topic", default_value="/arachne/grasp_task/state"),

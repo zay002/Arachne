@@ -78,7 +78,7 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("patrol_base_speed_mps", 0.06)
         self.declare_parameter("max_round_trips", 2)
         self.declare_parameter("detection_confidence", 0.08)
-        self.declare_parameter("detection_timeout_sec", 1.2)
+        self.declare_parameter("detection_timeout_sec", 3.0)
         self.declare_parameter("initial_detection_wait_sec", 8.0)
         self.declare_parameter("require_3d_candidate", True)
         self.declare_parameter("candidate_min_base_x_m", 0.25)
