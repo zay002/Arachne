@@ -79,7 +79,7 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("max_round_trips", 2)
         self.declare_parameter("detection_confidence", 0.35)
         self.declare_parameter("detection_timeout_sec", 1.2)
-        self.declare_parameter("initial_detection_wait_sec", 3.0)
+        self.declare_parameter("initial_detection_wait_sec", 8.0)
         self.declare_parameter("require_3d_candidate", True)
         self.declare_parameter("candidate_min_base_x_m", 0.25)
         self.declare_parameter("candidate_max_base_x_m", 0.95)
@@ -255,16 +255,20 @@ class RoadCleanupTaskServer(Node):
         return response
 
     def _detection_cb(self, msg: String) -> None:
-        candidate = self._parse_candidate(msg.data)
-        if candidate is None:
-            return
         threshold = float(self.get_parameter("detection_confidence").value)
-        if candidate.confidence < threshold:
+        candidates = [item for item in self._parse_candidates(msg.data) if item.confidence >= threshold]
+        if not candidates:
             return
-        ok, reason = self._candidate_reachable(candidate)
-        if not ok:
-            self._event("candidate_ignored", {**asdict(candidate), "reason": reason})
+        reachable: list[Candidate] = []
+        for candidate in sorted(candidates, key=lambda item: item.confidence, reverse=True):
+            ok, reason = self._candidate_reachable(candidate)
+            if ok:
+                reachable.append(candidate)
+            else:
+                self._event("candidate_ignored", {**asdict(candidate), "reason": reason})
+        if not reachable:
             return
+        candidate = reachable[0]
         with self.lock:
             self.latest_candidate = candidate
         self._event("candidate", asdict(candidate))
@@ -948,33 +952,39 @@ class RoadCleanupTaskServer(Node):
         with self.lock:
             return self.state in TERMINAL_STATES
 
-    def _parse_candidate(self, text: str) -> Candidate | None:
+    def _parse_candidates(self, text: str) -> list[Candidate]:
         payload = self._parse_json_object(text)
         if not payload:
-            return None
+            return []
         if isinstance(payload.get("instances"), list) and payload["instances"]:
             items = [item for item in payload["instances"] if isinstance(item, dict)]
         elif isinstance(payload.get("detections"), list) and payload["detections"]:
             items = [item for item in payload["detections"] if isinstance(item, dict)]
         else:
             items = [payload]
-        if not items:
+        return [self._candidate_from_raw(item) for item in items]
+
+    def _parse_candidate(self, text: str) -> Candidate | None:
+        candidates = self._parse_candidates(text)
+        if not candidates:
             return None
-        best = max(items, key=lambda item: float(item.get("confidence", item.get("score", 0.0))))
+        return max(candidates, key=lambda item: item.confidence)
+
+    def _candidate_from_raw(self, raw: dict[str, Any]) -> Candidate:
         class_name = str(
-            best.get("taco_class")
-            or best.get("class_name")
-            or best.get("class")
-            or best.get("label")
+            raw.get("taco_class")
+            or raw.get("class_name")
+            or raw.get("class")
+            or raw.get("label")
             or "trash"
         )
-        confidence = float(best.get("confidence", best.get("score", 0.0)))
+        confidence = float(raw.get("confidence", raw.get("score", 0.0)))
         return Candidate(
             class_name=class_name,
             confidence=confidence,
             message=f"{class_name} {confidence:.2f}",
             received_at=datetime.now().isoformat(timespec="milliseconds"),
-            raw=dict(best),
+            raw=dict(raw),
         )
 
     def _candidate_reachable(self, candidate: Candidate) -> tuple[bool, str]:
