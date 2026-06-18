@@ -79,6 +79,7 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("max_round_trips", 2)
         self.declare_parameter("detection_confidence", 0.35)
         self.declare_parameter("detection_timeout_sec", 1.2)
+        self.declare_parameter("initial_detection_wait_sec", 3.0)
         self.declare_parameter("require_3d_candidate", True)
         self.declare_parameter("candidate_min_base_x_m", 0.25)
         self.declare_parameter("candidate_max_base_x_m", 0.95)
@@ -86,7 +87,7 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("candidate_min_base_z_m", -0.08)
         self.declare_parameter("candidate_max_reach_m", 0.70)
         self.declare_parameter("candidate_max_depth_m", 0.85)
-        self.declare_parameter("patrol_turn_scale", 1.11)
+        self.declare_parameter("patrol_turn_scale", 1.0)
         self.declare_parameter("base_step_timeout_sec", 8.0)
         self.declare_parameter("base_stop_wait_sec", 3.0)
         self.declare_parameter("grasp_timeout_sec", 90.0)
@@ -300,6 +301,22 @@ class RoadCleanupTaskServer(Node):
 
         self._set_real_search_scan(True)
         self._restart_visual_search("road cleanup start")
+        self._set_state("searching", "initial visual search before patrol")
+        deadline = time.monotonic() + max(
+            float(self.get_parameter("initial_detection_wait_sec").value), 0.0
+        )
+        while rclpy.ok() and not self.cancel_event.is_set() and time.monotonic() < deadline:
+            candidate = self._fresh_candidate()
+            if candidate is not None:
+                self._handle_candidate(candidate)
+                if self._is_terminal() or self.cancel_event.is_set():
+                    break
+                self._set_state("patrol", "resume patrol after grasp")
+                self._restart_visual_search("resume patrol after initial grasp")
+                break
+            time.sleep(0.05)
+        if self._is_terminal() or self.cancel_event.is_set():
+            return
         self._set_state("patrol", "patrol route while grasp_server YOLO-SEG watches")
         while rclpy.ok() and not self.cancel_event.is_set():
             candidate = self._fresh_candidate()

@@ -32,6 +32,7 @@ def generate_launch_description():
             DeclareLaunchArgument("max_round_trips", default_value="2"),
             DeclareLaunchArgument("detection_confidence", default_value="0.35"),
             DeclareLaunchArgument("detection_timeout_sec", default_value="1.2"),
+            DeclareLaunchArgument("initial_detection_wait_sec", default_value="3.0"),
             DeclareLaunchArgument("require_3d_candidate", default_value="true"),
             DeclareLaunchArgument("candidate_min_base_x_m", default_value="0.25"),
             DeclareLaunchArgument("candidate_max_base_x_m", default_value="0.95"),
@@ -39,7 +40,7 @@ def generate_launch_description():
             DeclareLaunchArgument("candidate_min_base_z_m", default_value="-0.08"),
             DeclareLaunchArgument("candidate_max_reach_m", default_value="0.70"),
             DeclareLaunchArgument("candidate_max_depth_m", default_value="0.85"),
-            DeclareLaunchArgument("patrol_turn_scale", default_value="1.11"),
+            DeclareLaunchArgument("patrol_turn_scale", default_value="1.0"),
             DeclareLaunchArgument("base_step_timeout_sec", default_value="8.0"),
             DeclareLaunchArgument("grasp_timeout_sec", default_value="90.0"),
             DeclareLaunchArgument("reach_recovery_enabled", default_value="true"),
@@ -90,6 +91,9 @@ def generate_launch_description():
                         ),
                         "detection_timeout_sec": ParameterValue(
                             LaunchConfiguration("detection_timeout_sec"), value_type=float
+                        ),
+                        "initial_detection_wait_sec": ParameterValue(
+                            LaunchConfiguration("initial_detection_wait_sec"), value_type=float
                         ),
                         "require_3d_candidate": ParameterValue(
                             LaunchConfiguration("require_3d_candidate"), value_type=bool
