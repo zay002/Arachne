@@ -472,9 +472,7 @@ class GraspTaskServer(Node):
         env["ARACHNE_GRASP_DISPLAY_FRAME_PREFIX"] = ""
         env["ARACHNE_GRASP_CAMERA_PARENT_FRAME"] = "ee_camera_link"
         env["ARACHNE_GRASP_EXECUTE_REAL"] = "false"
-        env["ARACHNE_GRASP_REAL_SEARCH_SCAN"] = (
-            "true" if bool(self.get_parameter("execute_real").value) else "false"
-        )
+        env["ARACHNE_GRASP_REAL_SEARCH_SCAN"] = "false"
         env["ARACHNE_GRASP_REAL_SDK_IP"] = str(self.get_parameter("real_sdk_ip").value)
         env["ARACHNE_GRASP_REAL_SDK_MOVE_SPEED"] = str(
             self.get_parameter("real_sdk_move_speed").value

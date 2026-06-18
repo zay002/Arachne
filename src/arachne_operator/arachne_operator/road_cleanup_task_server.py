@@ -11,7 +11,7 @@ from typing import Any
 import rclpy
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
-from std_msgs.msg import Empty, String
+from std_msgs.msg import Bool, Empty, String
 from std_srvs.srv import Trigger
 
 
@@ -66,6 +66,9 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("base_stop_service", "/arachne/grasp_task/base_stop")
         self.declare_parameter("base_status_service", "/arachne/grasp_task/base_status")
         self.declare_parameter("restart_search_topic", "/arachne/grasp_preview/restart_search")
+        self.declare_parameter(
+            "real_search_scan_control_topic", "/arachne/grasp_preview/real_search_scan"
+        )
         self.declare_parameter("patrol_pattern", "box_entry")
         self.declare_parameter("patrol_distance_m", 1.2)
         self.declare_parameter("patrol_step_m", 1.2)
@@ -90,6 +93,7 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("reach_recovery_wait_detection_sec", 3.0)
         self.declare_parameter("reach_recovery_continue_on_exhausted", True)
         self.declare_parameter("continue_on_grasp_failure", True)
+        self.declare_parameter("auto_return_home_on_empty_route", True)
         self.declare_parameter("loop", True)
 
         self.lock = threading.RLock()
@@ -114,6 +118,7 @@ class RoadCleanupTaskServer(Node):
         self.patrol_loop_start_index = 0
         self.patrol_heading_rad = 0.0
         self.completed_base_segments: list[dict[str, Any]] = []
+        self.successful_grasps = 0
 
         self.state_pub = self.create_publisher(String, "/arachne/road_cleanup/state", 10)
         self.event_pub = self.create_publisher(String, "/arachne/road_cleanup/event", 10)
@@ -122,6 +127,9 @@ class RoadCleanupTaskServer(Node):
         )
         self.restart_search_pub = self.create_publisher(
             Empty, str(self.get_parameter("restart_search_topic").value), 10
+        )
+        self.real_search_scan_pub = self.create_publisher(
+            Bool, str(self.get_parameter("real_search_scan_control_topic").value), 10
         )
         self.create_subscription(
             String,
@@ -193,6 +201,7 @@ class RoadCleanupTaskServer(Node):
 
     def _pause_cb(self, _request, response):
         self.cancel_event.set()
+        self._set_real_search_scan(False)
         self._call_trigger_background(self.base_stop_client, 1.0, "base_stop")
         self._call_trigger_background(self.grasp_stop_client, 1.0, "grasp_stop")
         self._set_state("paused", "road cleanup paused")
@@ -205,6 +214,7 @@ class RoadCleanupTaskServer(Node):
             busy = self.worker is not None and self.worker.is_alive()
             if busy:
                 self.cancel_event.set()
+                self._set_real_search_scan(False)
                 self._call_trigger_background(self.base_stop_client, 1.0, "base_stop")
                 self._call_trigger_background(self.grasp_stop_client, 1.0, "grasp_stop")
                 response.success = False
@@ -219,6 +229,7 @@ class RoadCleanupTaskServer(Node):
 
     def _stop_cb(self, _request, response):
         self.cancel_event.set()
+        self._set_real_search_scan(False)
         self._call_trigger_background(self.base_stop_client, 1.0, "base_stop")
         self._call_trigger_background(self.grasp_stop_client, 1.0, "grasp_stop")
         self._set_state("canceled", "road cleanup stopping")
@@ -275,12 +286,14 @@ class RoadCleanupTaskServer(Node):
             self.active_candidate = None
             self.recovery_attempts = 0
             self.last_grasp_failure = ""
+            self.successful_grasps = 0
         self._set_state("preflight", "checking camera, base and grasp primitive")
         ok, message = self._call_trigger(self.grasp_preflight_client, 30.0)
         if not ok:
             self._finish("failed", f"preflight failed: {message}")
             return
 
+        self._set_real_search_scan(True)
         self._restart_visual_search("road cleanup start")
         self._set_state("patrol", "patrol route while grasp_server YOLO-SEG watches")
         while rclpy.ok() and not self.cancel_event.is_set():
@@ -301,6 +314,12 @@ class RoadCleanupTaskServer(Node):
         if self.cancel_event.is_set() and self.state != "paused":
             self._finish("canceled", "road cleanup canceled")
         elif self.state not in TERMINAL_STATES:
+            if (
+                bool(self.get_parameter("auto_return_home_on_empty_route").value)
+                and self.successful_grasps == 0
+            ):
+                self._run_return_home()
+                return
             self._finish("succeeded", "road cleanup complete")
 
     def _run_return_home(self) -> None:
@@ -652,6 +671,7 @@ class RoadCleanupTaskServer(Node):
                 )
                 with self.lock:
                     self.active_candidate = None
+                    self.successful_grasps += 1
                 return
 
             failure = f"grasp {state or 'failed'}: {text}".strip()
@@ -823,6 +843,12 @@ class RoadCleanupTaskServer(Node):
     def _restart_visual_search(self, reason: str) -> None:
         self.restart_search_pub.publish(Empty())
         self._event("visual_search_restart", {"reason": reason})
+
+    def _set_real_search_scan(self, enabled: bool) -> None:
+        msg = Bool()
+        msg.data = bool(enabled)
+        self.real_search_scan_pub.publish(msg)
+        self._event("real_search_scan", {"enabled": bool(enabled)})
 
     def _fresh_candidate(self) -> Candidate | None:
         timeout = max(float(self.get_parameter("detection_timeout_sec").value), 0.1)
@@ -1009,6 +1035,8 @@ class RoadCleanupTaskServer(Node):
         self._publish_state()
 
     def _finish(self, state: str, message: str) -> None:
+        if state in TERMINAL_STATES:
+            self._set_real_search_scan(False)
         with self.lock:
             self.finished_at = datetime.now().isoformat(timespec="seconds")
             self.state = state

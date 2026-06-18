@@ -32,7 +32,7 @@ from sensor_msgs.msg import CameraInfo, Image, PointCloud2
 from sensor_msgs.msg import JointState
 from sensor_msgs_py import point_cloud2
 from shape_msgs.msg import SolidPrimitive
-from std_msgs.msg import ColorRGBA, Empty, Header, String
+from std_msgs.msg import Bool, ColorRGBA, Empty, Header, String
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
@@ -351,6 +351,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--lost-frame-threshold", type=int, default=5, help=hidden)
     parser.add_argument("--locked-visual-rate", type=float, default=10.0, help=hidden)
     parser.add_argument("--restart-search-topic", default="/arachne/grasp_preview/restart_search")
+    parser.add_argument(
+        "--real-search-scan-control-topic",
+        default="/arachne/grasp_preview/real_search_scan",
+        help=hidden,
+    )
     parser.add_argument("--detection-topic", default="/arachne/perception/taco_instances", help=hidden)
     parser.add_argument("--joint-states-topic", default="/arachne/display/joint_states", help=hidden)
     parser.add_argument("--color-topic", default="/camera/color/image_raw", help=hidden)
@@ -802,6 +807,7 @@ class GraspPreviewNode(Node):
         self.real_scan_thread: threading.Thread | None = None
         self._last_real_scan_warning = ""
         self._last_real_scan_warning_time = 0.0
+        self.real_search_scan_enabled = bool(args.real_search_scan)
         self.preview_ik_joints = np.asarray(DEFAULT_ARM_JOINTS, dtype=float)
         self.preview_ik_velocity = np.zeros(6, dtype=float)
         self.preview_ik_accel = np.zeros(6, dtype=float)
@@ -840,6 +846,12 @@ class GraspPreviewNode(Node):
         self.create_subscription(CameraInfo, args.color_info_topic, self._color_info_cb, 10)
         self.create_subscription(CameraInfo, args.depth_info_topic, self._depth_info_cb, 10)
         self.create_subscription(Empty, args.restart_search_topic, self._restart_search_cb, 10)
+        self.create_subscription(
+            Bool,
+            str(args.real_search_scan_control_topic),
+            self._real_search_scan_control_cb,
+            10,
+        )
         self.create_subscription(JointState, args.joint_states_topic, self._joint_state_cb, 10)
         if bool(args.execute_real):
             self.create_subscription(
@@ -904,9 +916,8 @@ class GraspPreviewNode(Node):
                 "real execution armed; motion will be sent only after confirmation and start-state checks "
                 f"backend={args.real_execute_backend}"
             )
-        if bool(args.real_search_scan):
-            self.real_scan_thread = threading.Thread(target=self._real_search_scan_loop, daemon=True)
-            self.real_scan_thread.start()
+        self.real_scan_thread = threading.Thread(target=self._real_search_scan_loop, daemon=True)
+        self.real_scan_thread.start()
 
     def _clamp_basket_points_above_keepout(self) -> None:
         top = (
@@ -1040,6 +1051,10 @@ class GraspPreviewNode(Node):
 
     def _restart_search_cb(self, _msg: Empty) -> None:
         self._restart_search("restart-topic")
+
+    def _real_search_scan_control_cb(self, msg: Bool) -> None:
+        self.real_search_scan_enabled = bool(msg.data)
+        self.get_logger().info(f"REAL search scan control: enabled={self.real_search_scan_enabled}")
 
     def _reset_preview_stream(self, message: str) -> None:
         self.preview_ik_joints = np.asarray(self.current_arm_joints, dtype=float)
@@ -1608,7 +1623,7 @@ class GraspPreviewNode(Node):
         with self.real_execution_lock:
             real_started = self.real_execution_started
         planning = self.planning_thread
-        return bool(self.args.real_search_scan) and (
+        return bool(self.real_search_scan_enabled) and (
             self.latest_color is not None
             and not self.inference_paused
             and self.depth_wait_detection is None

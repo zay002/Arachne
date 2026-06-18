@@ -15,6 +15,10 @@ def generate_launch_description():
                 "restart_search_topic", default_value="/arachne/grasp_preview/restart_search"
             ),
             DeclareLaunchArgument(
+                "real_search_scan_control_topic",
+                default_value="/arachne/grasp_preview/real_search_scan",
+            ),
+            DeclareLaunchArgument(
                 "base_command_topic", default_value="/arachne/grasp_task/base_command"
             ),
             DeclareLaunchArgument("base_state_topic", default_value="/arachne/grasp_task/base_state"),
@@ -40,6 +44,7 @@ def generate_launch_description():
             DeclareLaunchArgument("reach_recovery_step_m", default_value="0.10"),
             DeclareLaunchArgument("reach_recovery_wait_detection_sec", default_value="3.0"),
             DeclareLaunchArgument("reach_recovery_continue_on_exhausted", default_value="true"),
+            DeclareLaunchArgument("auto_return_home_on_empty_route", default_value="true"),
             DeclareLaunchArgument("loop", default_value="true"),
             Node(
                 package="arachne_operator",
@@ -50,6 +55,9 @@ def generate_launch_description():
                     {
                         "detection_topic": LaunchConfiguration("detection_topic"),
                         "restart_search_topic": LaunchConfiguration("restart_search_topic"),
+                        "real_search_scan_control_topic": LaunchConfiguration(
+                            "real_search_scan_control_topic"
+                        ),
                         "base_command_topic": LaunchConfiguration("base_command_topic"),
                         "base_state_topic": LaunchConfiguration("base_state_topic"),
                         "patrol_pattern": LaunchConfiguration("patrol_pattern"),
@@ -116,6 +124,10 @@ def generate_launch_description():
                         ),
                         "reach_recovery_continue_on_exhausted": ParameterValue(
                             LaunchConfiguration("reach_recovery_continue_on_exhausted"),
+                            value_type=bool,
+                        ),
+                        "auto_return_home_on_empty_route": ParameterValue(
+                            LaunchConfiguration("auto_return_home_on_empty_route"),
                             value_type=bool,
                         ),
                         "loop": ParameterValue(LaunchConfiguration("loop"), value_type=bool),
