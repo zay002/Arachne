@@ -327,10 +327,14 @@ source install/setup.bash
 ```text
 require_3d_candidate = true
 candidate_min_base_x_m = 0.25
-candidate_max_base_x_m = 0.95
+candidate_max_base_x_m = 1.03
 candidate_max_abs_base_y_m = 0.60
+candidate_min_base_z_m = -0.18
+candidate_max_reach_m = 1.03
 candidate_max_depth_m = 0.85
 ```
+
+`candidate_max_reach_m` 来自 2026-06-18 的实机边界标定：人工把机械臂摆到最远可抓位置后，用 Aubo FK 算得 `grasp_frame` 在 `base_link` 下为 `[1.086, -0.014, -0.096] m`，水平半径 `1.0865 m`。road_clean 默认使用 `1.03 m`，留约 5 cm 裕量；标定记录在 `config/real_road_demo_grasp.yaml`。`candidate_min_base_z_m=-0.18` 允许低位抓取，同时继续挡掉接近 `z=-0.19 m` 的地面反光点。
 
 2D-only 事件只用于视觉预览，不触发抓取；3D 事件来自 `grasp_preview_pipeline`，包含 `depth_m`、`base_grasp_xyz` 和规划关键点。被过滤的候选会在 `/arachne/road_cleanup/event` 里以 `candidate_ignored` 记录原因。
 

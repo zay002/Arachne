@@ -67,7 +67,7 @@ source install/setup.bash
 3. `./scripts/hardware/real_grasp_console.sh --yes --quick` 打开真机施教器总控。
 4. 在施教器里用 `Visual Grasp` 做单次视觉抓取；用 `Road Start` 做道路垃圾巡检分拣，测试中可随时点 `Road Pause` 暂停，点 `Return` 按已完成底盘段反向返航。
 
-真机道路任务复用同一套 `grasp_server`：空闲时 YOLO-SEG 持续发布 `/arachne/perception/taco_instances`，检测到带 3D 位姿的可达目标后 `road_cleanup_task_server` 停车并调用 `/arachne/grasp_task/start`。当前默认只接受 `base_link` 下 `x=0.25~0.95 m`、`|y|<=0.60 m`、深度不超过 `0.85 m` 的候选；2D-only 或过远目标只记录为 ignored，不触发机械臂。道路巡检默认按仿真 `box_entry` 路径：入口 `0.3 m` 后进入 `1.0 m x 1.2 m` 矩形环绕，活动范围不再是旧版 2 m 直线往返。底盘转弯由 grasp server 的 replay_segments 执行，默认 yaw 容差 `0.5 deg`、角速度 `0.18 rad/s`，优先保证 90 度转角准确。当前默认权重是 `yolo_workspace/weights/yolo26n_seg_taco_best.pt`，缺失时不会自动下载官方 YOLO 权重。
+真机道路任务复用同一套 `grasp_server`：空闲时 YOLO-SEG 持续发布 `/arachne/perception/taco_instances`，检测到带 3D 位姿的可达目标后 `road_cleanup_task_server` 停车并调用 `/arachne/grasp_task/start`。当前默认只接受 `base_link` 下 `x=0.25~1.03 m`、水平半径 `<=1.03 m`、`|y|<=0.60 m`、`z>=-0.18 m`、深度不超过 `0.85 m` 的候选；2D-only 或过远目标只记录为 ignored，不触发机械臂。这个半径来自实机手动摆到最远抓取位姿后的 FK 标定，记录在 `config/real_road_demo_grasp.yaml`。道路巡检默认按仿真 `box_entry` 路径：入口 `0.3 m` 后进入 `1.0 m x 1.2 m` 矩形环绕，活动范围不再是旧版 2 m 直线往返。底盘转弯由 grasp server 的 replay_segments 执行，默认 yaw 容差 `0.5 deg`、角速度 `0.18 rad/s`，优先保证 90 度转角准确。当前默认权重是 `yolo_workspace/weights/yolo26n_seg_taco_best.pt`，缺失时不会自动下载官方 YOLO 权重。
 
 ## 常用入口
 

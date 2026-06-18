@@ -1,0 +1,43 @@
+# Real Arachne road-demo grasp calibration.
+# Captured from Aubo RPC after manually positioning the arm at the farthest
+# practical grasp pose. Values are radians, joint order matches Aubo SDK.
+captured_at: "2026-06-18T13:00:00+08:00"
+source: "Aubo RobotState.getJointPositions"
+robot_ip: "192.168.127.128"
+robot_name: "rob1"
+pose_name: "max_reachable_grasp"
+joint_names:
+  - shoulder_joint
+  - upperArm_joint
+  - foreArm_joint
+  - wrist1_joint
+  - wrist2_joint
+  - wrist3_joint
+joint_positions_rad:
+  - -1.4990302540848897
+  - -1.5021292051715271
+  - 0.39896797802416606
+  - 0.3214764718455273
+  - 1.7681853969790635
+  - 0.903919357984263
+notes: "Manual farthest reachable grasp pose for simplifying road cleanup demo."
+fk:
+  base_frame: base_link
+  arm_base_frame: aubo_base_link
+  tool_frame: tool0
+  grasp_frame: grasp_frame
+  tool0_xyz_base_m:
+    - 1.0895616125078238
+    - -0.040819286020380124
+    - 0.03997138054058852
+  tool0_horizontal_radius_m: 1.0903259703234913
+  grasp_xyz_base_m:
+    - 1.0864143322860427
+    - -0.013776505591159095
+    - -0.09602213518739891
+  max_grasp_horizontal_radius_m: 1.086501676714229
+road_cleanup_filter:
+  candidate_max_base_x_m: 1.03
+  candidate_max_reach_m: 1.03
+  candidate_min_base_z_m: -0.18
+  reason: "5cm reach margin from measured max grasp radius; keeps z=-0.19m floor reflections rejected."
