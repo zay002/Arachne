@@ -158,6 +158,10 @@ class GraspTaskServer(Node):
         self.declare_parameter("aubo_teach_flag_path", DEFAULT_AUBO_TEACH_FLAG_PATH)
         self.declare_parameter("aubo_control_owner_path", DEFAULT_AUBO_CONTROL_OWNER_PATH)
         self.declare_parameter("aubo_control_owner_name", "grasp_task_server")
+        self.declare_parameter("aubo_move_joint_action_name", "/arachne/aubo/move_joint")
+        self.declare_parameter("prefer_aubo_move_joint_action", True)
+        self.declare_parameter("aubo_move_joint_fallback_internal", True)
+        self.declare_parameter("aubo_move_joint_wait_server_sec", 0.5)
         self.declare_parameter("grasp_base_offset", "0,0,0")
         self.declare_parameter(
             "extra_args",
@@ -1692,6 +1696,20 @@ class GraspTaskServer(Node):
         env["ARACHNE_GRASP_AUBO_CONTROL_OWNER_NAME"] = str(
             self.get_parameter("aubo_control_owner_name").value
         )
+        env["ARACHNE_GRASP_AUBO_MOVE_JOINT_ACTION_NAME"] = str(
+            self.get_parameter("aubo_move_joint_action_name").value
+        )
+        env["ARACHNE_GRASP_PREFER_AUBO_MOVE_JOINT_ACTION"] = (
+            "true" if bool(self.get_parameter("prefer_aubo_move_joint_action").value) else "false"
+        )
+        env["ARACHNE_GRASP_AUBO_MOVE_JOINT_FALLBACK_INTERNAL"] = (
+            "true"
+            if bool(self.get_parameter("aubo_move_joint_fallback_internal").value)
+            else "false"
+        )
+        env["ARACHNE_GRASP_AUBO_MOVE_JOINT_WAIT_SERVER_SEC"] = str(
+            self.get_parameter("aubo_move_joint_wait_server_sec").value
+        )
         env["ARACHNE_GRASP_BASE_OFFSET"] = str(self.get_parameter("grasp_base_offset").value)
         if bool(self.get_parameter("confirm_execute_real").value):
             env["ARACHNE_CONFIRM_GRASP_EXECUTE_REAL"] = "YES"
@@ -1724,6 +1742,10 @@ class GraspTaskServer(Node):
             "aubo_teach_flag_path",
             "aubo_control_owner_path",
             "aubo_control_owner_name",
+            "aubo_move_joint_action_name",
+            "prefer_aubo_move_joint_action",
+            "aubo_move_joint_fallback_internal",
+            "aubo_move_joint_wait_server_sec",
             "grasp_base_offset",
             "extra_args",
             "preview_on_start",

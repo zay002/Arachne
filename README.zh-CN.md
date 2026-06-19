@@ -62,15 +62,24 @@ source install/setup.bash
 
 日常开发按“模型/仿真先验证，真机先 bringup，再从示教器进入”的顺序走：
 
-1. `./scripts/model/view_model.sh` 检查 URDF/TF/mesh 是否正常。
-2. `./scripts/sim/urban_trash_sorting_demo.sh` 在 RViz 里复现道路垃圾巡检、识别、点云、抓取和投篮流程。
-3. `./scripts/hardware/real_bringup.sh` 启动 Scout/MS42DC/Aubo 真机底层。
-4. `./scripts/operator/teach_panel.sh` 进入真机示教器。
-5. 需要任务服务时启动 `./scripts/vision/grasp_task_server.sh` 或 `./scripts/vision/road_cleanup_task_server.sh`。
+1. `./scripts/build/check_offline_regression.sh` 在无硬件时做离线回归。
+2. `./scripts/model/view_model.sh` 检查 URDF/TF/mesh 是否正常。
+3. `./scripts/sim/urban_trash_sorting_demo.sh` 在 RViz 里复现道路垃圾巡检、识别、点云、抓取和投篮流程。
+4. 有硬件但不允许运动时，先运行 `./scripts/hardware/check_aubo_readonly.sh`。
+5. 只读检查通过后，再进入 `./scripts/hardware/real_bringup.sh` 和 `./scripts/operator/teach_panel.sh`。
+6. 需要任务服务时启动 `./scripts/vision/grasp_task_server.sh` 或 `./scripts/vision/road_cleanup_task_server.sh`。
 
-真机道路任务复用同一套 `grasp_server`：空闲时 YOLO-SEG 持续发布 `/arachne/perception/taco_instances`，检测到目标后 `road_cleanup_task_server` 停车并调用 `/arachne/grasp_task/start`。如果 YOLO 和点云正常但机械臂不可达或规划失败，任务服务器会让底盘继续小步移动，发布 `/arachne/grasp_preview/restart_search` 让相机重新捕获目标，再重新计算点云和抓取规划。当前默认权重是 `yolo_workspace/weights/yolo26n_seg_taco_best.pt`，缺失时不会自动下载官方 YOLO 权重。
+真机道路任务复用同一套 `grasp_server`：空闲时 YOLO-SEG 持续发布 `/arachne/perception/taco_instances`，检测到带 3D 位姿的可达目标后 `road_cleanup_task_server` 停车并调用 `/arachne/grasp_task/start`。当前默认只接受 `base_link` 下 `x=0.25~1.03 m`、水平半径 `<=1.03 m`、`|y|<=0.60 m`、`z>=-0.18 m`、深度不超过 `0.85 m` 的候选；2D-only 或过远目标只记录为 ignored，不触发机械臂。这个半径来自实机手动摆到最远抓取位姿后的 FK 标定，记录在 `config/real_road_demo_grasp.yaml`。施教器默认给 road demo 使用快速抓取 profile：本地 IK、只保留 `grasp,basket_over` 关键点、低碰撞采样、6 秒本地规划硬时限、单次抓取尝试和 25 秒 road 侧超时，避免完整调试规划拖慢道路演示。道路巡检默认按仿真 `box_entry` 路径：入口 `0.3 m` 后进入 `1.0 m x 1.2 m` 矩形环绕，活动范围不再是旧版 2 m 直线往返。底盘转弯由 grasp server 的 replay_segments 执行，默认 yaw 容差 `0.5 deg`、角速度 `0.18 rad/s`，优先保证 90 度转角准确。当前默认权重是 `yolo_workspace/weights/yolo26n_seg_taco_best.pt`，缺失时不会自动下载官方 YOLO 权重。
 
 `scripts/hardware/real_grasp_console.sh` 已降级为 deprecated compatibility wrapper，仅为旧命令保留；新流程请直接使用 `scripts/operator/teach_panel.sh` 或一键示教 demo `scripts/hardware/real_teach_demo.sh`。
+
+## 当前开发状态
+
+- 离线回归可用：`./scripts/build/check_offline_regression.sh`。
+- AuboMoveJoint action dry-run 可用：`./scripts/test/smoke_aubo_move_joint_dry_run.sh`。
+- Demo orchestrator offline smoke test 可用：`./scripts/test/smoke_demo_orchestrator_offline.sh`。
+- 真实硬件只读检查脚本已准备：`./scripts/hardware/check_aubo_readonly.sh`。
+- 真机运动尚未验证；当前文档和 smoke test 不代表真实抓取或真实 Aubo motion 已通过。
 
 ## 主要入口
 
@@ -81,6 +90,10 @@ source install/setup.bash
 | Gazebo 手柄 demo | `./scripts/sim/switch_demo.sh` |
 | Gazebo 自主拾取验证 | `./scripts/sim/gazebo_autopick_demo.sh` |
 | MoveIt 抓取规划 demo | `./scripts/sim/moveit_grasp_planning_demo.sh` |
+| 离线回归 | `./scripts/build/check_offline_regression.sh` |
+| Aubo dry-run action smoke | `./scripts/test/smoke_aubo_move_joint_dry_run.sh` |
+| Demo orchestrator offline smoke | `./scripts/test/smoke_demo_orchestrator_offline.sh` |
+| Aubo 只读硬件检查 | `./scripts/hardware/check_aubo_readonly.sh` |
 | 真机底层启动 | `./scripts/hardware/real_bringup.sh` |
 | 真机示教器 | `./scripts/operator/teach_panel.sh` |
 | 真机一键示教 demo | `./scripts/hardware/real_teach_demo.sh` |
@@ -88,8 +101,11 @@ source install/setup.bash
 | Gemini335 相机 | `./scripts/vision/gemini335_bringup.sh` |
 | Gemini335 YOLO 实时标注 | `./scripts/vision/gemini_yolo_live.sh` |
 | 真机姿态同步抓取预览 | `./scripts/vision/grasp_preview_real_sync.sh` |
+| 真机同步并执行抓取 | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
 | 抓取任务服务器 | `./scripts/vision/grasp_task_server.sh` |
 | 道路巡检任务服务器 | `./scripts/vision/road_cleanup_task_server.sh` |
+| Road cleanup mock 回归 | `python3 scripts/vision/mock_road_cleanup_task_test.py` |
+| 服务器 MoveIt 规划栈 | `./scripts/remote/remote_moveit_planner_stack.sh restart` |
 | 真机 lidar/Nav2 | `./scripts/hardware/real_lidar_nav.sh` |
 | 保存 lidar/SLAM 地图 | `./scripts/hardware/real_lidar_save_map.sh` |
 | AprilTag 导航初始化 | `./scripts/vision/apriltag_nav_initialize.sh` |
@@ -198,6 +214,11 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 - [硬件](docs/hardware.zh-CN.md)
 - [主入口与安全标注](docs/entrypoints.zh-CN.md)
 - [Aubo 控制策略](docs/aubo_control_policy.zh-CN.md)
+- [2026-06 重构总览](docs/refactor_summary_2026-06.zh-CN.md)
+- [开发与提交前检查流程](docs/development_workflow.zh-CN.md)
+- [离线回归](docs/offline_regression.zh-CN.md)
+- [Aubo 只读检查](docs/aubo_readonly_check.zh-CN.md)
+- [硬件验证计划](docs/hardware_validation_plan.zh-CN.md)
 - [Sim2Real 契约](docs/sim2real_contract.zh-CN.md)
 - [标定与导航 TODO](docs/calibration_nav_todo.zh-CN.md)
 - [标定](docs/calibration.zh-CN.md)

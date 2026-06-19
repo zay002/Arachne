@@ -60,49 +60,58 @@ source install/setup.bash
 
 ## 当前推荐工作流
 
-日常开发按“模型/仿真先验证，真机从施教器进入”的顺序走：
+日常开发按“模型/仿真先验证，真机先 bringup，再从示教器进入”的顺序走：
 
-1. `./scripts/model/view_model.sh` 检查 URDF/TF/mesh 是否正常。
-2. `./scripts/sim/urban_trash_sorting_demo.sh` 在 RViz 里复现道路垃圾巡检、识别、点云、抓取和投篮流程。
-3. `./scripts/hardware/real_grasp_console.sh --yes --quick` 打开真机施教器总控。
-4. 在施教器里用 `Visual Grasp` 做单次视觉抓取；用 `Road Start` 做道路垃圾巡检分拣，测试中可随时点 `Road Pause` 暂停，点 `Return` 按已完成底盘段反向返航。
+1. `./scripts/build/check_offline_regression.sh` 在无硬件时做离线回归。
+2. `./scripts/model/view_model.sh` 检查 URDF/TF/mesh 是否正常。
+3. `./scripts/sim/urban_trash_sorting_demo.sh` 在 RViz 里复现道路垃圾巡检、识别、点云、抓取和投篮流程。
+4. 有硬件但不允许运动时，先运行 `./scripts/hardware/check_aubo_readonly.sh`。
+5. 只读检查通过后，再进入 `./scripts/hardware/real_bringup.sh` 和 `./scripts/operator/teach_panel.sh`。
+6. 需要任务服务时启动 `./scripts/vision/grasp_task_server.sh` 或 `./scripts/vision/road_cleanup_task_server.sh`。
 
 真机道路任务复用同一套 `grasp_server`：空闲时 YOLO-SEG 持续发布 `/arachne/perception/taco_instances`，检测到带 3D 位姿的可达目标后 `road_cleanup_task_server` 停车并调用 `/arachne/grasp_task/start`。当前默认只接受 `base_link` 下 `x=0.25~1.03 m`、水平半径 `<=1.03 m`、`|y|<=0.60 m`、`z>=-0.18 m`、深度不超过 `0.85 m` 的候选；2D-only 或过远目标只记录为 ignored，不触发机械臂。这个半径来自实机手动摆到最远抓取位姿后的 FK 标定，记录在 `config/real_road_demo_grasp.yaml`。施教器默认给 road demo 使用快速抓取 profile：本地 IK、只保留 `grasp,basket_over` 关键点、低碰撞采样、6 秒本地规划硬时限、单次抓取尝试和 25 秒 road 侧超时，避免完整调试规划拖慢道路演示。道路巡检默认按仿真 `box_entry` 路径：入口 `0.3 m` 后进入 `1.0 m x 1.2 m` 矩形环绕，活动范围不再是旧版 2 m 直线往返。底盘转弯由 grasp server 的 replay_segments 执行，默认 yaw 容差 `0.5 deg`、角速度 `0.18 rad/s`，优先保证 90 度转角准确。当前默认权重是 `yolo_workspace/weights/yolo26n_seg_taco_best.pt`，缺失时不会自动下载官方 YOLO 权重。
 
-## 常用入口
+`scripts/hardware/real_grasp_console.sh` 已降级为 deprecated compatibility wrapper，仅为旧命令保留；新流程请直接使用 `scripts/operator/teach_panel.sh` 或一键示教 demo `scripts/hardware/real_teach_demo.sh`。
+
+## 当前开发状态
+
+- 离线回归可用：`./scripts/build/check_offline_regression.sh`。
+- AuboMoveJoint action dry-run 可用：`./scripts/test/smoke_aubo_move_joint_dry_run.sh`。
+- Demo orchestrator offline smoke test 可用：`./scripts/test/smoke_demo_orchestrator_offline.sh`。
+- 真实硬件只读检查脚本已准备：`./scripts/hardware/check_aubo_readonly.sh`。
+- 真机运动尚未验证；当前文档和 smoke test 不代表真实抓取或真实 Aubo motion 已通过。
+
+## 主要入口
 
 | 目标 | 命令 |
 | --- | --- |
 | 查看默认 MS42DC 模型 | `./scripts/model/view_model.sh` |
-| 查看 AG95 模型 | `./scripts/model/use_gripper.sh ag95 view` |
-| 检查 URDF 和基础接口 | `./scripts/build/check_workspace.sh` |
+| 道路垃圾分拣 RViz demo | `./scripts/sim/urban_trash_sorting_demo.sh` |
 | Gazebo 手柄 demo | `./scripts/sim/switch_demo.sh` |
 | Gazebo 自主拾取验证 | `./scripts/sim/gazebo_autopick_demo.sh` |
-| Godot 展示前端 | `./scripts/godot/godot_showcase.sh` |
-| 道路垃圾分拣 RViz demo | `./scripts/sim/urban_trash_sorting_demo.sh` |
+| MoveIt 抓取规划 demo | `./scripts/sim/moveit_grasp_planning_demo.sh` |
+| 离线回归 | `./scripts/build/check_offline_regression.sh` |
+| Aubo dry-run action smoke | `./scripts/test/smoke_aubo_move_joint_dry_run.sh` |
+| Demo orchestrator offline smoke | `./scripts/test/smoke_demo_orchestrator_offline.sh` |
+| Aubo 只读硬件检查 | `./scripts/hardware/check_aubo_readonly.sh` |
+| 真机底层启动 | `./scripts/hardware/real_bringup.sh` |
+| 真机示教器 | `./scripts/operator/teach_panel.sh` |
+| 真机一键示教 demo | `./scripts/hardware/real_teach_demo.sh` |
+| 真机完整验收 | `./scripts/hardware/real_full_acceptance.sh --yes` |
+| Gemini335 相机 | `./scripts/vision/gemini335_bringup.sh` |
 | Gemini335 YOLO 实时标注 | `./scripts/vision/gemini_yolo_live.sh` |
-| C16 雷达驱动 | `ros2 launch lslidar_driver lslidar_cx_launch.py` |
-| C16 + 整车融合 RViz | `rviz2 -d src/arachne_description/rviz/arachne_lidar_fusion.rviz` |
-| Trash 分割抓取入篮预览 | `./scripts/vision/grasp_preview.sh` |
 | 真机姿态同步抓取预览 | `./scripts/vision/grasp_preview_real_sync.sh` |
 | 真机同步并执行抓取 | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
-| 真机抓取/施教总控 console（本机规划/调试） | `./scripts/hardware/real_grasp_console.sh --yes --quick` |
-| 真机抓取/施教总控 console（远端规划） | `./scripts/hardware/real_grasp_console_remote.sh` |
-| 抓取任务服务器（底层调试） | `./scripts/vision/grasp_task_server.sh` |
-| 道路巡检任务服务器（底层调试） | `./scripts/vision/road_cleanup_task_server.sh` |
+| 抓取任务服务器 | `./scripts/vision/grasp_task_server.sh` |
+| 道路巡检任务服务器 | `./scripts/vision/road_cleanup_task_server.sh` |
 | Road cleanup mock 回归 | `python3 scripts/vision/mock_road_cleanup_task_test.py` |
-| AprilTag 手眼交互标定 | `./scripts/vision/apriltag_hand_eye_interactive.sh` |
 | 服务器 MoveIt 规划栈 | `./scripts/remote/remote_moveit_planner_stack.sh restart` |
+| 真机 lidar/Nav2 | `./scripts/hardware/real_lidar_nav.sh` |
+| 保存 lidar/SLAM 地图 | `./scripts/hardware/real_lidar_save_map.sh` |
+| AprilTag 导航初始化 | `./scripts/vision/apriltag_nav_initialize.sh` |
+| AprilTag 导航建图 | `./scripts/vision/apriltag_nav_start_mapping.sh` |
 | Agent Bridge | `./scripts/agent/agent_bridge.sh` |
-| 真机环境检查 | `./scripts/hardware/check_real_hardware_env.sh` |
-| 真机一键 bringup | `./scripts/hardware/real_bringup.sh` |
-| 真机示教演示 | `./scripts/hardware/real_teach_demo.sh` |
-| Aubo 只读连通探测 | `./scripts/hardware/real_aubo_probe.sh` |
-| Aubo 启动状态确认 | `./scripts/hardware/real_aubo_prepare.sh` |
-| Aubo 真机 driver 启动 | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/hardware/real_aubo_bringup.sh` |
-| Aubo 阻塞远程启动 | `ARACHNE_CONFIRM_AUBO_REMOTE_START=YES ./scripts/hardware/real_aubo_remote_start.sh` |
-| Aubo 小幅 Z 向测试 | `ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_aubo_z_test.sh` |
-| 真机示教与回放面板 | `./scripts/operator/teach_panel.sh` |
+| 停止真机栈 | `./scripts/hardware/stop_real_stack.sh` |
 
 <p align="center">
   <img src="docs/demo/gazebo.png" alt="Arachne Gazebo demo" width="48%">
@@ -112,10 +121,6 @@ source install/setup.bash
 ## 真机接口
 
 Arachne 的真机层尽量复用官方或厂家 ROS 路线，并在本仓库内维护当前硬件需要的集成节点。
-
-### 坐标系约定
-
-Arachne 默认遵循 ROS 车体坐标约定：`base_link` 的 +X 指向小车前方，+Y 指向小车左侧，+Z 向上。`odom -> base_link` 来自底盘里程计，`map -> odom` 属于后续定位系统，不写进 URDF。机械臂链路挂在车体上：`base_link -> aubo_base_link -> ... -> aubo_wrist3_Link -> tool0`；实际末端支架挂在 `aubo_wrist3_Link` 下方，链路为 `aubo_wrist3_Link -> ee_camera_support_link -> ms42dc_base_link -> grasp_frame`，相机链路为 `ee_camera_support_link -> ee_camera_link`。其中 `aubo_base_link` 是 Aubo 底座坐标，`tool0` 是法兰中心，`grasp_frame` 是夹具中心/抓取 TCP。RGB-D ROI 点先在相机深度 frame 中按深度投影得到，再经 TF 转成 `base_link` 下的抓取目标。抓取预览的补偿量 `ARACHNE_GRASP_BASE_OFFSET` 是 `base_link` 下的 `(x,y,z)` 米制偏置，默认 `0,0,0`；长期偏差应通过 `scripts/vision/apriltag_hand_eye_calibration.sh` 求真实手眼外参。真机抓取执行默认在投放开爪后回到 `scripts/env/arachne_real_defaults.sh` 中的 home 姿态。
 
 | 设备 | 默认接口 | 说明 |
 | --- | --- | --- |
@@ -145,21 +150,11 @@ ARACHNE_CONFIRM_AUBO_DRIVER=YES ARACHNE_AUBO_ALLOW_PRESTART=YES ./scripts/hardwa
 ARACHNE_CONFIRM_AUBO_REMOTE_START=YES AUBO_ROBOT_IP=192.168.127.128 ./scripts/hardware/real_aubo_remote_start.sh
 ```
 
-日常真机启动优先使用施教器总控。它会先打开施教器和 RViz，不要求 Aubo 已经 Running；Aubo 上电/启动、Gemini 相机、2D raw 画面、Localization/Nav 和 grasp server 都可以在施教器里开关。视觉抓取优先点 `Visual Grasp`，它会自动启动 Camera、2D raw view 和 grasp server，并等待 preflight 通过后再开始任务；默认会按“娃娃机式垂直逼近”抓取，夹爪反馈判断为空抓时会重新拍摄并最多重试 3 次。`Grasp Start` 只作为底层调试入口。console 默认彩色流为 320x240、深度为 640x480，优先保证远程观察流畅。Gemini335 彩色流按 YUYV 读取，避免旧版 v4l2 配置输出污染导致紫绿偏色；当前 `camera_color_optical_frame` 和 `camera_depth_optical_frame` 挂在模型里的 `ee_camera_link` 下，避免 RViz 点云和相机模型分离。`tool0` 是法兰中心，不是相机原点。没有新鲜 `/joint_states` 时，施教器可视化节点会只读轮询 Aubo SDK 当前关节，避免 TF 回落到默认机械臂姿态。
-
-已完成的教室地图保存在 `src/arachne_nav/maps/road_lab_apriltag.yaml`。AprilTag/H12 仅用于一次性建图初始朝向和手眼标定，不属于正常 road_clean 启动流程；后续默认通过已有地图和定位链路同步 RViz 位姿。为降低 Jetson 负载，真机施教器正常启动时不自动打开 topdown 导航 RViz；需要定位/Nav 时再从面板或脚本显式启动。`Localization/Nav` 会启动 C16 点云转 `/scan`、AMCL/Nav2 和定位相关节点：
+日常真机启动优先使用自动入口。脚本会自动选择 Scout 和 MS42DC 的 `/dev/serial/by-id` 串口，检查 Aubo 是否处于 Running / Normal，然后启动完整 bringup：
 
 ```bash
-./scripts/hardware/real_grasp_console.sh --yes --quick
+./scripts/hardware/real_bringup.sh
 ```
-
-如果需要服务器上的 MoveIt 2/OMPL 规划，用同一个施教器总控的远端包装入口：
-
-```bash
-./scripts/hardware/real_grasp_console_remote.sh
-```
-
-底层 `real_bringup.sh`、`grasp_task_server.sh` 仍保留用于单独调试，不作为日常主入口。
 
 WSL2 用户推荐使用 [hurry-porter](https://github.com/zay002/hurry-porter) 辅助 USB 透传、串口扫描和 Waveshare USB-CAN-A 诊断。`real_bringup.sh` 找不到串口时会先尝试自动 attach CH9102/CH340 设备；如果 Windows 侧还没有共享设备，再按脚本提示手动 attach。
 
@@ -180,13 +175,13 @@ hurry waveshare-can-a recv \
 ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test.sh
 ```
 
-旧版示教演示仍保留用于回归，但日常请优先使用 `real_grasp_console.sh`：
+示教演示可直接一键启动：
 
 ```bash
 ./scripts/hardware/real_teach_demo.sh
 ```
 
-它会启动真机 bringup，等待 `/odom`、`/joint_states`、Aubo trajectory action 和夹具状态可用后打开示教面板；不适合作为当前抓取/SLAM/相机联调主入口。
+它会启动真机 bringup，等待 `/odom`、`/joint_states`、Aubo trajectory action 和夹具状态可用后打开示教面板；关闭面板时会自动停止 bringup。面板可以手动控制底盘、Aubo 末端和 MS42DC，支持 Aubo Teach On/Off、RX/RY/RZ 腕部微调、底盘长按松开后自动记录相对移动段、等待步骤、单点更新和 waypoint 复用，并将记录保存到本地 `recordings/teach/` 后一键回放。
 
 ## 项目结构
 
@@ -210,13 +205,22 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 | `godot/arachne_showcase` | Godot 4.x 第三人称展示前端 |
 | `docs` | 建模、控制、硬件、标定和参考资料 |
 
-`scripts/` 根目录不再放置旧式兼容脚本；请直接使用分类路径，例如 `./scripts/hardware/real_grasp_console.sh --yes --quick` 和 `source scripts/env/arachne_env.sh`。
+`scripts/` 根目录不再放置旧式兼容脚本；请直接使用分类路径，例如 `./scripts/operator/teach_panel.sh` 和 `source scripts/env/arachne_env.sh`。完整脚本索引见 [scripts/README.md](scripts/README.md)。
 
 ## 文档
 
 - [建模](docs/modeling.zh-CN.md)
 - [控制](docs/control.zh-CN.md)
 - [硬件](docs/hardware.zh-CN.md)
+- [主入口与安全标注](docs/entrypoints.zh-CN.md)
+- [Aubo 控制策略](docs/aubo_control_policy.zh-CN.md)
+- [2026-06 重构总览](docs/refactor_summary_2026-06.zh-CN.md)
+- [开发与提交前检查流程](docs/development_workflow.zh-CN.md)
+- [离线回归](docs/offline_regression.zh-CN.md)
+- [Aubo 只读检查](docs/aubo_readonly_check.zh-CN.md)
+- [硬件验证计划](docs/hardware_validation_plan.zh-CN.md)
+- [Sim2Real 契约](docs/sim2real_contract.zh-CN.md)
+- [标定与导航 TODO](docs/calibration_nav_todo.zh-CN.md)
 - [标定](docs/calibration.zh-CN.md)
 - [抓取任务服务器](docs/grasp_task_server.zh-CN.md)
 - [道路垃圾巡检分拣](docs/road_cleanup_task_server.zh-CN.md)

@@ -78,6 +78,10 @@ PERCEPTION_ONLY_RESTART_SEC="${ARACHNE_GRASP_PERCEPTION_ONLY_RESTART_SEC:-1.0}"
 REAL_SDK_TEACH_FLAG_PATH="${ARACHNE_GRASP_REAL_SDK_TEACH_FLAG_PATH:-/tmp/arachne_aubo_teach_mode}"
 REAL_SDK_CONTROL_OWNER_PATH="${ARACHNE_GRASP_AUBO_CONTROL_OWNER_PATH:-/tmp/arachne_aubo_control_owner}"
 REAL_SDK_CONTROL_OWNER_NAME="${ARACHNE_GRASP_AUBO_CONTROL_OWNER_NAME:-grasp_task_server}"
+AUBO_MOVE_JOINT_ACTION_NAME="${ARACHNE_GRASP_AUBO_MOVE_JOINT_ACTION_NAME:-/arachne/aubo/move_joint}"
+PREFER_AUBO_MOVE_JOINT_ACTION="${ARACHNE_GRASP_PREFER_AUBO_MOVE_JOINT_ACTION:-true}"
+AUBO_MOVE_JOINT_FALLBACK_INTERNAL="${ARACHNE_GRASP_AUBO_MOVE_JOINT_FALLBACK_INTERNAL:-true}"
+AUBO_MOVE_JOINT_WAIT_SERVER_SEC="${ARACHNE_GRASP_AUBO_MOVE_JOINT_WAIT_SERVER_SEC:-0.5}"
 REAL_RETURN_HOME="${ARACHNE_GRASP_REAL_RETURN_HOME:-true}"
 REAL_HOME_JOINTS="${ARACHNE_GRASP_REAL_HOME_JOINTS:-${ARACHNE_AUBO_HOME_JOINTS_RAD:--1.5707963267949,0.201570428261868,1.65970467002488,0.485178041391533,1.67675136677345,0.76432946885334}}"
 REAL_HOME_DURATION="${ARACHNE_GRASP_REAL_HOME_DURATION:-2.5}"
@@ -376,10 +380,22 @@ run_pipeline() {
       --real-sdk-control-owner-name "${REAL_SDK_CONTROL_OWNER_NAME}"
       --real-sdk-move-speed "${REAL_SDK_MOVE_SPEED}"
       --real-sdk-move-accel "${REAL_SDK_MOVE_ACCEL}"
+      --aubo-move-joint-action-name "${AUBO_MOVE_JOINT_ACTION_NAME}"
+      --aubo-move-joint-wait-server-sec "${AUBO_MOVE_JOINT_WAIT_SERVER_SEC}"
       "${return_home_arg}"
       "--real-home-joints=${REAL_HOME_JOINTS}"
       --real-home-duration "${REAL_HOME_DURATION}"
     )
+    if [[ "${PREFER_AUBO_MOVE_JOINT_ACTION}" == "true" ]]; then
+      execute_args+=(--prefer-aubo-move-joint-action)
+    else
+      execute_args+=(--no-prefer-aubo-move-joint-action)
+    fi
+    if [[ "${AUBO_MOVE_JOINT_FALLBACK_INTERNAL}" == "true" ]]; then
+      execute_args+=(--aubo-move-joint-fallback-internal)
+    else
+      execute_args+=(--no-aubo-move-joint-fallback-internal)
+    fi
   fi
   "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/vision/grasp_preview_pipeline.py" \
     --model "${MODEL}" \

@@ -39,9 +39,11 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 try:
     from arachne_operator.real_hardware_acceptance_test import AuboI5Kinematics
+    from arachne_operator.aubo_move_joint_client import AuboMoveJointClient
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src" / "arachne_operator"))
     from arachne_operator.real_hardware_acceptance_test import AuboI5Kinematics
+    from arachne_operator.aubo_move_joint_client import AuboMoveJointClient
 
 try:
     from arachne_hardware.aubo_tcp_driver import AuboDirectJsonRpc
@@ -575,6 +577,20 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--real-search-scan-speed", type=float, default=0.08, help=hidden)
     parser.add_argument("--real-search-scan-accel", type=float, default=0.20, help=hidden)
     parser.add_argument("--perception-only-restart-sec", type=float, default=1.0, help=hidden)
+    parser.add_argument("--aubo-move-joint-action-name", default="/arachne/aubo/move_joint", help=hidden)
+    parser.add_argument(
+        "--prefer-aubo-move-joint-action",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=hidden,
+    )
+    parser.add_argument(
+        "--aubo-move-joint-fallback-internal",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=hidden,
+    )
+    parser.add_argument("--aubo-move-joint-wait-server-sec", type=float, default=0.5, help=hidden)
     parser.add_argument(
         "--real-return-home",
         dest="real_return_home",
@@ -886,6 +902,13 @@ class GraspPreviewNode(Node):
             ActionClient(self, FollowJointTrajectory, str(args.real_follow_action))
             if bool(args.execute_real)
             and str(args.real_execute_backend) == "follow_joint_trajectory"
+            else None
+        )
+        self.aubo_move_joint_client = (
+            AuboMoveJointClient(self, str(args.aubo_move_joint_action_name))
+            if bool(args.execute_real)
+            and str(args.real_execute_backend) == "sdk_move_joint"
+            and bool(args.prefer_aubo_move_joint_action)
             else None
         )
         self.real_gripper_pub = (
@@ -1447,6 +1470,27 @@ class GraspPreviewNode(Node):
         if not targets:
             raise RuntimeError("real SDK moveJoint target list is empty")
 
+        if bool(self.args.prefer_aubo_move_joint_action):
+            try:
+                if self._execute_real_aubo_move_joint_action(preview, targets):
+                    return
+            except Exception as exc:
+                if not bool(self.args.aubo_move_joint_fallback_internal):
+                    raise
+                self.get_logger().warn(
+                    "AuboMoveJoint action path failed; falling back to guarded internal "
+                    f"SDK moveJoint: {exc}"
+                )
+            else:
+                if not bool(self.args.aubo_move_joint_fallback_internal):
+                    raise TimeoutError(
+                        f"AuboMoveJoint action server unavailable: {self.args.aubo_move_joint_action_name}"
+                    )
+                self.get_logger().warn(
+                    "AuboMoveJoint action server unavailable; falling back to guarded internal "
+                    "SDK moveJoint"
+                )
+
         ip = str(self.args.real_sdk_ip)
         port = int(self.args.real_sdk_rpc_port)
         timeout = max(float(self.args.real_sdk_rpc_timeout), 0.1)
@@ -1659,6 +1703,99 @@ class GraspPreviewNode(Node):
                 self._restart_search("perception-only auto restart")
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _execute_real_aubo_move_joint_action(
+        self,
+        preview: GraspPreview,
+        targets: list[tuple[str, JointTrajectoryFrame]],
+    ) -> bool:
+        client = self.aubo_move_joint_client
+        if client is None:
+            return False
+        wait_sec = max(float(self.args.aubo_move_joint_wait_server_sec), 0.0)
+        if not client.wait_for_server(wait_sec):
+            return False
+
+        speed = max(float(self.args.real_sdk_move_speed), 0.01)
+        accel = max(float(self.args.real_sdk_move_accel), 0.05)
+        blend_radius = max(float(self.args.real_sdk_blend_radius), 0.0)
+        duration_scale = max(float(self.args.real_sdk_segment_duration_scale), 0.0)
+        tolerance = max(float(self.args.real_sdk_goal_tolerance_rad), 0.001)
+        timeout_padding = max(float(self.args.real_sdk_arrival_timeout_padding), 0.0)
+        self.get_logger().warn(
+            f"sending REAL arm motion through /arachne/aubo/move_joint: targets={len(targets)} "
+            f"speed={speed:.3f}rad/s accel={accel:.3f}rad/s2"
+        )
+
+        if bool(self.args.real_execute_gripper):
+            self._publish_real_gripper("open")
+            settle = max(float(self.args.real_gripper_settle_sec), 0.0)
+            if settle > 0.0:
+                time.sleep(settle)
+
+        previous_time = 0.0
+        closed = False
+        opened = False
+        (
+            _close_start,
+            _close_end,
+            _open_start,
+            _open_end,
+            close_label,
+            open_label,
+        ) = self._gripper_event_progresses(preview)
+        for index, (label, frame) in enumerate(targets, start=1):
+            if self.stopping or not rclpy.ok():
+                return True
+            target = [float(value) for value in frame.positions]
+            segment_dt = max(float(frame.time_from_start) - previous_time, 0.0)
+            duration = 0.0
+            if duration_scale > 0.0:
+                duration = max(
+                    segment_dt * duration_scale,
+                    max(float(self.args.real_sdk_min_segment_duration), 0.0),
+                )
+            timeout_sec = max(segment_dt, duration, 0.5) + timeout_padding
+            success, message, final_error = client.move_joint(
+                target,
+                label=label,
+                speed_rad_sec=speed,
+                accel_rad_sec2=accel,
+                blend_radius=blend_radius,
+                duration_sec=duration,
+                goal_tolerance_rad=tolerance,
+                timeout_sec=timeout_sec,
+            )
+            if not success:
+                raise RuntimeError(
+                    f"AuboMoveJoint action failed at {label}: {message} "
+                    f"final_error={final_error:.3f}rad"
+                )
+            self.get_logger().warn(
+                f"REAL moveJoint {index}/{len(targets)} {label}: "
+                f"t={frame.time_from_start:.2f}s duration={duration:.2f}s "
+                f"final_error={final_error:.3f}rad"
+            )
+            previous_time = float(frame.time_from_start)
+
+            if bool(self.args.real_execute_gripper) and not closed:
+                if label == close_label:
+                    self._publish_real_gripper("close")
+                    closed = True
+                    settle = max(float(self.args.real_gripper_settle_sec), 0.0)
+                    if settle > 0.0:
+                        time.sleep(settle)
+                    self._require_real_gripper_capture_or_raise()
+            if bool(self.args.real_execute_gripper) and not opened:
+                if label == open_label:
+                    self._publish_real_gripper("open")
+                    opened = True
+                    settle = max(float(self.args.real_gripper_settle_sec), 0.0)
+                    if settle > 0.0:
+                        time.sleep(settle)
+        if not self.stopping and rclpy.ok():
+            self.get_logger().warn("REAL arm AuboMoveJoint action sequence complete")
+        return True
 
     def _execute_real_follow_joint_trajectory(self, preview: GraspPreview) -> None:
         if self.real_arm_action_client is None:

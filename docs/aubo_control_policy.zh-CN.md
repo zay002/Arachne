@@ -28,7 +28,9 @@ JSON-RPC、control_owner、teach_gate 和部分 motion safety helper 收敛到
 - `/arachne/aubo/teach_command` 由 teach command bridge 转换为 freedrive/teach 控制。
 - `/arachne/aubo/joint_velocity_command` 由 SDK velocity bridge 转换为受限 `speedJoint`。
 - `/arachne/aubo/move_joint` 是 Phase 3A 新增的 guarded SDK `moveJoint` action，上层 replay/orchestrator 应优先通过该 action 调用，不应直接持有 JSON-RPC client。
+- `aubo_move_joint_action_server` 支持 `dry_run:=true` 做 ROS action 链路验证；该模式不连接 SDK、不写 gate/owner、不代表真实机械臂运动成功。默认 `dry_run:=false`。
 - `grasp_preview_real_sync.sh --execute-real` 和 `grasp_task_server` 的真实执行路径使用 guarded SDK/moveJoint 语义。
+- Phase 3C 起，grasp task 真实 `sdk_move_joint` 路径优先调用 `/arachne/aubo/move_joint`；旧 SDK JSON-RPC 路径只作为 guarded fallback。
 
 ## Phase 2 模块结构
 
@@ -47,7 +49,24 @@ SDK library：
 - `src/arachne_hardware/arachne_hardware/aubo_tcp_driver.py`：保留 `aubo_teach_command_bridge`、`aubo_sdk_velocity_bridge`、`aubo_official_status_probe` executable 语义。
 - `src/arachne_hardware/arachne_hardware/aubo_move_joint_action_server.py`：Phase 3A 新增 action server，默认 action 名 `/arachne/aubo/move_joint`。
 - `src/arachne_operator/arachne_operator/teach_panel.py`：保留 GUI、waypoint、回放、Visual Grasp、Road Cleanup 按钮逻辑；SDK moveJoint replay 优先调用 action，server 不可用时可 fallback 到 internal helper。
+- `src/arachne_operator/arachne_operator/aubo_move_joint_client.py`：Phase 3C 新增 action client helper，供任务链路调用 `/arachne/aubo/move_joint`，不包含 JSON-RPC fallback。
 - `scripts/operator/teach_panel.sh`、`scripts/hardware/real_teach_demo.sh`、`scripts/vision/grasp_task_server.sh`、`scripts/vision/road_cleanup_task_server.sh`：用户入口不变。
+
+## Phase 4A dry-run 边界
+
+- `real_bringup.launch.py` 新增 `aubo_move_joint_dry_run:=false` 参数，默认关闭。
+- `aubo_move_joint_dry_run:=true` 时，action server 仅模拟 `accepted -> checking_state -> motion_started -> waiting_arrival -> completed` feedback，并返回 `success=true`、`message="dry-run completed"`、`final_error_rad=0.0`。
+- dry-run 只用于确认 ROS graph、action type、client/server wiring；不得作为真机 moveJoint 成功依据。
+- 上层仍应通过 `/arachne/aubo/move_joint` 请求 Aubo joint execution，不应绕过 action server 直接调用 JSON-RPC。
+- teach panel、grasp task server 和 grasp preview pipeline 的 fallback 继续保留，等待真机验证后再讨论是否调整默认值。
+
+## Phase 4B 只读硬件检查
+
+- `scripts/hardware/check_aubo_readonly.sh` 只做 ping、TCP 30004、只读 JSON-RPC、ROS interface 和 ROS graph 存在性检查。
+- 该脚本不会发送 `/arachne/aubo/move_joint` goal，不会调用 `speedJoint`、`moveJoint`、`freedrive(true)`、`backdrive(true)` 或 `handguideMode`。
+- 该脚本只列出 `/tmp/arachne_aubo_teach_mode` 和 `/tmp/arachne_aubo_control_owner` 是否残留，不自动删除、不 claim owner、不写 teach gate。
+- Phase 4B 不验证抓取、不验证 speedJoint jog、不验证 teach mode、不关闭 fallback。
+- 详细流程见 `docs/aubo_readonly_check.zh-CN.md`。
 
 ## Phase 3A 不做的事
 
@@ -59,5 +78,6 @@ SDK library：
 
 ## Phase 3B 重构目标
 
-- 让 grasp task server、road cleanup task server、demo orchestrator、agent bridge 逐步依赖 `/arachne/aubo/move_joint` action。
+- 让 road cleanup task server、demo orchestrator、agent bridge 逐步依赖 `/arachne/aubo/move_joint` action。
 - 将 control_owner、teach_gate、Running/Normal 检查和 watchdog 做成单一执行门。
+- Phase 4 再评估移除 task pipeline 内的旧 SDK fallback。

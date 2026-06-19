@@ -42,6 +42,7 @@ class AuboMoveJointActionServer(Node):
         self.declare_parameter("default_timeout_sec", 12.0)
         self.declare_parameter("arrival_timeout_padding_sec", 3.0)
         self.declare_parameter("gate_settle_sec", 0.15)
+        self.declare_parameter("dry_run", False)
 
         self.status_pub = self.create_publisher(String, "/arachne/hardware/aubo_status", 10)
         action_name = str(self.get_parameter("action_name").value)
@@ -83,6 +84,9 @@ class AuboMoveJointActionServer(Node):
             return self._result(False, "target_joints must contain exactly 6 values", -1.0)
 
         target = [float(value) for value in goal.target_joints]
+        if bool(self.get_parameter("dry_run").value):
+            return self._execute_dry_run(goal_handle, label, started, feedback)
+
         config = self._config_from_goal(goal)
         final_error = -1.0
         try:
@@ -118,6 +122,39 @@ class AuboMoveJointActionServer(Node):
             self._publish_status(f"Aubo SDK moveJoint action failed at {label}: {exc}", warn=True)
             goal_handle.abort()
             return self._result(False, f"Aubo SDK moveJoint failed at {label}: {exc}", final_error)
+
+    def _execute_dry_run(
+        self,
+        goal_handle: Any,
+        label: str,
+        started: float,
+        feedback: AuboMoveJoint.Feedback,
+    ) -> AuboMoveJoint.Result:
+        """Simulate the action contract without touching the Aubo SDK."""
+
+        def publish_feedback(state: str, max_error: float = 0.0) -> None:
+            feedback.state = state
+            feedback.elapsed_sec = time.monotonic() - started
+            feedback.max_error_rad = float(max_error)
+            goal_handle.publish_feedback(feedback)
+
+        self._publish_status(f"Aubo moveJoint dry-run accepted: {label}")
+        for state in ("checking_state", "motion_started", "waiting_arrival"):
+            if goal_handle.is_cancel_requested:
+                publish_feedback("canceled", 0.0)
+                goal_handle.canceled()
+                return self._result(False, f"dry-run canceled: {label}", 0.0)
+            publish_feedback(state, 0.0)
+            time.sleep(0.05)
+
+        if goal_handle.is_cancel_requested:
+            publish_feedback("canceled", 0.0)
+            goal_handle.canceled()
+            return self._result(False, f"dry-run canceled: {label}", 0.0)
+
+        publish_feedback("completed", 0.0)
+        goal_handle.succeed()
+        return self._result(True, "dry-run completed", 0.0)
 
     def _config_from_goal(self, goal: AuboMoveJoint.Goal) -> MoveJointConfig:
         speed = (

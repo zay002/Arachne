@@ -87,3 +87,69 @@ Phase 3B 建议：
 - demo orchestrator 可以把“移动到某个 Aubo joint waypoint”封装成 `AuboMoveJoint` goal，并监听 feedback 做 UI/日志状态。
 - grasp task / road cleanup 迁移时应先保留现有 guarded 执行路径作为 fallback，再逐步切到 `/arachne/aubo/move_joint`。
 - Agent Bridge 不应直接调用 JSON-RPC；它应请求 action，由 action server 统一处理 owner/gate/stop/cancel。
+
+## Phase 3C 结果
+
+新增 `arachne_operator.aubo_move_joint_client.AuboMoveJointClient`，作为任务链路调用 `/arachne/aubo/move_joint` 的统一客户端 helper。该 helper 不包含 JSON-RPC fallback，调用方决定是否回退旧路径。
+
+迁移范围：
+
+- `grasp_preview_pipeline.py` 的真实 `sdk_move_joint` 后端优先调用 `/arachne/aubo/move_joint` action。
+- `grasp_task_server.py` 新增 action/fallback 参数，并通过环境变量传给 runner。
+- `road_cleanup_task_server.py` 未改核心逻辑，因为它不直接执行 Aubo joint target，只调用 grasp task server。
+- `grasp_preview_real_sync.sh` 保持 CLI 语义不变，仅补充 action/fallback 环境变量说明。
+
+仍保留：
+
+- `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES` / `confirm_execute_real:=true` 保护。
+- 旧 guarded SDK JSON-RPC path 作为 fallback。
+- `follow_joint_trajectory` 后端和 real hardware acceptance test 暂时不动。
+
+## Phase 4A dry-run 验证
+
+新增 `aubo_move_joint_action_server` 参数：
+
+- `dry_run:=false`：默认值，保持真实 SDK guarded moveJoint 行为。
+- `dry_run:=true`：仅模拟 ROS action 生命周期，不连接 Aubo SDK、不调用 JSON-RPC、不写 teach gate、不 claim 真实 control owner。
+
+dry-run 调用链：
+
+1. 上层发送 `/arachne/aubo/move_joint` goal。
+2. action server 校验 `target_joints` 长度为 6。
+3. server 发布 `accepted`、`checking_state`、`motion_started`、`waiting_arrival`、`completed` feedback。
+4. server 返回 `success=true`、`message="dry-run completed"`、`final_error_rad=0.0`。
+
+未改变：
+
+- `dry_run` 默认关闭。
+- Phase 2 `execute_move_joint()` 的 Running/Normal、owner、gate、stop/wait/release 安全顺序不变。
+- teach panel 和 grasp task 的 action unavailable fallback 仍保留。
+- Phase 4A 不发送真实 motion goal，不调用真实 Visual Grasp / Road Cleanup start service。
+
+验证矩阵见 `docs/phase4_validation_matrix.zh-CN.md`。Phase 4B 才进入真实硬件只读检查，只观察状态、`/joint_states`、mode/safety，不发运动。
+
+## Phase 4B 只读检查准备
+
+新增：
+
+- `scripts/hardware/check_aubo_readonly.sh`
+- `docs/aubo_readonly_check.zh-CN.md`
+
+Phase 4B 检查链路：
+
+1. 加载 Arachne/ROS 环境。
+2. 检查 stale teach gate / control owner 文件，仅提示，不自动删除。
+3. ping `AUBO_ROBOT_IP`，默认 `192.168.127.128`。
+4. 检查 TCP `30004` 可连接。
+5. 调用 `real_aubo_probe.py` 的只读 JSON-RPC，读取 joint positions、tcp pose、RobotMode 和 SafetyMode。
+6. 检查 `AuboMoveJoint` action interface。
+7. 观察 `/joint_states`、`/arachne/hardware/aubo_status`、`/arachne/aubo/move_joint` 是否存在。
+
+未改变：
+
+- 不发送任何 action goal。
+- 不调用真实 `moveJoint` / `speedJoint`。
+- 不进入 teach/freedrive/backdrive/handguide。
+- 不验证抓取、road cleanup 执行或 speedJoint jog。
+- 不关闭 fallback。
+- 不修改真机默认安全策略。

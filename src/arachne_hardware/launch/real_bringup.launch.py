@@ -338,6 +338,10 @@ def _launch_setup(context, *args, **kwargs):
                             LaunchConfiguration("aubo_sdk_move_joint_arrival_padding_sec"),
                             value_type=float,
                         ),
+                        "dry_run": ParameterValue(
+                            LaunchConfiguration("aubo_move_joint_dry_run"),
+                            value_type=bool,
+                        ),
                     }
                 ],
                 output="screen",
@@ -415,6 +419,7 @@ def generate_launch_description():
             DeclareLaunchArgument("aubo_sdk_move_joint_goal_tolerance_rad", default_value="0.04"),
             DeclareLaunchArgument("aubo_sdk_move_joint_timeout_sec", default_value="12.0"),
             DeclareLaunchArgument("aubo_sdk_move_joint_arrival_padding_sec", default_value="3.0"),
+            DeclareLaunchArgument("aubo_move_joint_dry_run", default_value="false"),
             DeclareLaunchArgument("aubo_control_prefix", default_value=""),
             OpaqueFunction(function=_launch_setup),
         ]

@@ -1,0 +1,45 @@
+name: static-check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check key files
+        run: |
+          test -f src/arachne_hardware/action/AuboMoveJoint.action
+          test -f src/arachne_hardware/arachne_hardware/aubo_move_joint_action_server.py
+          test -f src/arachne_operator/arachne_operator/demo_orchestrator.py
+          test -f scripts/build/check_offline_regression.sh
+          test -f scripts/test/smoke_aubo_move_joint_dry_run.sh
+          test -f scripts/test/smoke_demo_orchestrator_offline.sh
+
+      - name: Bash syntax
+        run: |
+          bash -n scripts/build/check_offline_regression.sh
+          bash -n scripts/build/check_aubo_action_stack.sh
+          bash -n scripts/hardware/check_aubo_readonly.sh
+          bash -n scripts/operator/teach_panel.sh
+          bash -n scripts/hardware/real_bringup.sh
+          bash -n scripts/hardware/real_teach_demo.sh
+          bash -n scripts/vision/grasp_task_server.sh
+          bash -n scripts/vision/road_cleanup_task_server.sh
+          bash -n scripts/vision/grasp_preview_real_sync.sh
+          bash -n scripts/test/smoke_aubo_move_joint_dry_run.sh
+          bash -n scripts/test/smoke_demo_orchestrator_offline.sh
+
+      - name: Python compile
+        run: |
+          python3 -m compileall \
+            src/arachne_hardware/arachne_hardware \
+            src/arachne_operator/arachne_operator \
+            scripts/vision

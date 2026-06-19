@@ -5,6 +5,7 @@ build/
 install/
 log/
 logs/
+runtime_logs/
 .colcon/
 .ros/
 .vscode
@@ -21,6 +22,8 @@ godot/**/assets/vendor/*
 *.pyc
 __pycache__/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Local secrets and agent provider credentials.
 .env
@@ -139,3 +142,13 @@ third_party/scout_ros/**
 !third_party/MS42DC_SPLIT/*.stl
 
 tmp/
+temp/
+cache/
+
+# Local YOLO/TensorRT artifacts can be large and machine-specific.
+yolo_workspace/runs/
+yolo_workspace/cache/
+yolo_workspace/temp/
+yolo_workspace/tmp/
+yolo_workspace/**/*.cache
+yolo_workspace/**/*.engine

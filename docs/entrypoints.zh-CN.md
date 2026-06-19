@@ -11,7 +11,12 @@
 | Gazebo 自主拾取 | `./scripts/sim/gazebo_autopick_demo.sh` | sim | yes | Gazebo 自主拾取验证。 |
 | MoveIt 抓取规划 demo | `./scripts/sim/moveit_grasp_planning_demo.sh` | sim | yes | MoveIt 规划和 RViz 回放验证。 |
 | Switch demo | `./scripts/sim/switch_demo.sh` | sim | yes | Switch/RViz/Gazebo 可玩 demo。 |
+| 离线总回归 | `./scripts/build/check_offline_regression.sh` | mock | yes | 无硬件时检查 Python/shell/workspace/ROS build，不发送 motion goal。 |
+| Aubo dry-run action smoke | `./scripts/test/smoke_aubo_move_joint_dry_run.sh` | mock | yes | 只启动 `dry_run:=true` action server 并发送 mock goal，不连接 Aubo。 |
+| Demo orchestrator offline smoke | `./scripts/test/smoke_demo_orchestrator_offline.sh` | mock | yes | 只调用 `/arachne/demo/status` 和 `/preflight`，不启动 demo。 |
 | 真机底层启动 | `./scripts/hardware/real_bringup.sh` | real-dry-run | yes | 启动 Scout/MS42DC/Aubo driver 和状态桥，不主动执行任务运动。 |
+| Aubo action dry-run 检查 | `ros2 launch arachne_hardware real_bringup.launch.py use_scout:=false use_ms42dc:=false use_aubo:=true aubo_move_joint_dry_run:=true` | real-dry-run | yes | 只验证 `/arachne/aubo/move_joint` ROS action 链路；不代表真实机械臂执行成功。 |
+| Aubo 只读硬件检查 | `./scripts/hardware/check_aubo_readonly.sh` | real-dry-run | yes | 连接硬件后只读检查网络、mode/safety、ROS graph，不发送 motion goal。 |
 | 真机示教器 | `./scripts/operator/teach_panel.sh` | real-execute | no | 主示教/回放入口；面板可控制真机。 |
 | Demo 编排器 | `ros2 launch arachne_operator demo_orchestrator.launch.py autostart:=false` | mixed | yes | Phase 3B 编排层，提供 `/arachne/demo/*` 服务；不直接执行底层机械臂运动。 |
 | 真机一键示教 demo | `./scripts/hardware/real_teach_demo.sh` | real-execute | no | 启动 bringup、等待接口、打开 teach panel、退出后清理。 |
@@ -78,5 +83,12 @@ source scripts/env/arachne_env.sh
 `teach_panel.launch.py` 默认 `with_demo_orchestrator:=true`，面板优先调用
 `/arachne/demo/start_visual_grasp`、`/arachne/demo/start_road_cleanup` 和
 `/arachne/demo/stop`；orchestrator 不可用时回退到面板内置编排逻辑。
+
+Phase 4A 只允许使用 `/arachne/demo/preflight`、`/arachne/demo/status` 和
+`aubo_move_joint_dry_run:=true` 做链路验证；不要在该阶段发送真实 motion goal 或调用
+demo start service。
+
+Phase 5A 没有硬件时优先运行 offline regression；有硬件但不允许运动时运行
+`check_aubo_readonly.sh`。只有硬件只读检查通过后，才进入 hold/current-state 级别检查。
 
 旧入口 `./scripts/hardware/real_grasp_console.sh` 只作为兼容保留。

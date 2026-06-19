@@ -7,6 +7,9 @@ Chinese repository audit with ROS executable/topic/service details lives in
 ```bash
 source scripts/env/arachne_env.sh
 ./scripts/build/build_workspace.sh
+./scripts/build/check_offline_regression.sh
+./scripts/test/smoke_aubo_move_joint_dry_run.sh
+./scripts/test/smoke_demo_orchestrator_offline.sh
 ./scripts/operator/teach_panel.sh
 ./scripts/vision/gemini_yolo_live.sh
 ./scripts/vision/grasp_preview.sh
@@ -27,6 +30,7 @@ python3 scripts/vision/mock_road_cleanup_task_test.py
 | `vision/` | Gemini335, YOLO/TACO segmentation, TensorRT export, live detection, grasp preview, grasp task server, road cleanup task server |
 | `model/` | URDF, TF, gripper, and RViz model checks |
 | `sim/` | Gazebo demos and simulation validation |
+| `test/` | Offline ROS smoke tests that do not require real hardware |
 | `godot/` | Godot showcase setup and bridge helpers |
 | `remote/` | Remote MoveIt/planner experiments and deployment helpers |
 | `calibration/` | Calibration asset generation |
@@ -49,6 +53,27 @@ Demo Phase 3B note: `teach_panel.launch.py` can start
 `/arachne/demo/*` Trigger services for camera, visual grasp, road cleanup,
 preflight, status, and stop. Existing script entrypoints are unchanged.
 
+Aubo Phase 3C note: grasp task real `sdk_move_joint` execution now prefers
+`/arachne/aubo/move_joint` and keeps the previous guarded SDK path as fallback.
+Existing script entrypoints and confirmation variables are unchanged.
+
+Aubo Phase 4A note: `scripts/build/check_aubo_action_stack.sh` checks the
+Aubo action interface, installed executables, key files, and Python compile
+status without sending any motion goal. `aubo_move_joint_action_server` also
+supports `dry_run:=true` for ROS action graph validation only; default remains
+`false`, and fallback paths remain enabled.
+
+Aubo Phase 4B note: `scripts/hardware/check_aubo_readonly.sh` prepares the
+real-hardware read-only check flow. It checks network, TCP 30004, read-only
+RobotState JSON-RPC, ROS interfaces, and graph presence only. It does not send
+goals, enter teach mode, run speedJoint/moveJoint, or remove fallback paths.
+
+Phase 5A note: `scripts/build/check_offline_regression.sh`,
+`scripts/test/smoke_aubo_move_joint_dry_run.sh`, and
+`scripts/test/smoke_demo_orchestrator_offline.sh` provide the no-hardware
+regression path. The action smoke sends only a dry-run goal to a server started
+with `dry_run:=true`; the orchestrator smoke calls only status/preflight.
+
 ## Full Index
 
 Status values: `primary`, `helper`, `deprecated`, `experimental`, `unknown`.
@@ -59,6 +84,8 @@ Profiles: `mock`, `sim`, `real-dry-run`, `real-execute`, `mixed`.
 | `agent/agent_bridge.sh` | primary | mixed | scout,aubo,ms42dc | yes | Launch safe Agent Bridge with motion disabled unless explicitly enabled. | Motion requires launch args such as `motion_enabled:=true`. |
 | `build/build_selected.sh` | helper | mock | none | yes | Build selected packages. | n/a |
 | `build/build_workspace.sh` | helper | mock | none | yes | Build the workspace. | n/a |
+| `build/check_aubo_action_stack.sh` | helper | mock | none | yes | Check AuboMoveJoint action interface, executables, key files, and compile status without sending motion goals. | n/a |
+| `build/check_offline_regression.sh` | primary | mock | none | yes | Run offline static/workspace/build regression without connecting hardware or sending motion goals. | n/a |
 | `build/check_workspace.sh` | helper | mock | none | yes | Static/light workspace checks. | n/a |
 | `build/setup_jetson_humble.sh` | helper | mock | none | yes | Install Jetson/Humble dependencies. | n/a |
 | `build/setup_ubuntu.sh` | helper | mock | none | yes | Install Ubuntu/ROS dependencies. | n/a |
@@ -73,6 +100,7 @@ Profiles: `mock`, `sim`, `real-dry-run`, `real-execute`, `mixed`.
 | `godot/install_godot4.sh` | helper | sim | none | yes | Install Godot 4. | n/a |
 | `godot/test_godot_showcase.sh` | helper | sim | none | yes | Test Godot showcase launch. | n/a |
 | `hardware/check_real_hardware_env.sh` | helper | real-dry-run | scout,aubo,ms42dc,gemini335,c16 | yes | Check real-hardware environment and device aliases. | n/a |
+| `hardware/check_aubo_readonly.sh` | helper | real-dry-run | aubo | yes | Read-only Aubo network, RobotState RPC, interface, and ROS graph check; sends no motion goals. | n/a |
 | `hardware/fetch_third_party.sh` | helper | mixed | none | yes | Fetch or link third-party packages. | n/a |
 | `hardware/find_aubo_by_mac.py` | helper | real-dry-run | aubo | yes | Discover Aubo controller by MAC/IP. | n/a |
 | `hardware/prepare_ms42dc_ros2.sh` | helper | mock | ms42dc | yes | Prepare vendor MS42DC ROS2 packages. | n/a |
@@ -118,6 +146,8 @@ Profiles: `mock`, `sim`, `real-dry-run`, `real-execute`, `mixed`.
 | `sim/switch_demo.sh` | primary | sim | none | yes | Switch/RViz/Gazebo playable demo. | n/a |
 | `sim/test_gripper_sim.sh` | helper | sim | none | yes | Gripper simulation regression. | n/a |
 | `sim/urban_trash_sorting_demo.sh` | primary | sim | none | yes | Road-cleanup semantic simulation. | n/a |
+| `test/smoke_aubo_move_joint_dry_run.sh` | helper | mock | none | yes | Start only dry-run AuboMoveJoint action server and send a dry-run mock goal. | Requires `dry_run:=true`; never use for real motion. |
+| `test/smoke_demo_orchestrator_offline.sh` | helper | mock | none | yes | Start demo_orchestrator offline and call only status/preflight. | Does not call visual grasp or road cleanup start. |
 | `vision/apriltag_hand_eye_calibration.sh` | helper | real-dry-run | gemini335,aubo | yes | AprilTag hand-eye calibration capture/solve entry. | n/a |
 | `vision/apriltag_nav_initialize.sh` | primary | real-dry-run | gemini335,c16 | yes | AprilTag navigation initialization. | n/a |
 | `vision/apriltag_nav_start_mapping.sh` | primary | real-dry-run | gemini335,c16 | yes | AprilTag-assisted mapping start. | n/a |

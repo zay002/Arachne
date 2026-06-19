@@ -27,6 +27,10 @@ def generate_launch_description():
                 default_value="/tmp/arachne_aubo_control_owner",
             ),
             DeclareLaunchArgument("aubo_control_owner_name", default_value="grasp_task_server"),
+            DeclareLaunchArgument("aubo_move_joint_action_name", default_value="/arachne/aubo/move_joint"),
+            DeclareLaunchArgument("prefer_aubo_move_joint_action", default_value="true"),
+            DeclareLaunchArgument("aubo_move_joint_fallback_internal", default_value="true"),
+            DeclareLaunchArgument("aubo_move_joint_wait_server_sec", default_value="0.5"),
             DeclareLaunchArgument("grasp_base_offset", default_value="0,0,0"),
             DeclareLaunchArgument(
                 "extra_args",
@@ -110,6 +114,21 @@ def generate_launch_description():
                         "aubo_teach_flag_path": LaunchConfiguration("aubo_teach_flag_path"),
                         "aubo_control_owner_path": LaunchConfiguration("aubo_control_owner_path"),
                         "aubo_control_owner_name": LaunchConfiguration("aubo_control_owner_name"),
+                        "aubo_move_joint_action_name": LaunchConfiguration(
+                            "aubo_move_joint_action_name"
+                        ),
+                        "prefer_aubo_move_joint_action": ParameterValue(
+                            LaunchConfiguration("prefer_aubo_move_joint_action"),
+                            value_type=bool,
+                        ),
+                        "aubo_move_joint_fallback_internal": ParameterValue(
+                            LaunchConfiguration("aubo_move_joint_fallback_internal"),
+                            value_type=bool,
+                        ),
+                        "aubo_move_joint_wait_server_sec": ParameterValue(
+                            LaunchConfiguration("aubo_move_joint_wait_server_sec"),
+                            value_type=float,
+                        ),
                         "grasp_base_offset": LaunchConfiguration("grasp_base_offset"),
                         "extra_args": LaunchConfiguration("extra_args"),
                         "preview_on_start": ParameterValue(
