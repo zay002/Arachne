@@ -206,11 +206,18 @@ ros2 node list | grep aubo
 5. 重新确认 Aubo 控制柜 RobotMode/SafetyMode。
 6. 重新检查 IP 网段、线缆和 30004。
 
-Phase 4C 才可以考虑进入“真实硬件低风险 hold/current-state 检查”，仍应从不改变目标姿态的状态保持类检查开始。
+当前 PowerOff/Normal 只读验证已通过；下一步是 Running/Normal 只读验证：
+
+```bash
+AUBO_ROBOT_IP=192.168.127.128 ./scripts/hardware/check_aubo_running_readonly.sh
+```
+
+该检查只报告状态和 ROS graph，不尝试从 PowerOff 启动 Aubo。启动到 Running/Normal 需要现场控制柜操作，或人工确认后使用受控 remote start 流程。Phase 4C-2 才可以考虑进入“真实硬件低风险 hold/current-state 检查”，仍应从不改变目标姿态的状态保持类检查开始。
 
 进入 Phase 4C 的最低条件：
 
 - offline regression 通过。
 - Aubo readonly check 通过。
+- Running/Normal readonly check 通过。
 - `/joint_states`、`/arachne/hardware/aubo_status`、`/arachne/aubo/move_joint` 只读检查正常。
 - 人工确认不会发送新目标姿态或真实任务启动命令。

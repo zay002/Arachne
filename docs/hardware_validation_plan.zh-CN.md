@@ -1,6 +1,6 @@
 # 硬件验证计划
 
-本文是 Phase 5B 的 release checkpoint。当前真实硬件不可用，因此只归档已完成的离线验证和后续硬件验证顺序。
+本文是 Phase 5B 的 release checkpoint。当前已完成离线验证和 Aubo PowerOff/Normal 只读验证，后续硬件验证仍按低风险顺序推进。
 
 ## 当前已验证
 
@@ -17,6 +17,8 @@
 
 尚未验证：
 
+- Aubo Running/Normal 只读状态。
+- current-state hold。
 - 真实 Aubo motion。
 - 真实 speedJoint jog。
 - 真实 teach/freedrive。
@@ -29,11 +31,13 @@
 Phase 4C 只做真实硬件低风险 hold/current-state 检查，顺序必须是：
 
 1. 网络只读：ping Aubo IP，检查 TCP 30004。
-2. mode/safety：只读 RobotMode/SafetyMode，确认 Running/Normal 或可接受状态。
-3. `/joint_states`：确认 Aubo 当前关节状态持续发布。
-4. RViz 姿态同步：只观察模型姿态是否跟随当前关节，不发目标。
-5. dry-run action graph：`aubo_move_joint_dry_run:=true` 下确认 `/arachne/aubo/move_joint` 存在。
-6. current-state hold goal：仅在人工确认后，发送“当前关节值”作为 hold/current-state 检查，不引入新目标姿态。
+2. PowerOff/Normal 只读：已完成，确认网络/RPC/ROS graph 基础链路。
+3. Running/Normal 只读：`check_aubo_running_readonly.sh` 只报告状态和 graph，不启动、不发 goal。
+4. mode/safety：只读 RobotMode/SafetyMode，确认 Running/Normal 或可接受状态。
+5. `/joint_states`：确认 Aubo 当前关节状态持续发布。
+6. RViz 姿态同步：只观察模型姿态是否跟随当前关节，不发目标。
+7. dry-run action graph：`aubo_move_joint_dry_run:=true` 下确认 `/arachne/aubo/move_joint` 存在。
+8. current-state hold goal：仅在人工确认后，发送“当前关节值”作为 hold/current-state 检查，不引入新目标姿态。
 
 ## Phase 4C 禁止事项
 
@@ -70,6 +74,7 @@ Phase 4E 才考虑视觉抓取真机演示：
 ./scripts/test/smoke_aubo_move_joint_dry_run.sh
 ./scripts/test/smoke_demo_orchestrator_offline.sh
 AUBO_ROBOT_IP=192.168.127.128 ./scripts/hardware/check_aubo_readonly.sh
+AUBO_ROBOT_IP=192.168.127.128 ./scripts/hardware/check_aubo_running_readonly.sh
 ```
 
 缺少任一项时，不进入 Phase 4C。

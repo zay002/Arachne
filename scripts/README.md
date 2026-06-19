@@ -68,6 +68,12 @@ real-hardware read-only check flow. It checks network, TCP 30004, read-only
 RobotState JSON-RPC, ROS interfaces, and graph presence only. It does not send
 goals, enter teach mode, run speedJoint/moveJoint, or remove fallback paths.
 
+Aubo Phase 4C-1 note: `scripts/hardware/check_aubo_running_readonly.sh` checks
+whether Aubo is Running/Normal and whether `/joint_states`,
+`/arachne/hardware/aubo_status`, and `/arachne/aubo/move_joint` are observable.
+It only reports state; it does not start Aubo, send goals, write gate/owner
+files, or validate current-state hold.
+
 Phase 5A note: `scripts/build/check_offline_regression.sh`,
 `scripts/test/smoke_aubo_move_joint_dry_run.sh`, and
 `scripts/test/smoke_demo_orchestrator_offline.sh` provide the no-hardware
@@ -101,6 +107,7 @@ Profiles: `mock`, `sim`, `real-dry-run`, `real-execute`, `mixed`.
 | `godot/test_godot_showcase.sh` | helper | sim | none | yes | Test Godot showcase launch. | n/a |
 | `hardware/check_real_hardware_env.sh` | helper | real-dry-run | scout,aubo,ms42dc,gemini335,c16 | yes | Check real-hardware environment and device aliases. | n/a |
 | `hardware/check_aubo_readonly.sh` | helper | real-dry-run | aubo | yes | Read-only Aubo network, RobotState RPC, interface, and ROS graph check; sends no motion goals. | n/a |
+| `hardware/check_aubo_running_readonly.sh` | helper | real-dry-run | aubo | yes | Read-only Running/Normal and ROS graph check; reports state only and sends no motion goals. | n/a |
 | `hardware/fetch_third_party.sh` | helper | mixed | none | yes | Fetch or link third-party packages. | n/a |
 | `hardware/find_aubo_by_mac.py` | helper | real-dry-run | aubo | yes | Discover Aubo controller by MAC/IP. | n/a |
 | `hardware/prepare_ms42dc_ros2.sh` | helper | mock | ms42dc | yes | Prepare vendor MS42DC ROS2 packages. | n/a |

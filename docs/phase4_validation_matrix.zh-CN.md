@@ -135,7 +135,15 @@ real-dry-run 可以连接或观察真机状态，但不得发真实 motion goal�
 
 Phase 4B 只读硬件检查不验证抓取、不验证 speedJoint jog、不验证 teach mode，也不关闭 fallback。
 
-Phase 5A 无硬件时使用 offline regression；有硬件但不允许运动时再使用 readonly check；只有 readonly check 通过后才允许讨论 Phase 4C hold/current-state 检查。
+Phase 5A 无硬件时使用 offline regression；有硬件但不允许运动时再使用 readonly check。当前 PowerOff/Normal 只读验证已通过；下一步是 Phase 4C-1 Running/Normal 只读验证，见 `docs/aubo_running_readonly_check.zh-CN.md`。current-state hold 还未执行，真机 motion 尚未验证。
+
+Phase 4C-1 只读命令：
+
+```bash
+AUBO_ROBOT_IP=192.168.127.128 ./scripts/hardware/check_aubo_running_readonly.sh
+```
+
+该脚本只报告 RobotMode/SafetyMode、`/joint_states`、`/arachne/hardware/aubo_status` 和 `/arachne/aubo/move_joint`，不启动 Aubo、不发 goal、不写 gate/owner。
 
 ## Real-execute 禁止项
 
