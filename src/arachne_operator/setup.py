@@ -22,6 +22,7 @@ setup(
     entry_points={
         "console_scripts": [
             "action_chunk_translator = arachne_operator.action_chunk_translator:main",
+            "arachne = arachne_operator.cli:main",
             "apriltag_hand_eye_calibrator = arachne_operator.apriltag_hand_eye_calibrator:main",
             "apriltag_nav_initializer = arachne_operator.apriltag_nav_initializer:main",
             "demo_orchestrator = arachne_operator.demo_orchestrator:main",

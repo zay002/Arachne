@@ -8,7 +8,8 @@ logs/
 runtime_logs/
 .colcon/
 .ros/
-.vscode
+.vscode/
+.DS_Store
 
 # Godot editor/import cache and generated asset links.
 godot/**/.godot/
@@ -19,8 +20,11 @@ godot/**/assets/vendor/*
 !godot/**/assets/vendor/README.zh-CN.md
 !godot/**/assets/vendor/.gdignore
 # Python generated files
-*.pyc
-__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.log
+*.tmp
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
