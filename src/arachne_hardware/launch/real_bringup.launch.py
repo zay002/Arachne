@@ -298,6 +298,52 @@ def _launch_setup(context, *args, **kwargs):
             )
         )
 
+        actions.append(
+            Node(
+                package="arachne_hardware",
+                executable="aubo_move_joint_action_server",
+                name="aubo_move_joint_action_server",
+                parameters=[
+                    {
+                        "action_name": LaunchConfiguration("aubo_move_joint_action_name"),
+                        "robot_ip": LaunchConfiguration("aubo_robot_ip"),
+                        "rpc_port": ParameterValue(
+                            LaunchConfiguration("aubo_rpc_port"), value_type=int
+                        ),
+                        "rpc_timeout_sec": ParameterValue(
+                            LaunchConfiguration("aubo_rpc_timeout_sec"), value_type=float
+                        ),
+                        "teach_flag_path": LaunchConfiguration("aubo_teach_flag_path"),
+                        "control_owner_path": LaunchConfiguration("aubo_control_owner_path"),
+                        "control_owner_name": LaunchConfiguration(
+                            "aubo_move_joint_control_owner_name"
+                        ),
+                        "default_speed_rad_sec": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_move_joint_speed_rad_sec"),
+                            value_type=float,
+                        ),
+                        "default_accel_rad_sec2": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_move_joint_accel_rad_sec2"),
+                            value_type=float,
+                        ),
+                        "default_goal_tolerance_rad": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_move_joint_goal_tolerance_rad"),
+                            value_type=float,
+                        ),
+                        "default_timeout_sec": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_move_joint_timeout_sec"),
+                            value_type=float,
+                        ),
+                        "arrival_timeout_padding_sec": ParameterValue(
+                            LaunchConfiguration("aubo_sdk_move_joint_arrival_padding_sec"),
+                            value_type=float,
+                        ),
+                    }
+                ],
+                output="screen",
+            )
+        )
+
     return actions
 
 
@@ -359,6 +405,16 @@ def generate_launch_description():
             DeclareLaunchArgument("aubo_sdk_speed_joint_time_sec", default_value="100.0"),
             DeclareLaunchArgument("aubo_sdk_stop_joint_accel_rad_sec2", default_value="8.0"),
             DeclareLaunchArgument("aubo_sdk_busy_retry_delay_sec", default_value="0.04"),
+            DeclareLaunchArgument("aubo_move_joint_action_name", default_value="/arachne/aubo/move_joint"),
+            DeclareLaunchArgument(
+                "aubo_move_joint_control_owner_name",
+                default_value="aubo_move_joint_action_server",
+            ),
+            DeclareLaunchArgument("aubo_sdk_move_joint_speed_rad_sec", default_value="0.25"),
+            DeclareLaunchArgument("aubo_sdk_move_joint_accel_rad_sec2", default_value="0.45"),
+            DeclareLaunchArgument("aubo_sdk_move_joint_goal_tolerance_rad", default_value="0.04"),
+            DeclareLaunchArgument("aubo_sdk_move_joint_timeout_sec", default_value="12.0"),
+            DeclareLaunchArgument("aubo_sdk_move_joint_arrival_padding_sec", default_value="3.0"),
             DeclareLaunchArgument("aubo_control_prefix", default_value=""),
             OpaqueFunction(function=_launch_setup),
         ]

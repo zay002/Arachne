@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+echo "deprecated: use scripts/model/view_model.sh instead" >&2
+
 cd "${ROOT_DIR}"
 
 export USE_GUI="${USE_GUI:-true}"

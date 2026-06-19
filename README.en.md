@@ -60,45 +60,45 @@ Without that environment, RViz may fail to resolve `package://...` mesh paths, c
 
 ## Recommended Workflow
 
-Use simulation and model checks before touching real hardware:
+Use model/simulation checks first, then bring up hardware and enter through the
+teach panel:
 
 1. `./scripts/model/view_model.sh` checks URDF, TF, meshes, and materials.
 2. `./scripts/sim/urban_trash_sorting_demo.sh` replays road-cleanup patrol, detection, point-cloud ROI, grasp, and basket drop in RViz.
-3. `./scripts/hardware/real_grasp_console.sh --yes --quick` opens the real-machine teach console.
-4. Use `Visual Grasp` for one-shot grasping, or `RoadSrv` + `Road Start` for road-cleanup patrol.
+3. `./scripts/hardware/real_bringup.sh` starts the Scout/MS42DC/Aubo hardware layer.
+4. `./scripts/operator/teach_panel.sh` opens the real teach panel.
+5. Start `./scripts/vision/grasp_task_server.sh` or `./scripts/vision/road_cleanup_task_server.sh` when task services are needed.
 
 The road-cleanup task reuses the same `grasp_server`: idle YOLO-SEG publishes `/arachne/perception/taco_instances`; `road_cleanup_task_server` stops the base and calls `/arachne/grasp_task/start`. If perception and point cloud are valid but the arm is out of reach or planning fails, the task moves the base a short distance, publishes `/arachne/grasp_preview/restart_search`, waits for a fresh detection, and recomputes point cloud and grasp planning. The default local weight is `yolo_workspace/weights/yolo26n_seg_taco_best.pt`; missing weights do not trigger an automatic official YOLO download.
 
-## Common Commands
+`scripts/hardware/real_grasp_console.sh` is now a deprecated compatibility wrapper
+kept for older commands. Prefer `scripts/operator/teach_panel.sh` or the one-command
+teach demo `scripts/hardware/real_teach_demo.sh`.
+
+## Main Entrypoints
 
 | Goal | Command |
 | --- | --- |
 | View the default MS42DC model | `./scripts/model/view_model.sh` |
-| View the AG95 model | `./scripts/model/use_gripper.sh ag95 view` |
-| Check URDF and core interfaces | `./scripts/build/check_workspace.sh` |
+| Road trash sorting RViz demo | `./scripts/sim/urban_trash_sorting_demo.sh` |
 | Gazebo gamepad demo | `./scripts/sim/switch_demo.sh` |
 | Gazebo autonomous pick validation | `./scripts/sim/gazebo_autopick_demo.sh` |
-| Godot showcase | `./scripts/godot/godot_showcase.sh` |
-| Road trash sorting RViz demo | `./scripts/sim/urban_trash_sorting_demo.sh` |
+| MoveIt grasp planning demo | `./scripts/sim/moveit_grasp_planning_demo.sh` |
+| Real hardware bringup | `./scripts/hardware/real_bringup.sh` |
+| Real teach panel | `./scripts/operator/teach_panel.sh` |
+| Real one-command teach demo | `./scripts/hardware/real_teach_demo.sh` |
+| Real full acceptance | `./scripts/hardware/real_full_acceptance.sh --yes` |
+| Gemini335 camera | `./scripts/vision/gemini335_bringup.sh` |
 | Gemini335 YOLO live preview | `./scripts/vision/gemini_yolo_live.sh` |
-| C16 lidar driver | `ros2 launch lslidar_driver lslidar_cx_launch.py` |
-| C16 + robot fusion RViz | `rviz2 -d src/arachne_description/rviz/arachne_lidar_fusion.rviz` |
-| Trash segmentation grasp-to-basket preview | `./scripts/vision/grasp_preview.sh` |
 | Real-pose synchronized grasp preview | `./scripts/vision/grasp_preview_real_sync.sh` |
-| Real-pose synchronized grasp execution | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
 | Grasp task server | `./scripts/vision/grasp_task_server.sh` |
 | Road cleanup task server | `./scripts/vision/road_cleanup_task_server.sh` |
-| Road cleanup mock smoke test | `python3 scripts/vision/mock_road_cleanup_task_test.py` |
+| Real lidar/Nav2 | `./scripts/hardware/real_lidar_nav.sh` |
+| Save lidar/SLAM map | `./scripts/hardware/real_lidar_save_map.sh` |
+| AprilTag nav initialization | `./scripts/vision/apriltag_nav_initialize.sh` |
+| AprilTag nav mapping | `./scripts/vision/apriltag_nav_start_mapping.sh` |
 | Agent Bridge | `./scripts/agent/agent_bridge.sh` |
-| Real-hardware environment check | `./scripts/hardware/check_real_hardware_env.sh` |
-| Real one-command bringup | `./scripts/hardware/real_bringup.sh` |
-| Real teach demo | `./scripts/hardware/real_teach_demo.sh` |
-| Read-only Aubo connectivity probe | `./scripts/hardware/real_aubo_probe.sh` |
-| Aubo startup state check | `./scripts/hardware/real_aubo_prepare.sh` |
-| Aubo real driver bringup | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/hardware/real_aubo_bringup.sh` |
-| Blocking Aubo remote startup | `ARACHNE_CONFIRM_AUBO_REMOTE_START=YES ./scripts/hardware/real_aubo_remote_start.sh` |
-| Small Aubo Z test | `ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_aubo_z_test.sh` |
-| Real teach and replay panel | `./scripts/operator/teach_panel.sh` |
+| Stop real stack | `./scripts/hardware/stop_real_stack.sh` |
 
 <p align="center">
   <img src="docs/demo/gazebo.png" alt="Arachne Gazebo demo" width="48%">
@@ -196,13 +196,17 @@ It starts real bringup, waits for `/odom`, `/joint_states`, the Aubo trajectory 
 | `godot/arachne_showcase` | Godot 4.x third-person showcase frontend |
 | `docs` | Modeling, control, hardware, calibration, and references |
 
-The `scripts/` root no longer carries old top-level script entrypoints. Use the categorized paths directly, such as `./scripts/hardware/real_grasp_console.sh --yes --quick` and `source scripts/env/arachne_env.sh`.
+The `scripts/` root no longer carries old top-level script entrypoints. Use the categorized paths directly, such as `./scripts/operator/teach_panel.sh` and `source scripts/env/arachne_env.sh`. See [scripts/README.md](scripts/README.md) for the full script index.
 
 ## Documentation
 
 - [Modeling](docs/modeling.md)
 - [Control](docs/control.md)
 - [Hardware](docs/hardware.md)
+- [Entrypoints and safety tags](docs/entrypoints.zh-CN.md)
+- [Aubo control policy](docs/aubo_control_policy.zh-CN.md)
+- [Sim2Real contract](docs/sim2real_contract.zh-CN.md)
+- [Calibration/Nav TODO](docs/calibration_nav_todo.zh-CN.md)
 - [Calibration](docs/calibration.md)
 - [Grasp Task Server](docs/grasp_task_server.md)
 - [Road Cleanup Task Server](docs/road_cleanup_task_server.zh-CN.md)

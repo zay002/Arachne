@@ -54,6 +54,38 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("with_camera")),
     )
 
+    demo_orchestrator = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution(
+                [FindPackageShare("arachne_operator"), "launch", "demo_orchestrator.launch.py"]
+            )
+        ),
+        launch_arguments={
+            "cmd_vel_topic": LaunchConfiguration("cmd_vel_topic"),
+            "joint_states_topic": LaunchConfiguration("joint_states_topic"),
+            "odom_topic": LaunchConfiguration("odom_topic"),
+            "gripper_command_topic": LaunchConfiguration("gripper_command_topic"),
+            "aubo_teach_command_topic": LaunchConfiguration("aubo_teach_command_topic"),
+            "aubo_move_joint_action_name": LaunchConfiguration("aubo_move_joint_action_name"),
+            "grasp_task_start_service": LaunchConfiguration("grasp_task_start_service"),
+            "grasp_task_stop_service": LaunchConfiguration("grasp_task_stop_service"),
+            "grasp_task_preflight_service": LaunchConfiguration("grasp_task_preflight_service"),
+            "cleanup_task_start_service": LaunchConfiguration("cleanup_task_start_service"),
+            "cleanup_task_stop_service": LaunchConfiguration("cleanup_task_stop_service"),
+            "cleanup_task_preflight_service": LaunchConfiguration(
+                "cleanup_task_preflight_service"
+            ),
+            "camera_command": LaunchConfiguration("camera_command"),
+            "camera_view_command": LaunchConfiguration("camera_view_command"),
+            "grasp_server_command": LaunchConfiguration("grasp_server_command"),
+            "cleanup_server_command": LaunchConfiguration("cleanup_server_command"),
+            "service_stop_timeout_sec": LaunchConfiguration("service_stop_timeout_sec"),
+            "runtime_log_root": LaunchConfiguration("runtime_log_root"),
+            "workspace_root": LaunchConfiguration("workspace_root"),
+        }.items(),
+        condition=IfCondition(LaunchConfiguration("with_demo_orchestrator")),
+    )
+
     teach_panel_node = Node(
         package="arachne_operator",
         executable="teach_panel",
@@ -205,6 +237,37 @@ def generate_launch_description():
                 "aubo_sdk_teach_flag_path": LaunchConfiguration("aubo_sdk_teach_flag_path"),
                 "aubo_sdk_control_owner_path": LaunchConfiguration("aubo_sdk_control_owner_path"),
                 "aubo_sdk_control_owner_name": LaunchConfiguration("aubo_sdk_control_owner_name"),
+                "aubo_move_joint_action_name": LaunchConfiguration("aubo_move_joint_action_name"),
+                "aubo_move_joint_action_timeout_sec": ParameterValue(
+                    LaunchConfiguration("aubo_move_joint_action_timeout_sec"),
+                    value_type=float,
+                ),
+                "aubo_move_joint_fallback_internal": ParameterValue(
+                    LaunchConfiguration("aubo_move_joint_fallback_internal"),
+                    value_type=bool,
+                ),
+                "demo_orchestrator_enabled": ParameterValue(
+                    LaunchConfiguration("demo_orchestrator_enabled"),
+                    value_type=bool,
+                ),
+                "demo_orchestrator_fallback_internal": ParameterValue(
+                    LaunchConfiguration("demo_orchestrator_fallback_internal"),
+                    value_type=bool,
+                ),
+                "demo_start_visual_grasp_service": LaunchConfiguration(
+                    "demo_start_visual_grasp_service"
+                ),
+                "demo_start_road_cleanup_service": LaunchConfiguration(
+                    "demo_start_road_cleanup_service"
+                ),
+                "demo_pause_road_cleanup_service": LaunchConfiguration(
+                    "demo_pause_road_cleanup_service"
+                ),
+                "demo_return_home_service": LaunchConfiguration("demo_return_home_service"),
+                "demo_stop_service": LaunchConfiguration("demo_stop_service"),
+                "demo_preflight_service": LaunchConfiguration("demo_preflight_service"),
+                "demo_status_service": LaunchConfiguration("demo_status_service"),
+                "demo_state_topic": LaunchConfiguration("demo_state_topic"),
                 "gripper_settle_sec": ParameterValue(
                     LaunchConfiguration("gripper_settle_sec"), value_type=float
                 ),
@@ -397,6 +460,35 @@ def generate_launch_description():
                 default_value="/tmp/arachne_aubo_control_owner",
             ),
             DeclareLaunchArgument("aubo_sdk_control_owner_name", default_value="teach_panel"),
+            DeclareLaunchArgument(
+                "aubo_move_joint_action_name",
+                default_value="/arachne/aubo/move_joint",
+            ),
+            DeclareLaunchArgument("aubo_move_joint_action_timeout_sec", default_value="0.5"),
+            DeclareLaunchArgument("aubo_move_joint_fallback_internal", default_value="true"),
+            DeclareLaunchArgument("with_demo_orchestrator", default_value="true"),
+            DeclareLaunchArgument("demo_orchestrator_enabled", default_value="true"),
+            DeclareLaunchArgument("demo_orchestrator_fallback_internal", default_value="true"),
+            DeclareLaunchArgument(
+                "demo_start_visual_grasp_service",
+                default_value="/arachne/demo/start_visual_grasp",
+            ),
+            DeclareLaunchArgument(
+                "demo_start_road_cleanup_service",
+                default_value="/arachne/demo/start_road_cleanup",
+            ),
+            DeclareLaunchArgument(
+                "demo_pause_road_cleanup_service",
+                default_value="/arachne/demo/pause_road_cleanup",
+            ),
+            DeclareLaunchArgument(
+                "demo_return_home_service",
+                default_value="/arachne/demo/return_home",
+            ),
+            DeclareLaunchArgument("demo_stop_service", default_value="/arachne/demo/stop"),
+            DeclareLaunchArgument("demo_preflight_service", default_value="/arachne/demo/preflight"),
+            DeclareLaunchArgument("demo_status_service", default_value="/arachne/demo/status"),
+            DeclareLaunchArgument("demo_state_topic", default_value="/arachne/demo/state"),
             DeclareLaunchArgument("gripper_settle_sec", default_value="2.0"),
             DeclareLaunchArgument("arm_jog_position_tolerance", default_value="0.0008"),
             DeclareLaunchArgument("arm_orientation_tolerance", default_value="0.01"),
@@ -498,6 +590,7 @@ def generate_launch_description():
                 "grasp_task_restore_service", default_value="/arachne/grasp_task/restore"
             ),
             DeclareLaunchArgument("grasp_task_status_service", default_value="/arachne/grasp_task/status"),
+            DeclareLaunchArgument("grasp_task_preflight_service", default_value="/arachne/grasp_task/preflight"),
             DeclareLaunchArgument("cleanup_task_state_topic", default_value="/arachne/road_cleanup/state"),
             DeclareLaunchArgument("cleanup_task_start_service", default_value="/arachne/road_cleanup/start"),
             DeclareLaunchArgument("cleanup_task_pause_service", default_value="/arachne/road_cleanup/pause"),
@@ -509,6 +602,7 @@ def generate_launch_description():
             DeclareLaunchArgument("cleanup_task_preflight_service", default_value="/arachne/road_cleanup/preflight"),
             visualization,
             camera,
+            demo_orchestrator,
             teach_panel_node,
             RegisterEventHandler(
                 OnProcessExit(

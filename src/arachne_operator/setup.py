@@ -24,6 +24,7 @@ setup(
             "action_chunk_translator = arachne_operator.action_chunk_translator:main",
             "apriltag_hand_eye_calibrator = arachne_operator.apriltag_hand_eye_calibrator:main",
             "apriltag_nav_initializer = arachne_operator.apriltag_nav_initializer:main",
+            "demo_orchestrator = arachne_operator.demo_orchestrator:main",
             "grasp_task_server = arachne_operator.grasp_task_server:main",
             "operator_panel = arachne_operator.operator_panel:main",
             "real_hardware_acceptance_test = arachne_operator.real_hardware_acceptance_test:main",

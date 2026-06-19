@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import math
-import os
 import socket
 import time
 from pathlib import Path
@@ -13,100 +11,26 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Float64MultiArray, String
 
-
-DEFAULT_AUBO_TEACH_FLAG_PATH = "/tmp/arachne_aubo_teach_mode"
-DEFAULT_AUBO_CONTROL_OWNER_PATH = "/tmp/arachne_aubo_control_owner"
-
-
-def _control_owner_payload(owner: str) -> str:
-    return json.dumps(
-        {"owner": owner, "pid": os.getpid(), "created_at": time.time()},
-        separators=(",", ":"),
-    ) + "\n"
-
-
-def _parse_control_owner(text: str) -> tuple[str, int | None]:
-    text = text.strip()
-    if not text:
-        return "", None
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return text.splitlines()[0].strip(), None
-    owner = str(data.get("owner", "")).strip()
-    pid_value = data.get("pid")
-    try:
-        pid = int(pid_value) if pid_value is not None else None
-    except (TypeError, ValueError):
-        pid = None
-    return owner, pid
-
-
-def _pid_alive(pid: int | None) -> bool:
-    if pid is None:
-        return True
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-def _claim_control_owner(path: Path, owner: str) -> tuple[bool, str]:
-    owner = owner.strip() or "unknown"
-    for _attempt in range(2):
-        try:
-            fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-        except FileExistsError:
-            try:
-                text = path.read_text(encoding="utf-8", errors="replace")
-            except OSError as exc:
-                return False, f"unreadable owner file {path}: {exc}"
-            active_owner, pid = _parse_control_owner(text)
-            if active_owner == owner and pid == os.getpid():
-                return True, f"already owned by {owner}"
-            if pid is not None and not _pid_alive(pid):
-                try:
-                    path.unlink(missing_ok=True)
-                except OSError as exc:
-                    return False, f"stale owner {active_owner or text!r} could not be cleared: {exc}"
-                continue
-            pid_text = str(pid) if pid is not None else "unknown"
-            return False, f"owned by {active_owner or text.strip() or 'unknown'} pid={pid_text}"
-        except OSError as exc:
-            return False, f"could not create owner file {path}: {exc}"
-
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(_control_owner_payload(owner))
-        except OSError as exc:
-            try:
-                path.unlink(missing_ok=True)
-            except OSError:
-                pass
-            return False, f"could not write owner file {path}: {exc}"
-        return True, f"owned by {owner}"
-    return False, f"could not claim owner file {path}"
-
-
-def _release_control_owner(path: Path, owner: str) -> None:
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except FileNotFoundError:
-        return
-    except OSError:
-        return
-    active_owner, pid = _parse_control_owner(text)
-    if active_owner != (owner.strip() or "unknown"):
-        return
-    if pid is not None and pid != os.getpid():
-        return
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        return
+from arachne_hardware.aubo_sdk import (
+    DEFAULT_AUBO_CONTROL_OWNER_PATH,
+    DEFAULT_AUBO_TEACH_FLAG_PATH,
+    AuboDirectJsonRpc,
+    claim_control_owner as _claim_control_owner,
+    clear_teach_gate,
+    release_control_owner as _release_control_owner,
+    set_teach_gate,
+)
+from arachne_hardware.aubo_sdk.safety import (
+    exit_servo_mode,
+    read_robot_state,
+    stop_joint,
+)
+from arachne_hardware.aubo_sdk.teach import (
+    read_teach_status,
+    send_teach_rpc,
+    wait_teach_disabled,
+)
+from arachne_hardware.aubo_sdk.velocity import speed_joint
 
 
 class AuboOfficialStatusProbe(Node):
@@ -139,57 +63,6 @@ class AuboOfficialStatusProbe(Node):
         msg = String()
         msg.data = self.last_status
         self.status_pub.publish(msg)
-
-
-class AuboDirectJsonRpc:
-    def __init__(self, ip: str, port: int, timeout: float) -> None:
-        self.ip = ip
-        self.port = port
-        self.timeout = timeout
-        self.request_id = 0
-        self.robot_name = "rob1"
-        self.sock: socket.socket | None = None
-
-    def __enter__(self) -> "AuboDirectJsonRpc":
-        self.connect()
-        return self
-
-    def connect(self) -> None:
-        self.close()
-        self.sock = socket.create_connection((self.ip, self.port), timeout=self.timeout)
-        self.sock.settimeout(self.timeout)
-        names = self.call("getRobotNames")
-        if names:
-            self.robot_name = str(names[0])
-
-    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
-        self.close()
-
-    def close(self) -> None:
-        if self.sock is not None:
-            try:
-                self.sock.close()
-            finally:
-                self.sock = None
-
-    def call(self, method: str, params: list[Any] | None = None) -> Any:
-        if self.sock is None:
-            raise RuntimeError("not connected")
-        self.request_id += 1
-        request = {
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params or [],
-            "id": self.request_id,
-        }
-        self.sock.sendall(json.dumps(request, separators=(",", ":")).encode("utf-8"))
-        response = json.loads(self.sock.recv(8192).decode("utf-8", errors="replace"))
-        if response.get("error") not in (None, "", "None", "null"):
-            raise RuntimeError(f"{method} failed: {response['error']}")
-        return response.get("result")
-
-    def robot_call(self, suffix: str, params: list[Any] | None = None) -> Any:
-        return self.call(f"{self.robot_name}.{suffix}", params)
 
 
 class AuboTeachCommandBridge(Node):
@@ -252,11 +125,11 @@ class AuboTeachCommandBridge(Node):
                 return
             owner_claimed = True
             if enabled:
-                flag_path.write_text("1\n", encoding="utf-8")
+                set_teach_gate(flag_path, True)
                 time.sleep(float(self.get_parameter("teach_enter_settle_sec").value))
                 with AuboDirectJsonRpc(ip, port, timeout) as rpc:
-                    result = self._send_teach_rpc(rpc, method, True)
-                    status = self._read_teach_status(rpc, method)
+                    result = send_teach_rpc(rpc, method, True)
+                    status = read_teach_status(rpc, method)
                 self.control_owner_active = True
                 self._publish_status(
                     f"aubo teach on active via {method}: result={result} status={status}"
@@ -264,8 +137,13 @@ class AuboTeachCommandBridge(Node):
                 return
 
             with AuboDirectJsonRpc(ip, port, timeout) as rpc:
-                result = self._send_teach_rpc(rpc, method, False)
-                status = self._wait_teach_disabled(rpc, method)
+                result = send_teach_rpc(rpc, method, False)
+                status = wait_teach_disabled(
+                    rpc,
+                    method,
+                    max(float(self.get_parameter("teach_exit_timeout_sec").value), 0.0),
+                    max(float(self.get_parameter("teach_exit_poll_sec").value), 0.05),
+                )
             self._clear_teach_flag(flag_path)
             _release_control_owner(owner_path, owner_name)
             self.control_owner_active = False
@@ -286,70 +164,22 @@ class AuboTeachCommandBridge(Node):
             self._publish_status(f"aubo teach {method} failed: {exc}", warn=True)
 
     def _send_teach_rpc(self, rpc: AuboDirectJsonRpc, method: str, enabled: bool) -> Any:
-        if method == "freedrive":
-            return rpc.robot_call("RobotManage.freedrive", [enabled])
-        if method == "backdrive":
-            return rpc.robot_call("RobotManage.backdrive", [enabled])
-        if method == "handguide":
-            if enabled:
-                return rpc.robot_call("RobotManage.handguideMode", [[], []])
-            return rpc.robot_call("RobotManage.exitHandguideMode")
-        raise RuntimeError(f"unsupported Aubo teach_method: {method}")
+        return send_teach_rpc(rpc, method, enabled)
 
     def _read_teach_status(self, rpc: AuboDirectJsonRpc, method: str) -> Any:
-        try:
-            if method == "freedrive":
-                return rpc.robot_call("RobotManage.isFreedriveEnabled")
-            if method == "backdrive":
-                return rpc.robot_call("RobotManage.isBackdriveEnabled")
-            if method == "handguide":
-                return rpc.robot_call("RobotManage.getHandguideStatus")
-        except Exception as exc:
-            return f"status unavailable: {exc}"
-        return "unknown"
+        return read_teach_status(rpc, method)
 
     def _wait_teach_disabled(self, rpc: AuboDirectJsonRpc, method: str) -> Any:
         timeout = max(float(self.get_parameter("teach_exit_timeout_sec").value), 0.0)
         poll = max(float(self.get_parameter("teach_exit_poll_sec").value), 0.05)
-        deadline = time.monotonic() + timeout
-        status: Any = "unknown"
-        while time.monotonic() <= deadline:
-            status = self._read_teach_status(rpc, method)
-            mode, safety = self._read_robot_state(rpc)
-            teach_disabled = status is False or str(status).strip().lower() in (
-                "false",
-                "0",
-                "disabled",
-                "off",
-            )
-            state_ready = mode == "running" and safety in ("normal", "reducedmode")
-            if teach_disabled and state_ready:
-                return f"teach={status} mode={mode} safety={safety}"
-            if isinstance(status, str) and status.startswith("status unavailable"):
-                time.sleep(min(timeout, poll))
-                status = f"{status}; mode={mode} safety={safety}"
-            try:
-                self._send_teach_rpc(rpc, method, False)
-            except Exception as exc:
-                status = f"disable retry failed: {exc}"
-            time.sleep(poll)
-        mode, safety = self._read_robot_state(rpc)
-        raise TimeoutError(
-            "teach mode did not return to Running/Normal before timeout; "
-            f"last teach={status} mode={mode} safety={safety}"
-        )
+        return wait_teach_disabled(rpc, method, timeout, poll)
 
     def _read_robot_state(self, rpc: AuboDirectJsonRpc) -> tuple[str, str]:
-        try:
-            mode = str(rpc.robot_call("RobotState.getRobotModeType")).strip().lower()
-            safety = str(rpc.robot_call("RobotState.getSafetyModeType")).strip().lower()
-            return mode, safety
-        except Exception as exc:
-            return "unknown", f"unknown:{exc}"
+        return read_robot_state(rpc)
 
     def _clear_teach_flag(self, path: Path) -> None:
         try:
-            path.unlink(missing_ok=True)
+            clear_teach_gate(path)
         except OSError as exc:
             self._publish_status(f"could not clear teach flag {path}: {exc}", warn=True)
             return
@@ -549,58 +379,33 @@ class AuboSdkVelocityBridge(Node):
         accel = max(float(self.get_parameter("speed_joint_accel_rad_sec2").value), 0.05)
         duration = max(float(self.get_parameter("speed_joint_time_sec").value), 0.005)
         try:
-            result = self._robot_call("MotionControl.speedJoint", [velocity, accel, duration])
+            result = speed_joint(
+                self._rpc(),
+                velocity,
+                accel,
+                duration,
+                stop_accel=max(float(self.get_parameter("stop_joint_accel_rad_sec2").value), 0.05),
+                busy_retry_delay=max(float(self.get_parameter("busy_retry_delay_sec").value), 0.0),
+                status=lambda text, warn: self._publish_status_throttled(text, warn=warn),
+            )
         except Exception as exc:
             self._publish_status(f"aubo sdk speedJoint failed: {exc}", warn=True)
             self._close_rpc()
             self._stop_velocity("speedJoint failure", close_rpc=False)
             return False
-        if result in (0, None):
-            return True
-        if result == 3:
-            self._publish_status_throttled(
-                "aubo sdk speedJoint busy; stopping previous motion and retrying",
-                warn=True,
-            )
-            self._call_stop_joint("speedJoint busy preempt", throttle_status=True)
-            retry_delay = max(float(self.get_parameter("busy_retry_delay_sec").value), 0.0)
-            if retry_delay > 0.0:
-                time.sleep(retry_delay)
-            try:
-                retry_result = self._robot_call(
-                    "MotionControl.speedJoint", [velocity, accel, duration]
-                )
-            except Exception as exc:
-                self._publish_status(f"aubo sdk speedJoint retry failed: {exc}", warn=True)
-                self._close_rpc()
-                self._stop_velocity("speedJoint retry failure", close_rpc=False)
-                return False
-            if retry_result in (0, None):
-                return True
-            self._publish_status_throttled(
-                f"aubo sdk speedJoint retry result={retry_result}",
-                warn=True,
-            )
-            return False
-        self._publish_status_throttled(f"aubo sdk speedJoint result={result}", warn=True)
-        return False
+        return result
 
     def _call_stop_joint(self, reason: str, *, throttle_status: bool = False) -> None:
         accel = max(float(self.get_parameter("stop_joint_accel_rad_sec2").value), 0.05)
+        status = (
+            (lambda text, warn: self._publish_status_throttled(text, warn=warn))
+            if throttle_status
+            else (lambda text, warn: self._publish_status(text, warn=warn))
+        )
         try:
-            result = self._robot_call("MotionControl.stopJoint", [accel])
-            if result not in (0, None):
-                text = f"aubo sdk stopJoint result={result} during {reason}"
-                if throttle_status:
-                    self._publish_status_throttled(text, warn=True)
-                else:
-                    self._publish_status(text, warn=True)
+            stop_joint(self._rpc(), accel, reason, warn_only=True, status=status)
         except Exception as exc:
-            text = f"aubo sdk stopJoint failed during {reason}: {exc}"
-            if throttle_status:
-                self._publish_status_throttled(text, warn=True)
-            else:
-                self._publish_status(text, warn=True)
+            status(f"aubo sdk stopJoint failed during {reason}: {exc}", True)
 
     def _stop_velocity(self, reason: str, *, close_rpc: bool = True) -> None:
         if not self.active:
@@ -630,22 +435,14 @@ class AuboSdkVelocityBridge(Node):
 
     def _exit_servo_mode(self) -> None:
         try:
-            result = self._robot_call("MotionControl.setServoModeSelect", [0])
-            if result not in (0, None):
-                self._publish_status_throttled(
-                    f"aubo setServoModeSelect(0) result={result}", warn=True
-                )
-        except Exception as exc:
-            self._publish_status_throttled(
-                f"aubo setServoModeSelect unavailable, trying deprecated setServoMode(false): {exc}",
-                warn=True,
+            exit_servo_mode(
+                self._rpc(),
+                status=lambda text, warn: self._publish_status_throttled(text, warn=warn),
             )
-            try:
-                self._robot_call("MotionControl.setServoMode", [False])
-            except Exception as fallback_exc:
-                self._publish_status_throttled(
-                    f"aubo setServoMode(false) failed: {fallback_exc}", warn=True
-                )
+        except Exception as fallback_exc:
+            self._publish_status_throttled(
+                f"aubo setServoMode(false) failed: {fallback_exc}", warn=True
+            )
 
     def _robot_call(self, suffix: str, params: list[Any] | None = None) -> Any:
         rpc = self._rpc()
@@ -689,10 +486,7 @@ class AuboSdkVelocityBridge(Node):
     def _set_gate(self, enabled: bool) -> bool:
         path = Path(str(self.get_parameter("teach_flag_path").value))
         try:
-            if enabled:
-                path.write_text("1\n", encoding="utf-8")
-            else:
-                path.unlink(missing_ok=True)
+            set_teach_gate(path, enabled)
         except OSError as exc:
             self._publish_status(f"aubo sdk velocity gate update failed: {exc}", warn=True)
             return False

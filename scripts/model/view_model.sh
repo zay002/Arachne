@@ -43,6 +43,34 @@ BASE_ANGULAR_SPEED="${BASE_ANGULAR_SPEED:-0.65}"
 BASE_MAX_LINEAR_VELOCITY="${BASE_MAX_LINEAR_VELOCITY:-0.8}"
 BASE_MAX_ANGULAR_VELOCITY="${BASE_MAX_ANGULAR_VELOCITY:-1.4}"
 
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/model/view_model.sh [--help]
+
+Primary model-inspection entrypoint. Starts the Arachne display launch with the
+configured gripper, optional RViz, base simulation, sensor links, and front basket.
+
+Common environment overrides:
+  GRIPPER_TYPE=ms42dc|ag95
+  WITH_RVIZ=true|false
+  USE_GUI=true|false
+  WITH_BASE_SIM=true|false
+  WITH_GRIPPER_SIM=true|false
+  WITH_LIDAR=true|false
+  WITH_EE_CAMERA=true|false
+  WITH_FRONT_BASKET=true|false
+
+This is a mock/sim visualization path and does not command real hardware.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+esac
+
 cleanup_model_view() {
   local patterns=(
     "[r]os2 launch arachne_description display.launch.py"

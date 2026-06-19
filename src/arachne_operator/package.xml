@@ -14,6 +14,7 @@
   <exec_depend>nav2_msgs</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>arachne_description</exec_depend>
+  <exec_depend>arachne_hardware</exec_depend>
   <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-tk</exec_depend>

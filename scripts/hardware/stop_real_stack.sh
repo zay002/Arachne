@@ -3,6 +3,27 @@ set -euo pipefail
 
 GRACE_SEC="${GRACE_SEC:-2}"
 
+usage() {
+  cat <<EOF
+Usage: ./scripts/hardware/stop_real_stack.sh [--help]
+
+Stops known Arachne real-stack processes with INT, TERM, then KILL fallback.
+
+Environment:
+  GRACE_SEC=${GRACE_SEC}
+
+This command is intended as a recovery/cleanup helper. It does not start or move
+hardware, but it can stop drivers, task servers, RViz, camera nodes, and panels.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+esac
+
 PATTERNS=(
   "/install/aubo_ros2_driver/lib/aubo_ros2_driver/aubo_ros2_control_node"
   "/install/arachne_hardware/lib/arachne_hardware/aubo_official_status_probe"

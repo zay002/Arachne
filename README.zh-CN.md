@@ -60,45 +60,42 @@ source install/setup.bash
 
 ## 当前推荐工作流
 
-日常开发按“模型/仿真先验证，真机从施教器进入”的顺序走：
+日常开发按“模型/仿真先验证，真机先 bringup，再从示教器进入”的顺序走：
 
 1. `./scripts/model/view_model.sh` 检查 URDF/TF/mesh 是否正常。
 2. `./scripts/sim/urban_trash_sorting_demo.sh` 在 RViz 里复现道路垃圾巡检、识别、点云、抓取和投篮流程。
-3. `./scripts/hardware/real_grasp_console.sh --yes --quick` 打开真机施教器总控。
-4. 在施教器里用 `Visual Grasp` 做单次视觉抓取；用 `RoadSrv` + `Road Start` 做道路垃圾巡检分拣。
+3. `./scripts/hardware/real_bringup.sh` 启动 Scout/MS42DC/Aubo 真机底层。
+4. `./scripts/operator/teach_panel.sh` 进入真机示教器。
+5. 需要任务服务时启动 `./scripts/vision/grasp_task_server.sh` 或 `./scripts/vision/road_cleanup_task_server.sh`。
 
 真机道路任务复用同一套 `grasp_server`：空闲时 YOLO-SEG 持续发布 `/arachne/perception/taco_instances`，检测到目标后 `road_cleanup_task_server` 停车并调用 `/arachne/grasp_task/start`。如果 YOLO 和点云正常但机械臂不可达或规划失败，任务服务器会让底盘继续小步移动，发布 `/arachne/grasp_preview/restart_search` 让相机重新捕获目标，再重新计算点云和抓取规划。当前默认权重是 `yolo_workspace/weights/yolo26n_seg_taco_best.pt`，缺失时不会自动下载官方 YOLO 权重。
 
-## 常用入口
+`scripts/hardware/real_grasp_console.sh` 已降级为 deprecated compatibility wrapper，仅为旧命令保留；新流程请直接使用 `scripts/operator/teach_panel.sh` 或一键示教 demo `scripts/hardware/real_teach_demo.sh`。
+
+## 主要入口
 
 | 目标 | 命令 |
 | --- | --- |
 | 查看默认 MS42DC 模型 | `./scripts/model/view_model.sh` |
-| 查看 AG95 模型 | `./scripts/model/use_gripper.sh ag95 view` |
-| 检查 URDF 和基础接口 | `./scripts/build/check_workspace.sh` |
+| 道路垃圾分拣 RViz demo | `./scripts/sim/urban_trash_sorting_demo.sh` |
 | Gazebo 手柄 demo | `./scripts/sim/switch_demo.sh` |
 | Gazebo 自主拾取验证 | `./scripts/sim/gazebo_autopick_demo.sh` |
-| Godot 展示前端 | `./scripts/godot/godot_showcase.sh` |
-| 道路垃圾分拣 RViz demo | `./scripts/sim/urban_trash_sorting_demo.sh` |
+| MoveIt 抓取规划 demo | `./scripts/sim/moveit_grasp_planning_demo.sh` |
+| 真机底层启动 | `./scripts/hardware/real_bringup.sh` |
+| 真机示教器 | `./scripts/operator/teach_panel.sh` |
+| 真机一键示教 demo | `./scripts/hardware/real_teach_demo.sh` |
+| 真机完整验收 | `./scripts/hardware/real_full_acceptance.sh --yes` |
+| Gemini335 相机 | `./scripts/vision/gemini335_bringup.sh` |
 | Gemini335 YOLO 实时标注 | `./scripts/vision/gemini_yolo_live.sh` |
-| C16 雷达驱动 | `ros2 launch lslidar_driver lslidar_cx_launch.py` |
-| C16 + 整车融合 RViz | `rviz2 -d src/arachne_description/rviz/arachne_lidar_fusion.rviz` |
-| Trash 分割抓取入篮预览 | `./scripts/vision/grasp_preview.sh` |
 | 真机姿态同步抓取预览 | `./scripts/vision/grasp_preview_real_sync.sh` |
-| 真机同步并执行抓取 | `ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES ./scripts/vision/grasp_preview_real_sync.sh --execute-real` |
 | 抓取任务服务器 | `./scripts/vision/grasp_task_server.sh` |
 | 道路巡检任务服务器 | `./scripts/vision/road_cleanup_task_server.sh` |
-| Road cleanup mock 回归 | `python3 scripts/vision/mock_road_cleanup_task_test.py` |
+| 真机 lidar/Nav2 | `./scripts/hardware/real_lidar_nav.sh` |
+| 保存 lidar/SLAM 地图 | `./scripts/hardware/real_lidar_save_map.sh` |
+| AprilTag 导航初始化 | `./scripts/vision/apriltag_nav_initialize.sh` |
+| AprilTag 导航建图 | `./scripts/vision/apriltag_nav_start_mapping.sh` |
 | Agent Bridge | `./scripts/agent/agent_bridge.sh` |
-| 真机环境检查 | `./scripts/hardware/check_real_hardware_env.sh` |
-| 真机一键 bringup | `./scripts/hardware/real_bringup.sh` |
-| 真机示教演示 | `./scripts/hardware/real_teach_demo.sh` |
-| Aubo 只读连通探测 | `./scripts/hardware/real_aubo_probe.sh` |
-| Aubo 启动状态确认 | `./scripts/hardware/real_aubo_prepare.sh` |
-| Aubo 真机 driver 启动 | `ARACHNE_CONFIRM_AUBO_DRIVER=YES ./scripts/hardware/real_aubo_bringup.sh` |
-| Aubo 阻塞远程启动 | `ARACHNE_CONFIRM_AUBO_REMOTE_START=YES ./scripts/hardware/real_aubo_remote_start.sh` |
-| Aubo 小幅 Z 向测试 | `ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_aubo_z_test.sh` |
-| 真机示教与回放面板 | `./scripts/operator/teach_panel.sh` |
+| 停止真机栈 | `./scripts/hardware/stop_real_stack.sh` |
 
 <p align="center">
   <img src="docs/demo/gazebo.png" alt="Arachne Gazebo demo" width="48%">
@@ -192,13 +189,17 @@ ARACHNE_CONFIRM_REAL_MOTION=YES ./scripts/hardware/real_hardware_acceptance_test
 | `godot/arachne_showcase` | Godot 4.x 第三人称展示前端 |
 | `docs` | 建模、控制、硬件、标定和参考资料 |
 
-`scripts/` 根目录不再放置旧式兼容脚本；请直接使用分类路径，例如 `./scripts/hardware/real_grasp_console.sh --yes --quick` 和 `source scripts/env/arachne_env.sh`。
+`scripts/` 根目录不再放置旧式兼容脚本；请直接使用分类路径，例如 `./scripts/operator/teach_panel.sh` 和 `source scripts/env/arachne_env.sh`。完整脚本索引见 [scripts/README.md](scripts/README.md)。
 
 ## 文档
 
 - [建模](docs/modeling.zh-CN.md)
 - [控制](docs/control.zh-CN.md)
 - [硬件](docs/hardware.zh-CN.md)
+- [主入口与安全标注](docs/entrypoints.zh-CN.md)
+- [Aubo 控制策略](docs/aubo_control_policy.zh-CN.md)
+- [Sim2Real 契约](docs/sim2real_contract.zh-CN.md)
+- [标定与导航 TODO](docs/calibration_nav_todo.zh-CN.md)
 - [标定](docs/calibration.zh-CN.md)
 - [抓取任务服务器](docs/grasp_task_server.zh-CN.md)
 - [道路垃圾巡检分拣](docs/road_cleanup_task_server.zh-CN.md)

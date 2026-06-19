@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+from arachne_hardware.aubo_tcp_driver import teach_command_bridge_main
+
+if __name__ == "__main__":
+    teach_command_bridge_main()

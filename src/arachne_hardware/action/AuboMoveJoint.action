@@ -1,0 +1,16 @@
+float64[] target_joints
+float64 speed_rad_sec
+float64 accel_rad_sec2
+float64 blend_radius
+float64 duration_sec
+float64 goal_tolerance_rad
+float64 timeout_sec
+string label
+---
+bool success
+string message
+float64 final_error_rad
+---
+string state
+float64 elapsed_sec
+float64 max_error_rad

@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+echo "deprecated: use scripts/operator/teach_panel.sh instead" >&2
+
 set +u
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/scripts/env/load_local_env.sh"
@@ -38,6 +40,9 @@ usage() {
   cat <<EOF
 Usage:
   ./scripts/hardware/real_grasp_console_remote.sh [start|restart|status|stop] [console options]
+
+Deprecated compatibility/helper wrapper for remote-planner console sessions.
+Prefer scripts/operator/teach_panel.sh for the local teach-panel entrypoint.
 
 Default action is start. It reads .env.local, starts the remote MoveIt planner
 stack, opens a local SSH tunnel, then launches real_grasp_console.sh with
