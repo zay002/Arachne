@@ -41,8 +41,7 @@ if [[ -f build/aubo_description/cmake_install.cmake ]] \
 fi
 
 PACKAGES=(
-  aubo_description aubo_msgs aubo_dashboard_msgs aubo_ros2_driver \
-  scout_description dh_ag95_description \
+  aubo_description scout_description dh_ag95_description \
   arachne_sim arachne_gripper arachne_hardware arachne_control arachne_moveit_config \
   arachne_nav arachne_operator arachne_sensors arachne_agent_bridge arachne_description
 )

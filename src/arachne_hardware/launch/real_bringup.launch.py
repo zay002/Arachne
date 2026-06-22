@@ -17,9 +17,7 @@ def _package_launch(package_name: str, *relative: str) -> PythonLaunchDescriptio
     except PackageNotFoundError as exc:
         raise RuntimeError(
             f"Missing ROS2 package `{package_name}`. Run scripts/hardware/fetch_third_party.sh "
-            "and scripts/hardware/prepare_real_hardware_ros.sh, then rebuild the workspace. "
-            "For aubo_ros2_driver, also make sure the Aubo SDK zip is available locally "
-            "or reachable during build."
+            "and scripts/hardware/prepare_real_hardware_ros.sh, then rebuild the workspace."
         ) from exc
     return PythonLaunchDescriptionSource(str(package_share.joinpath(*relative)))
 
@@ -181,24 +179,25 @@ def _launch_setup(context, *args, **kwargs):
             )
 
     if enabled("use_aubo"):
-        actions.append(
-            IncludeLaunchDescription(
-                _package_launch("aubo_ros2_driver", "launch", "aubo_control.launch.py"),
-                launch_arguments={
-                    "aubo_type": LaunchConfiguration("aubo_type"),
-                    "robot_ip": LaunchConfiguration("aubo_robot_ip"),
-                    "use_fake_hardware": "false",
-                    "runtime_config_package": LaunchConfiguration(
-                        "aubo_runtime_config_package"
-                    ),
-                    "controllers_file": LaunchConfiguration("aubo_controllers_file"),
-                    "initial_joint_controller": LaunchConfiguration(
-                        "aubo_initial_joint_controller"
-                    ),
-                    "aubo_control_prefix": LaunchConfiguration("aubo_control_prefix"),
-                }.items(),
+        if enabled("use_aubo_ros2_driver"):
+            actions.append(
+                IncludeLaunchDescription(
+                    _package_launch("aubo_ros2_driver", "launch", "aubo_control.launch.py"),
+                    launch_arguments={
+                        "aubo_type": LaunchConfiguration("aubo_type"),
+                        "robot_ip": LaunchConfiguration("aubo_robot_ip"),
+                        "use_fake_hardware": "false",
+                        "runtime_config_package": LaunchConfiguration(
+                            "aubo_runtime_config_package"
+                        ),
+                        "controllers_file": LaunchConfiguration("aubo_controllers_file"),
+                        "initial_joint_controller": LaunchConfiguration(
+                            "aubo_initial_joint_controller"
+                        ),
+                        "aubo_control_prefix": LaunchConfiguration("aubo_control_prefix"),
+                    }.items(),
+                )
             )
-        )
 
         actions.append(
             Node(
@@ -359,6 +358,7 @@ def generate_launch_description():
             DeclareLaunchArgument("use_scout", default_value="true"),
             DeclareLaunchArgument("use_ms42dc", default_value="true"),
             DeclareLaunchArgument("use_aubo", default_value="true"),
+            DeclareLaunchArgument("use_aubo_ros2_driver", default_value="false"),
             DeclareLaunchArgument("scout_driver", default_value="waveshare"),
             DeclareLaunchArgument(
                 "scout_port",

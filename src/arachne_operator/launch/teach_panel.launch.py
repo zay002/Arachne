@@ -18,7 +18,9 @@ def generate_launch_description():
             )
         ),
         launch_arguments={
-            "input_joint_states_topic": LaunchConfiguration("joint_states_topic"),
+            "input_joint_states_topic": LaunchConfiguration(
+                "visualization_input_joint_states_topic"
+            ),
             "with_rviz": LaunchConfiguration("visualization_with_rviz"),
             "gripper_type": LaunchConfiguration("visualization_gripper_type"),
             "with_lidar": LaunchConfiguration("visualization_with_lidar"),
@@ -346,7 +348,13 @@ def generate_launch_description():
         [
             DeclareLaunchArgument("cmd_vel_topic", default_value="/cmd_vel"),
             DeclareLaunchArgument("odom_topic", default_value="/odom"),
-            DeclareLaunchArgument("joint_states_topic", default_value="/joint_states"),
+            DeclareLaunchArgument(
+                "joint_states_topic",
+                default_value="/arachne/teach_visualization/joint_states",
+            ),
+            DeclareLaunchArgument(
+                "visualization_input_joint_states_topic", default_value="/joint_states"
+            ),
             DeclareLaunchArgument("with_visualization", default_value="true"),
             DeclareLaunchArgument("visualization_with_rviz", default_value="true"),
             DeclareLaunchArgument("visualization_gripper_type", default_value="ms42dc"),

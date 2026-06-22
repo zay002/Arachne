@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Source this file before building or running Arachne from a shell that may have
-# conda/pyenv Python ahead of the Ubuntu Python used by ROS 2.
+# venv/conda/pyenv Python ahead of the Ubuntu Python used by ROS 2.
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   echo "This script must be sourced, not executed:" >&2
@@ -37,7 +37,7 @@ arachne_filter_colon_var() {
   for entry in "${entries[@]}"; do
     [[ -z "${entry}" ]] && continue
     case "${entry}" in
-      *miniconda*|*anaconda*|*.conda*|*/.pyenv/shims|*/.pyenv/versions/*)
+      */.venv/*|*/venv/*|*miniconda*|*anaconda*|*.conda*|*/.pyenv/shims|*/.pyenv/versions/*)
         continue
         ;;
     esac
@@ -55,6 +55,7 @@ fi
 unset ARACHNE_FILTERED_PATH
 
 unset PYTHONHOME
+unset VIRTUAL_ENV
 if [[ -n "${PYTHONPATH:-}" ]]; then
   export PYTHONPATH="$(arachne_filter_colon_var "${PYTHONPATH}")"
 fi
