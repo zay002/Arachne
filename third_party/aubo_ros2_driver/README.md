@@ -89,3 +89,19 @@ aubo_msgs.srv.JsonRpc_Response(result='None', error='{"code": -32601, "message":
 ## aubo_sdk 接口参考文档
 
 [aubo_sdk developer](https://docs.aubo-robotics.cn/arcs_api/index.html)
+
+## 离线 SDK 包
+
+`aubo_ros2_driver` 构建时还需要 Aubo SDK 二进制 zip。离线机器请把对应架构的 SDK 放到：
+
+```text
+third_party/aubo_ros2_driver/vendor/aubo_sdk-0.24.1-rc.3-Linux_aarch64+318754d.zip
+third_party/aubo_ros2_driver/vendor/aubo_sdk-0.24.1-rc.3-Linux_x86_64+318754d.zip
+```
+
+也可以构建时传：
+
+```bash
+colcon build --packages-select aubo_ros2_driver \
+  --cmake-args -DAUBO_SDK_ARCHIVE_PATH=/path/to/aubo_sdk.zip
+```
