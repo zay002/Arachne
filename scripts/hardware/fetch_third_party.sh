@@ -594,6 +594,10 @@ fetch_repo dh_ag95_gripper_ros2 \
   fc4f80fdfb3acae5626df4359aec1401cb71a9a3
 
 ln -sfn ../../third_party/aubo_description "${ROOT_DIR}/src/vendor/aubo_description"
+ln -sfn ../../third_party/aubo_ros2_driver/aubo_dashboard_msgs "${ROOT_DIR}/src/vendor/aubo_dashboard_msgs"
+ln -sfn ../../third_party/aubo_ros2_driver/aubo_msgs "${ROOT_DIR}/src/vendor/aubo_msgs"
+ln -sfn ../../third_party/aubo_ros2_driver/aubo_ros2_driver "${ROOT_DIR}/src/vendor/aubo_ros2_driver"
+ln -sfn ../../third_party/aubo_ros2_driver/ros_joints_plan "${ROOT_DIR}/src/vendor/ros_joints_plan"
 ln -sfn ../../third_party/dh_ag95_gripper_ros2/dh_ag95_description "${ROOT_DIR}/src/vendor/dh_ag95_description"
 ln -sfn ../../third_party/scout_ros2/scout_description "${ROOT_DIR}/src/vendor/scout_description"
 

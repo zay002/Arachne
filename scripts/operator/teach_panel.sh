@@ -51,12 +51,15 @@ if [[ "${START_REAL_BRINGUP}" == "true" ]]; then
   "${ROOT_DIR}/scripts/hardware/real_bringup.sh" &
   bringup_pid=$!
   trap '[[ -n "${bringup_pid}" ]] && kill "${bringup_pid}" 2>/dev/null || true' EXIT
-  sleep 2
-  if ! kill -0 "${bringup_pid}" 2>/dev/null; then
-    wait "${bringup_pid}" || true
-    echo "real_bringup exited before teach panel startup; fix the hardware bringup error first." >&2
-    exit 1
-  fi
+  bringup_grace_sec="${ARACHNE_TEACH_BRINGUP_GRACE_SEC:-8}"
+  for ((i = 0; i < bringup_grace_sec; i++)); do
+    sleep 1
+    if ! kill -0 "${bringup_pid}" 2>/dev/null; then
+      wait "${bringup_pid}" || true
+      echo "real_bringup exited before teach panel startup; fix the hardware bringup error first." >&2
+      exit 1
+    fi
+  done
 fi
 
 if [[ "${has_recording_dir}" == "true" ]]; then

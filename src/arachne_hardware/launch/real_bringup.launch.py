@@ -17,7 +17,9 @@ def _package_launch(package_name: str, *relative: str) -> PythonLaunchDescriptio
     except PackageNotFoundError as exc:
         raise RuntimeError(
             f"Missing ROS2 package `{package_name}`. Run scripts/hardware/fetch_third_party.sh "
-            "and scripts/hardware/prepare_ms42dc_ros2.sh, then rebuild the workspace."
+            "and scripts/hardware/prepare_real_hardware_ros.sh, then rebuild the workspace. "
+            "For aubo_ros2_driver, also make sure the Aubo SDK zip is available locally "
+            "or reachable during build."
         ) from exc
     return PythonLaunchDescriptionSource(str(package_share.joinpath(*relative)))
 
