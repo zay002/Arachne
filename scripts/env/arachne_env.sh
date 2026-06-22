@@ -10,6 +10,8 @@ fi
 
 ARACHNE_ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export ARACHNE_ROOT_DIR
+export ROS_LOG_DIR="${ROS_LOG_DIR:-${ARACHNE_ROOT_DIR}/log/ros}"
+mkdir -p "${ROS_LOG_DIR}" 2>/dev/null || true
 # shellcheck disable=SC1091
 source "${ARACHNE_ROOT_DIR}/scripts/env/load_local_env.sh"
 arachne_load_local_env "${ARACHNE_ROOT_DIR}"

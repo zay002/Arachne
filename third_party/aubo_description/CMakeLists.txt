@@ -1,10 +1,10 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.8)
 project(aubo_description)
 
 if (DEFINED ENV{ROS_DISTRO})
     find_package(ros_environment REQUIRED)
     set(ROS_VERSION $ENV{ROS_VERSION})
-    message("ROS_VERSION" ${ROS_VERSION})
+    message(STATUS "ROS_VERSION=${ROS_VERSION}")
     if(${ROS_VERSION} EQUAL 1)
         
     	execute_process(COMMAND bash ros1_xacro.sh
@@ -22,7 +22,6 @@ if (DEFINED ENV{ROS_DISTRO})
     	)
     endif()
     if(${ROS_VERSION} EQUAL 2)
-    	cmake_minimum_required(VERSION 3.8)
     	if(NOT CMAKE_CXX_STANDARD)
     	  set(CMAKE_CXX_STANDARD_REQUIRED ON)
     	  set(CMAKE_CXX_STANDARD 14)
