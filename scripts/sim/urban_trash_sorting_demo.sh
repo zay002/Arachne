@@ -7,12 +7,13 @@ source "${ROOT_DIR}/scripts/env/ros_env.sh"
 arachne_require_ros_distro
 
 GRIPPER_TYPE="${GRIPPER_TYPE:-ms42dc}"
+USE_MOVEIT="${USE_MOVEIT:-true}"
 PLANNER_ID="${PLANNER_ID:-RRTConnectkConfigDefault}"
 PLAYBACK_SPEED="${PLAYBACK_SPEED:-0.85}"
-LOOP="${LOOP:-true}"
+LOOP="${LOOP:-false}"
 WITH_RVIZ="${WITH_RVIZ:-true}"
-PATROL_PATTERN="${PATROL_PATTERN:-box_entry}"
-PATROL_DISTANCE_M="${PATROL_DISTANCE_M:-1.2}"
+PATROL_PATTERN="${PATROL_PATTERN:-line}"
+PATROL_DISTANCE_M="${PATROL_DISTANCE_M:-1.5}"
 PATROL_BOX_WIDTH_M="${PATROL_BOX_WIDTH_M:-1.0}"
 PATROL_BOX_HEIGHT_M="${PATROL_BOX_HEIGHT_M:-1.2}"
 PATROL_ENTRY_M="${PATROL_ENTRY_M:-0.3}"
@@ -20,6 +21,9 @@ SHOW_KEEPOUT_MARKERS="${SHOW_KEEPOUT_MARKERS:-false}"
 SLAM_MAP_YAML="${SLAM_MAP_YAML:-${ROOT_DIR}/src/arachne_nav/maps/road_lab_apriltag.yaml}"
 TRASH_SEED="${TRASH_SEED:-26}"
 TRASH_COUNT="${TRASH_COUNT:-10}"
+SYNTHETIC_GRASP_BENCHMARK="${SYNTHETIC_GRASP_BENCHMARK:-false}"
+SYNTHETIC_GRASP_TRIALS="${SYNTHETIC_GRASP_TRIALS:-60}"
+SYNTHETIC_GROUND_Z_M="${SYNTHETIC_GROUND_Z_M:--0.22}"
 SCAN_ARC_RADIUS_M="${SCAN_ARC_RADIUS_M:-0.32}"
 SCAN_ARC_ANGLE_DEG="${SCAN_ARC_ANGLE_DEG:-72.0}"
 SCAN_ARC_SAMPLES="${SCAN_ARC_SAMPLES:-9}"
@@ -63,6 +67,7 @@ cleanup_stale_demo
 
 exec ros2 launch arachne_sim urban_trash_sorting_demo.launch.py \
   gripper_type:="${GRIPPER_TYPE}" \
+  use_moveit:="${USE_MOVEIT}" \
   planner_id:="${PLANNER_ID}" \
   playback_speed:="${PLAYBACK_SPEED}" \
   loop:="${LOOP}" \
@@ -75,6 +80,9 @@ exec ros2 launch arachne_sim urban_trash_sorting_demo.launch.py \
   slam_map_yaml:="${SLAM_MAP_YAML}" \
   trash_seed:="${TRASH_SEED}" \
   trash_count:="${TRASH_COUNT}" \
+  synthetic_grasp_benchmark:="${SYNTHETIC_GRASP_BENCHMARK}" \
+  synthetic_grasp_trials:="${SYNTHETIC_GRASP_TRIALS}" \
+  synthetic_ground_z_m:="${SYNTHETIC_GROUND_Z_M}" \
   scan_arc_radius_m:="${SCAN_ARC_RADIUS_M}" \
   scan_arc_angle_deg:="${SCAN_ARC_ANGLE_DEG}" \
   scan_arc_samples:="${SCAN_ARC_SAMPLES}" \

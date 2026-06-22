@@ -69,9 +69,9 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter(
             "real_search_scan_control_topic", "/arachne/grasp_preview/real_search_scan"
         )
-        self.declare_parameter("patrol_pattern", "box_entry")
-        self.declare_parameter("patrol_distance_m", 1.2)
-        self.declare_parameter("patrol_step_m", 1.2)
+        self.declare_parameter("patrol_pattern", "line")
+        self.declare_parameter("patrol_distance_m", 1.5)
+        self.declare_parameter("patrol_step_m", 1.5)
         self.declare_parameter("patrol_box_width_m", 1.0)
         self.declare_parameter("patrol_box_height_m", 1.2)
         self.declare_parameter("patrol_entry_m", 0.3)
@@ -79,7 +79,7 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("max_round_trips", 2)
         self.declare_parameter("detection_confidence", 0.08)
         self.declare_parameter("detection_timeout_sec", 3.0)
-        self.declare_parameter("initial_detection_wait_sec", 8.0)
+        self.declare_parameter("initial_detection_wait_sec", 0.0)
         self.declare_parameter("require_3d_candidate", True)
         self.declare_parameter("candidate_min_base_x_m", 0.25)
         self.declare_parameter("candidate_max_base_x_m", 1.03)
@@ -341,15 +341,13 @@ class RoadCleanupTaskServer(Node):
         if self.cancel_event.is_set() and self.state != "paused":
             self._finish("canceled", "road cleanup canceled")
         elif self.state not in TERMINAL_STATES:
-            if (
-                bool(self.get_parameter("auto_return_home_on_empty_route").value)
-                and self.successful_grasps == 0
-            ):
-                self._run_return_home()
+            self._run_return_home()
+            if self.state in TERMINAL_STATES:
                 return
             self._finish("succeeded", "road cleanup complete")
 
     def _run_return_home(self) -> None:
+        self._set_real_search_scan(False)
         self._set_state("returning", "returning to road cleanup start")
         with self.lock:
             completed = [dict(item) for item in self.completed_base_segments]
@@ -391,20 +389,13 @@ class RoadCleanupTaskServer(Node):
         remaining = distance_limit - abs(self.progress_m)
         if remaining <= 1e-3:
             with self.lock:
-                self.direction *= -1
-                self.progress_m = 0.0
                 self.cycle_count += 1
-            if not bool(self.get_parameter("loop").value) and self.cycle_count >= 2:
-                return False
-            max_round_trips = int(self.get_parameter("max_round_trips").value)
-            if max_round_trips > 0 and self.cycle_count >= max_round_trips * 2:
-                return False
-            return True
+            return False
 
-        distance = min(step, remaining) * float(self.direction)
+        distance = min(step, remaining)
         self._set_state(
             "patrol",
-            f"scan while moving {'forward' if self.direction > 0 else 'back'} step={distance:.2f}m",
+            f"scan while moving forward step={distance:.2f}m",
         )
         payload = {
             "command": "drive_relative",
@@ -503,6 +494,7 @@ class RoadCleanupTaskServer(Node):
                 if candidate is not None:
                     self.base_segment_interrupted_by_grasp = True
                     self._call_trigger(self.base_stop_client, 1.0)
+                    self._record_base_progress(payload, progress_delta_m)
                     self._handle_candidate(candidate)
                     if self._is_terminal():
                         return False
@@ -521,11 +513,12 @@ class RoadCleanupTaskServer(Node):
                         return False
                     if state == "canceled":
                         return False
+                    signed_progress = math.copysign(abs(progress), progress_delta_m)
                     with self.lock:
-                        self.progress_m += progress_delta_m
+                        self.progress_m += signed_progress
                         if record_completed:
                             self.completed_base_segments.extend(
-                                self._segments_from_base_payload(payload)
+                                self._segments_from_base_payload(payload, signed_progress)
                             )
                     self._event(
                         event_kind,
@@ -548,7 +541,9 @@ class RoadCleanupTaskServer(Node):
                 with self.lock:
                     self.progress_m += progress_delta_m
                     if record_completed:
-                        self.completed_base_segments.extend(self._segments_from_base_payload(payload))
+                        self.completed_base_segments.extend(
+                            self._segments_from_base_payload(payload, progress_delta_m)
+                        )
                 return True
             time.sleep(0.05)
         self._call_trigger(self.base_stop_client, 1.0)
@@ -556,6 +551,23 @@ class RoadCleanupTaskServer(Node):
             return False
         self._finish("failed", "base patrol step timeout")
         return False
+
+    def _record_base_progress(self, payload: dict[str, Any], fallback_delta_m: float) -> None:
+        result = self._query_base_status().get("latest_result", {})
+        if not isinstance(result, dict):
+            return
+        try:
+            progress = float(result.get("progress_m", 0.0))
+        except (TypeError, ValueError):
+            return
+        if abs(progress) <= 1e-3:
+            return
+        signed_progress = math.copysign(abs(progress), fallback_delta_m)
+        with self.lock:
+            self.progress_m += signed_progress
+            self.completed_base_segments.extend(
+                self._segments_from_base_payload(payload, signed_progress)
+            )
 
     def _make_patrol_waypoints(self) -> list[tuple[float, float]]:
         pattern = str(self.get_parameter("patrol_pattern").value).strip().lower()
@@ -610,7 +622,9 @@ class RoadCleanupTaskServer(Node):
     def _angle_diff(self, target: float, source: float) -> float:
         return math.atan2(math.sin(target - source), math.cos(target - source))
 
-    def _segments_from_base_payload(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    def _segments_from_base_payload(
+        self, payload: dict[str, Any], progress_delta_m: float | None = None
+    ) -> list[dict[str, Any]]:
         command = str(payload.get("command", "")).strip().lower()
         if command in ("replay_segments", "replay"):
             segments = payload.get("segments", [])
@@ -618,7 +632,11 @@ class RoadCleanupTaskServer(Node):
                 return [dict(item) for item in segments if isinstance(item, dict)]
             return []
         if command == "drive_relative":
-            distance = float(payload.get("distance_m", payload.get("distance", 0.0)))
+            distance = (
+                float(progress_delta_m)
+                if progress_delta_m is not None
+                else float(payload.get("distance_m", payload.get("distance", 0.0)))
+            )
             return [
                 {
                     "type": "linear",

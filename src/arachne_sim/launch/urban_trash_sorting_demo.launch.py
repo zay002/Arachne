@@ -43,6 +43,7 @@ def generate_launch_description():
             "gripper_type": LaunchConfiguration("gripper_type"),
             "joint_states_topic": "/joint_states",
         }.items(),
+        condition=IfCondition(LaunchConfiguration("use_moveit")),
     )
 
     demo = Node(
@@ -76,6 +77,15 @@ def generate_launch_description():
                 "map_frame_id": LaunchConfiguration("map_frame_id"),
                 "trash_seed": ParameterValue(LaunchConfiguration("trash_seed"), value_type=int),
                 "trash_count": ParameterValue(LaunchConfiguration("trash_count"), value_type=int),
+                "synthetic_grasp_benchmark": ParameterValue(
+                    LaunchConfiguration("synthetic_grasp_benchmark"), value_type=bool
+                ),
+                "synthetic_grasp_trials": ParameterValue(
+                    LaunchConfiguration("synthetic_grasp_trials"), value_type=int
+                ),
+                "synthetic_ground_z_m": ParameterValue(
+                    LaunchConfiguration("synthetic_ground_z_m"), value_type=float
+                ),
                 "scan_arc_radius_m": ParameterValue(
                     LaunchConfiguration("scan_arc_radius_m"), value_type=float
                 ),
@@ -133,11 +143,12 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("gripper_type", default_value="ms42dc"),
+            DeclareLaunchArgument("use_moveit", default_value="true"),
             DeclareLaunchArgument("planner_id", default_value="RRTConnectkConfigDefault"),
             DeclareLaunchArgument("playback_speed", default_value="0.85"),
-            DeclareLaunchArgument("loop", default_value="true"),
-            DeclareLaunchArgument("patrol_pattern", default_value="box_entry"),
-            DeclareLaunchArgument("patrol_distance_m", default_value="1.2"),
+            DeclareLaunchArgument("loop", default_value="false"),
+            DeclareLaunchArgument("patrol_pattern", default_value="line"),
+            DeclareLaunchArgument("patrol_distance_m", default_value="1.5"),
             DeclareLaunchArgument("patrol_box_width_m", default_value="1.0"),
             DeclareLaunchArgument("patrol_box_height_m", default_value="1.2"),
             DeclareLaunchArgument("patrol_entry_m", default_value="0.3"),
@@ -146,6 +157,9 @@ def generate_launch_description():
             DeclareLaunchArgument("map_frame_id", default_value="map"),
             DeclareLaunchArgument("trash_seed", default_value="26"),
             DeclareLaunchArgument("trash_count", default_value="10"),
+            DeclareLaunchArgument("synthetic_grasp_benchmark", default_value="false"),
+            DeclareLaunchArgument("synthetic_grasp_trials", default_value="60"),
+            DeclareLaunchArgument("synthetic_ground_z_m", default_value="-0.22"),
             DeclareLaunchArgument("scan_arc_radius_m", default_value="0.32"),
             DeclareLaunchArgument("scan_arc_angle_deg", default_value="72.0"),
             DeclareLaunchArgument("scan_arc_samples", default_value="9"),

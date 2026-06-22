@@ -2,9 +2,9 @@
 """Mock smoke test for road_cleanup_task_server.
 
 This runs the real RoadCleanupTaskServer in-process with mock grasp/base
-services. The first grasp attempt fails with a planning/IK error, then the mock
-publishes a fresh detection after the reach-recovery base step. The second
-grasp attempt succeeds.
+services. It verifies the current road demo route: scan while driving a simple
+forward line, then replay the completed base segments back home without adding
+scan/grasp work to the return leg.
 """
 
 from __future__ import annotations
@@ -88,19 +88,22 @@ class MockWorld(Node):
         return response
 
     def _finish_grasp(self, attempt: int) -> None:
-        if attempt == 1:
-            self._publish_grasp("failed", "planning failed at grasp: NO_IK_SOLUTION")
-            self._schedule(0.55, self.publish_detection, "bottle-after-recovery")
-        else:
-            self._publish_grasp("succeeded", "grasp task complete")
+        self._publish_grasp("succeeded", f"mock grasp attempt {attempt} complete")
 
     def _base_command_cb(self, msg: String) -> None:
         payload = json.loads(msg.data)
         self.base_commands.append(payload)
         self.base_active_command = dict(payload)
+        distance = float(payload.get("distance_m", 0.0))
+        if str(payload.get("command", "")).strip().lower() in ("replay_segments", "replay"):
+            distance = sum(
+                abs(float(segment.get("signed_distance_m", segment.get("distance_m", 0.0))))
+                for segment in payload.get("segments", [])
+                if isinstance(segment, dict)
+            )
         self.base_latest_result = {
-            "target_m": float(payload.get("distance_m", 0.0)),
-            "progress_m": float(payload.get("distance_m", 0.0)),
+            "target_m": distance,
+            "progress_m": distance,
         }
         self._publish_base("running", "mock base moving")
         self._schedule(0.12, self._publish_base, "succeeded", "mock base done")
@@ -182,9 +185,7 @@ def main() -> None:
             Parameter("patrol_step_m", Parameter.Type.DOUBLE, 0.1),
             Parameter("base_step_timeout_sec", Parameter.Type.DOUBLE, 2.0),
             Parameter("grasp_timeout_sec", Parameter.Type.DOUBLE, 3.0),
-            Parameter("reach_recovery_step_m", Parameter.Type.DOUBLE, 0.08),
-            Parameter("reach_recovery_wait_detection_sec", Parameter.Type.DOUBLE, 2.0),
-            Parameter("reach_recovery_max_attempts", Parameter.Type.INTEGER, 2),
+            Parameter("initial_detection_wait_sec", Parameter.Type.DOUBLE, 0.0),
             Parameter("loop", Parameter.Type.BOOL, False),
         ]
     )
@@ -197,7 +198,6 @@ def main() -> None:
     thread.start()
     try:
         time.sleep(0.5)
-        mock.publish_detection("bottle-initial")
         response = call_trigger(client_node, "/arachne/road_cleanup/start")
         assert response.success, response.message
         final = None
@@ -211,14 +211,21 @@ def main() -> None:
             time.sleep(0.2)
         event_kinds = [event.get("kind") for event in mock.events]
         assert final and final["state"] == "succeeded", final
-        assert mock.grasp_starts >= 2, mock.grasp_starts
-        assert any(
-            abs(command.get("distance_m", 0.0) - 0.08) < 1e-6
+        forward_commands = [
+            command
             for command in mock.base_commands
-        ), mock.base_commands
-        assert mock.restart_count >= 1, mock.restart_count
-        assert "reach_recovery_start" in event_kinds, event_kinds
-        assert "reach_recovery_redetect" in event_kinds, event_kinds
+            if command.get("command") == "drive_relative" and command.get("distance_m", 0.0) > 0.0
+        ]
+        return_commands = [
+            command
+            for command in mock.base_commands
+            if command.get("command") == "replay_segments"
+        ]
+        assert forward_commands, mock.base_commands
+        assert return_commands, mock.base_commands
+        assert mock.grasp_starts == 0, mock.grasp_starts
+        assert "base_step_done" in event_kinds, event_kinds
+        assert "return_home_done" in event_kinds, event_kinds
         print("road_cleanup mock smoke passed")
         print(json.dumps(final, ensure_ascii=False, sort_keys=True))
     finally:

@@ -60,8 +60,8 @@ def generate_launch_description():
                 "cleanup_server_command",
                 default_value=(
                     "scripts/vision/road_cleanup_task_server.sh "
-                    "patrol_distance_m:=1.2 patrol_step_m:=1.2 max_round_trips:=2 "
-                    "detection_confidence:=0.35 loop:=true"
+                    "patrol_pattern:=line patrol_distance_m:=1.5 patrol_step_m:=1.5 "
+                    "max_round_trips:=1 detection_confidence:=0.35 loop:=false"
                 ),
             ),
             DeclareLaunchArgument("service_stop_timeout_sec", default_value="4.0"),

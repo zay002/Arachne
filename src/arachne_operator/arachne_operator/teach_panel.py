@@ -454,13 +454,13 @@ class TeachPanelNode(Node):
             "cleanup_server_command",
             (
                 "scripts/vision/road_cleanup_task_server.sh "
-                "patrol_pattern:=box_entry patrol_box_width_m:=1.0 "
-                "patrol_box_height_m:=1.2 patrol_entry_m:=0.3 max_round_trips:=2 "
+                "patrol_pattern:=line patrol_distance_m:=1.5 patrol_step_m:=1.5 "
+                "max_round_trips:=1 loop:=false "
                 "patrol_base_speed_mps:=0.06 base_step_timeout_sec:=32.0 "
                 "grasp_timeout_sec:=25.0 "
                 "candidate_min_base_z_m:=-0.18 candidate_max_reach_m:=1.03 "
-                "initial_detection_wait_sec:=8.0 patrol_turn_scale:=1.0 "
-                "detection_confidence:=0.08 detection_timeout_sec:=3.0 loop:=true"
+                "initial_detection_wait_sec:=0.0 "
+                "detection_confidence:=0.08 detection_timeout_sec:=3.0"
             ),
         )
         self.declare_parameter("grasp_task_state_topic", "/arachne/grasp_task/state")

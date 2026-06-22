@@ -29,6 +29,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 try:
     from arachne_operator.real_hardware_acceptance_test import AuboI5Kinematics
+    from arachne_operator.grasp_geometry import pointcloud_grasp_geometry
 except ModuleNotFoundError:
     for parent in Path(__file__).resolve().parents:
         candidate = parent / "src" / "arachne_operator"
@@ -36,6 +37,7 @@ except ModuleNotFoundError:
             sys.path.insert(0, str(candidate))
             break
     from arachne_operator.real_hardware_acceptance_test import AuboI5Kinematics
+    from arachne_operator.grasp_geometry import pointcloud_grasp_geometry
 
 
 ARM_JOINTS = [
@@ -108,7 +110,7 @@ class UrbanTrashSortingDemo(Node):
         self.declare_parameter("planner_id", "RRTConnectkConfigDefault")
         self.declare_parameter("playback_speed", 0.85)
         self.declare_parameter("loop", True)
-        self.declare_parameter("patrol_pattern", "box_entry")
+        self.declare_parameter("patrol_pattern", "line")
         self.declare_parameter("patrol_distance_m", DEFAULT_PATROL_DISTANCE_M)
         self.declare_parameter("patrol_box_width_m", 1.0)
         self.declare_parameter("patrol_box_height_m", 1.2)
@@ -118,6 +120,9 @@ class UrbanTrashSortingDemo(Node):
         self.declare_parameter("map_frame_id", "map")
         self.declare_parameter("trash_seed", 26)
         self.declare_parameter("trash_count", 10)
+        self.declare_parameter("synthetic_grasp_benchmark", False)
+        self.declare_parameter("synthetic_grasp_trials", 60)
+        self.declare_parameter("synthetic_ground_z_m", -0.22)
         self.declare_parameter("scan_arc_radius_m", 0.32)
         self.declare_parameter("scan_arc_angle_deg", 72.0)
         self.declare_parameter("scan_arc_samples", 9)
@@ -155,6 +160,13 @@ class UrbanTrashSortingDemo(Node):
         self.map_height = 0
         self.map_data: list[int] = []
         self.map_msg = self._load_slam_map(str(self.get_parameter("slam_map_yaml").value).strip())
+        benchmark_value = self.get_parameter("synthetic_grasp_benchmark").value
+        self.synthetic_grasp_benchmark = (
+            str(benchmark_value).strip().lower() in {"1", "true", "yes", "on"}
+            if isinstance(benchmark_value, str)
+            else bool(benchmark_value)
+        )
+        self.synthetic_ground_z = float(self.get_parameter("synthetic_ground_z_m").value)
 
         self.kinematics = AuboI5Kinematics()
         self.base_from_aubo = self._transform(ARM_MOUNT_XYZ, ARM_MOUNT_RPY)
@@ -175,7 +187,7 @@ class UrbanTrashSortingDemo(Node):
         self.base_y = 0.0
         self.base_yaw = 0.0
         self.direction = 1.0
-        self.mode = "patrol"
+        self.mode = "benchmark" if self.synthetic_grasp_benchmark else "patrol"
         self.scan_poses, self.scan_camera_arc_points_base = self._make_camera_scan_arc()
         self.scan_center_index = min(len(self.scan_poses) // 2, len(self.scan_poses) - 1)
         self.scan_center_joints = list(self.scan_poses[self.scan_center_index])
@@ -190,6 +202,10 @@ class UrbanTrashSortingDemo(Node):
         self.locked: TrashSpec | None = None
         self.pipeline_note = "patrol: base moving, wrist camera scanning"
         self.strategy_note = "waiting for YOLO lock"
+        self.benchmark_records: list[dict[str, object]] = []
+        self.benchmark_running = False
+        self.benchmark_2d_ms: list[float] = []
+        self.benchmark_3d_ms: list[float] = []
         self.samples: list[tuple[list[float], tuple[float, float], str]] = []
         self.sample_index = 0
         self.planning_thread: threading.Thread | None = None
@@ -198,12 +214,20 @@ class UrbanTrashSortingDemo(Node):
         self.return_arm_from = list(self.current_arm)
         self.return_started = self.get_clock().now()
         self.return_arm_duration = 2.4
+        if self.synthetic_grasp_benchmark:
+            self.mode = "benchmark"
+            self.locked = self.trash[0] if self.trash else None
+            self.pipeline_note = "benchmark: random 16x8x6cm cuboid ROI clouds"
+            self.strategy_note = "running 20 direct geometric grasp solves"
+            self.planning_thread = threading.Thread(target=self._run_synthetic_grasp_benchmark, daemon=True)
+            self.planning_thread.start()
 
         self.timer = self.create_timer(1.0 / 45.0, self._tick)
         self.create_timer(1.0, self._publish_slam_map)
         self.get_logger().info(
             f"Urban trash sorting demo ready: {self.patrol_pattern} cruise ({len(self.patrol_waypoints)} waypoints) + "
-            f"wrist-camera scan + random TACO trash ({len(self.trash)} objects)"
+            f"wrist-camera scan + random TACO trash ({len(self.trash)} objects); "
+            f"synthetic_grasp_benchmark={self.synthetic_grasp_benchmark}"
         )
 
     def _return_home_cb(self, _request, response):
@@ -296,6 +320,8 @@ class UrbanTrashSortingDemo(Node):
         return joints, camera_points
 
     def _make_trash_scene(self) -> list[TrashSpec]:
+        if self.synthetic_grasp_benchmark:
+            return self._make_synthetic_grasp_trials()
         templates = [
             ("plastic_bottle", "Clear plastic bottle", (0.06, 0.06, 0.18), (0.1, 0.55, 1.0), "flat_ground", (0.58, -0.58), 0.13, 0.20, "PET/light", "body_clamp", 0.93),
             ("banana_peel", "Food waste", (0.13, 0.045, 0.025), (1.0, 0.85, 0.08), "curb_edge", (0.45, -0.45), 0.10, 0.16, "soft/slippery", "soft_scoop", 0.88),
@@ -332,7 +358,50 @@ class UrbanTrashSortingDemo(Node):
             )
         return trash
 
+    def _make_synthetic_grasp_trials(self) -> list[TrashSpec]:
+        rng = random.Random(int(self.get_parameter("trash_seed").value))
+        count = max(int(self.get_parameter("synthetic_grasp_trials").value), 1)
+        trash: list[TrashSpec] = []
+        size = (0.16, 0.08, 0.06)
+        for index in range(count):
+            zone = rng.choices(("front", "left", "right"), weights=(0.50, 0.25, 0.25), k=1)[0]
+            if zone == "front":
+                x = rng.uniform(0.34, 1.20)
+                y = rng.uniform(-0.68, 0.48)
+            elif zone == "left":
+                x = rng.uniform(0.20, 1.08)
+                y = rng.uniform(0.24, 0.86)
+            else:
+                x = rng.uniform(0.20, 1.08)
+                y = rng.uniform(-0.86, -0.24)
+            if index < 3:
+                x = 0.52 + 0.12 * index
+                y = -0.10 + 0.10 * index
+            bottom_z = self.synthetic_ground_z + rng.uniform(0.0, 0.03)
+            trash.append(
+                TrashSpec(
+                    f"synthetic_box_{index + 1:02d}",
+                    "synthetic_box",
+                    "Synthetic 16x8x6cm cuboid",
+                    (x, y, bottom_z + size[2] * 0.5),
+                    size,
+                    (0.15, 0.72, 1.0),
+                    "flat_ground",
+                    (0.52, -0.52),
+                    0.08,
+                    0.12,
+                    "synthetic/random-cloud",
+                    "top_pinch",
+                    rng.uniform(-math.pi, math.pi),
+                    1.0,
+                )
+            )
+        return trash
+
     def _make_patrol_waypoints(self) -> list[tuple[float, float]]:
+        if self.patrol_pattern in {"line", "straight"}:
+            self.patrol_loop_start_index = 0
+            return [(0.0, 0.0), (self.road_length, 0.0)]
         if self.patrol_pattern in {"box_entry", "rectangle_entry", "real_box"}:
             return self._box_entry_patrol_waypoints()
         if self.patrol_pattern in {"local", "local_loop"}:
@@ -492,6 +561,10 @@ class UrbanTrashSortingDemo(Node):
         self._publish_base_path()
         self._publish_roi_cloud()
 
+        if self.mode == "benchmark":
+            self._publish_stop()
+            self._publish_joint_state(self.current_arm, self.current_gripper)
+            return
         if self.mode == "return_home":
             self._return_home_step()
             self._publish_joint_state(self.current_arm, self.current_gripper)
@@ -605,6 +678,14 @@ class UrbanTrashSortingDemo(Node):
         distance = math.hypot(dx, dy)
         if distance < 0.12:
             if self.patrol_index >= len(self.patrol_waypoints) - 1:
+                if self.patrol_pattern in {"line", "straight"} or not self.loop:
+                    self.mode = "return_home"
+                    self.return_arm_from = list(self.current_arm)
+                    self.return_started = self.get_clock().now()
+                    self.pipeline_note = "return: base to start, scanning disabled"
+                    self.strategy_note = "forward line complete"
+                    self._publish_stop()
+                    return
                 self.patrol_index = min(self.patrol_loop_start_index, len(self.patrol_waypoints) - 1)
             else:
                 self.patrol_index += 1
@@ -695,6 +776,111 @@ class UrbanTrashSortingDemo(Node):
             f"Executing {target.taco_class}: TACO mask -> ROI cloud -> strategy -> MoveIt ({len(samples)} frames)"
         )
 
+    def _run_synthetic_grasp_benchmark(self) -> None:
+        self.benchmark_running = True
+        successes = 0
+        timings: list[float] = []
+        for obj in self.trash[: max(int(self.get_parameter("synthetic_grasp_trials").value), 1)]:
+            self.locked = obj
+            self.current_arm = list(self.scan_center_joints)
+            t0 = time.perf_counter()
+            self._synthetic_2d_detection(obj)
+            t1 = time.perf_counter()
+            cloud_base = self._roi_points_base(obj)
+            t2 = time.perf_counter()
+            stages = self._make_fast_grasp_stages(obj, cloud_base)
+            t3 = time.perf_counter()
+            self.benchmark_2d_ms.append((t1 - t0) * 1000.0)
+            self.benchmark_3d_ms.append((t2 - t1) * 1000.0)
+            elapsed_ms = (t3 - t2) * 1000.0
+            ok = stages is not None
+            successes += int(ok)
+            timings.append(elapsed_ms)
+            self.benchmark_records.append({"name": obj.name, "ok": ok, "ms": elapsed_ms})
+            if ok and stages:
+                self._execute_sim_grasp_stages(stages, obj)
+            self.strategy_note = (
+                f"benchmark {len(self.benchmark_records)}/{len(self.trash)} "
+                f"success={successes} last={elapsed_ms:.1f}ms"
+            )
+            time.sleep(0.02)
+        avg = sum(timings) / max(len(timings), 1)
+        avg_2d = sum(self.benchmark_2d_ms) / max(len(self.benchmark_2d_ms), 1)
+        avg_3d = sum(self.benchmark_3d_ms) / max(len(self.benchmark_3d_ms), 1)
+        self.pipeline_note = f"oracle benchmark complete: {successes}/{len(timings)} grasp poses"
+        self.strategy_note = f"2D={avg_2d:.1f}ms 3D={avg_3d:.1f}ms pose={avg:.1f}ms; sim-only motion"
+        self.get_logger().info(
+            f"Synthetic grasp oracle benchmark complete: {successes}/{len(timings)} poses, "
+            f"2d_avg={avg_2d:.2f}ms 3d_avg={avg_3d:.2f}ms "
+            f"pose_only_avg={avg:.2f}ms max={max(timings, default=0.0):.2f}ms; not real end-to-end timing"
+        )
+        self.benchmark_running = False
+
+    def _synthetic_2d_detection(self, obj: TrashSpec) -> tuple[float, float, float, float]:
+        cx, cy, _cz = obj.odom_xyz
+        sx, sy, _sz = obj.size
+        scale = 420.0
+        return (
+            320.0 + (cx - sx * 0.5) * scale,
+            240.0 + (cy - sy * 0.5) * scale,
+            320.0 + (cx + sx * 0.5) * scale,
+            240.0 + (cy + sy * 0.5) * scale,
+        )
+
+    def _make_fast_grasp_stages(
+        self, obj: TrashSpec, cloud_base: list[tuple[float, float, float]] | None = None
+    ) -> list[Stage] | None:
+        result = pointcloud_grasp_geometry(cloud_base or self._roi_points_base(obj), reach_x=REACH_X, reach_y=REACH_Y)
+        if result is None or not result.reachable:
+            return None
+        _approach, grasp, _lift = self._grasp_points_base(obj)
+        start = list(self.current_arm)
+        reach = self._sim_grasp_joint_target(start, grasp)
+        lift = list(reach)
+        lift[1] += 0.12
+        lift[2] -= 0.10
+        return [
+            Stage("scan_lock", start, (0.0, 0.0)),
+            Stage("approach", reach, (0.0, 0.0)),
+            Stage("grasp", reach, (0.0, 0.0)),
+            Stage("close", reach, obj.grasp_close),
+            Stage("lift", lift, obj.grasp_close),
+            Stage("resume_scan", list(self.scan_center_joints), (0.0, 0.0)),
+        ]
+
+    def _sim_grasp_joint_target(
+        self, start: list[float], grasp: tuple[float, float, float]
+    ) -> list[float]:
+        reach = list(start)
+        reach[0] += max(min(grasp[1] * 0.42, 0.26), -0.26)
+        reach[1] -= max(min((grasp[0] - 0.55) * 0.42, 0.20), -0.18)
+        reach[2] += max(min((grasp[0] - 0.70) * 0.35, 0.18), -0.18)
+        reach[3] -= 0.22
+        reach[5] += max(min(grasp[1] * 0.55, 0.30), -0.30)
+        return reach
+
+    def _execute_sim_grasp_stages(self, stages: list[Stage], obj: TrashSpec) -> None:
+        self.samples = self._sim_action_samples(stages)
+        self.sample_index = 0
+        self.mode = "executing"
+        self.pipeline_note = f"sim action: grasp {obj.taco_class}"
+        self.strategy_note = "same stages as real executor; sim publishes joint_states"
+        while rclpy.ok() and self.samples:
+            time.sleep(0.02)
+        self.mode = "benchmark"
+
+    def _sim_action_samples(self, stages: list[Stage]) -> list[tuple[list[float], tuple[float, float], str]]:
+        samples: list[tuple[list[float], tuple[float, float], str]] = []
+        current = list(stages[0].target)
+        for stage in stages[1:]:
+            if max(abs(a - b) for a, b in zip(current, stage.target)) < 1e-6:
+                samples.extend(self._hold_samples(current, stage.gripper, stage.label, 0.28))
+            else:
+                steps = 24 if stage.label != "resume_scan" else 28
+                samples.extend(self._interpolate(current, stage.target, stage.gripper, stage.label, steps))
+                current = list(stage.target)
+        return samples
+
     def _return_interrupted(self, generation: int) -> bool:
         return (
             self.return_requested
@@ -730,6 +916,8 @@ class UrbanTrashSortingDemo(Node):
     def _grasp_points_base(
         self, obj: TrashSpec
     ) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+        if self.synthetic_grasp_benchmark or obj.class_name == "synthetic_box":
+            return self._cloud_oracle_grasp_points_base(obj)
         base_xyz = self._odom_point_to_base(obj.odom_xyz)
         grasp_z = base_xyz[2] + 0.06
         y_bias = 0.0
@@ -752,6 +940,18 @@ class UrbanTrashSortingDemo(Node):
         lift = (grasp[0], grasp[1], grasp[2] + obj.lift_height)
         return approach, grasp, lift
 
+    def _cloud_oracle_grasp_points_base(
+        self, obj: TrashSpec
+    ) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+        result = pointcloud_grasp_geometry(self._roi_points_base(obj), reach_x=REACH_X, reach_y=REACH_Y)
+        if result is None:
+            base_xyz = self._odom_point_to_base(obj.odom_xyz)
+            return (base_xyz, base_xyz, base_xyz)
+        return result.approach, result.grasp, result.lift
+
+    def _roi_points_base(self, obj: TrashSpec) -> list[tuple[float, float, float]]:
+        return [self._odom_point_to_base(point) for point in self._roi_points(obj)]
+
     def _strategy_note(self, obj: TrashSpec) -> str:
         return (
             f"TACO={obj.taco_class}; material={obj.material}; "
@@ -771,9 +971,9 @@ class UrbanTrashSortingDemo(Node):
             position_tolerance=0.018,
             orientation_tolerance=0.45,
             damping=0.08,
-            max_iterations=260,
-            max_step=0.10,
-            orientation_weight=0.22,
+            max_iterations=90,
+            max_step=0.14,
+            orientation_weight=0.16,
         )
         q_goal = np.asarray(q_start, dtype=float) + self._joint_delta(q_solution, q_start)
         achieved = self._grasp_frame_in_base(q_goal)
@@ -799,9 +999,9 @@ class UrbanTrashSortingDemo(Node):
                 position_tolerance=0.025,
                 orientation_tolerance=0.70,
                 damping=0.08,
-                max_iterations=300,
-                max_step=0.08,
-                orientation_weight=0.12,
+                max_iterations=110,
+                max_step=0.12,
+                orientation_weight=0.10,
             )
             q_goal = np.asarray(q_start, dtype=float) + self._joint_delta(q_solution, q_start)
             achieved = self._grasp_frame_in_base(q_goal)
@@ -880,7 +1080,7 @@ class UrbanTrashSortingDemo(Node):
         self.locked = None
         self.samples = []
         self.sample_index = 0
-        self.mode = "patrol"
+        self.mode = "benchmark" if self.synthetic_grasp_benchmark else "patrol"
         self.scan_index = self.scan_center_index
         self.scan_started = self.get_clock().now()
         self.current_gripper = (0.0, 0.0)
@@ -1116,6 +1316,19 @@ class UrbanTrashSortingDemo(Node):
         self.cloud_pub.publish(point_cloud2.create_cloud_xyz32(header, points))
 
     def _roi_points(self, obj: TrashSpec) -> list[tuple[float, float, float]]:
+        if self.synthetic_grasp_benchmark or obj.class_name == "synthetic_box":
+            rng = random.Random(f"{obj.name}:{int(self.get_parameter('trash_seed').value)}")
+            cx, cy, cz = obj.odom_xyz
+            sx, sy, sz = obj.size
+            c = math.cos(obj.yaw)
+            s = math.sin(obj.yaw)
+            points: list[tuple[float, float, float]] = []
+            for _ in range(360):
+                lx = rng.uniform(-sx * 0.5, sx * 0.5)
+                ly = rng.uniform(-sy * 0.5, sy * 0.5)
+                lz = rng.uniform(-sz * 0.5, sz * 0.5)
+                points.append((cx + c * lx - s * ly, cy + s * lx + c * ly, cz + lz))
+            return points
         cx, cy, cz = obj.odom_xyz
         sx, sy, sz = obj.size
         points: list[tuple[float, float, float]] = []
@@ -1292,6 +1505,11 @@ class UrbanTrashSortingDemo(Node):
 
     def _trash_marker(self, marker_id: int, obj: TrashSpec) -> Marker:
         alpha = 0.36 if obj.name in self.failed else 0.92
+        if self.synthetic_grasp_benchmark:
+            record = next((item for item in self.benchmark_records if item.get("name") == obj.name), None)
+            if record is not None:
+                color = (0.0, 0.95, 0.35) if record.get("ok") else (1.0, 0.12, 0.08)
+                return self._box(marker_id, obj.class_name, obj.odom_xyz, obj.size, obj.yaw, self._color(*color, alpha))
         marker = self._box(marker_id, obj.class_name, obj.odom_xyz, obj.size, obj.yaw, self._color(*obj.color, alpha))
         if obj.class_name in {"plastic_bottle", "can", "battery_1", "paper_cup"}:
             marker.type = Marker.CYLINDER
