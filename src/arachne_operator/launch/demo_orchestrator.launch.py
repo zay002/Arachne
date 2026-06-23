@@ -50,10 +50,20 @@ def generate_launch_description():
                 default_value=(
                     "scripts/vision/grasp_task_server.sh "
                     "execute_real:=true confirm_execute_real:=true with_rviz:=false "
+                    "confidence:=0.08 "
+                    "real_sdk_move_speed:=0.36 real_sdk_move_accel:=0.60 "
+                    "extra_args:='--planner-backend local --imgsz 768 --planning-key-waypoints approach,grasp,safe_mid,basket_over "
+                    "--arm-collision-samples-per-link 1 --arm-collision-radius 0.018 "
+                    "--collision-margin 0.0 --rear-rack-collision-margin 0.0 "
+                    "--trajectory-max-duration 8 --max-grasp-orientation-candidates 1 "
+                    "--local-planning-timeout-sec 1.8 --local-ik-max-iterations 80 "
+                    "--grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0 "
+                    "--local-position-tolerance 0.050 --local-orientation-tolerance 0.55 "
+                    "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "
                     "preview_on_start:=true planning_recovery_base_enabled:=false "
                     "require_odom:=false require_camera_topics:=true "
                     "require_aubo_status:=false require_gripper_status:=false "
-                    "max_grasp_attempts:=3 retry_on_gripper_miss:=true"
+                    "max_grasp_attempts:=2 retry_on_gripper_miss:=true"
                 ),
             ),
             DeclareLaunchArgument(
@@ -61,7 +71,12 @@ def generate_launch_description():
                 default_value=(
                     "scripts/vision/road_cleanup_task_server.sh "
                     "patrol_pattern:=line patrol_distance_m:=1.5 patrol_step_m:=1.5 "
-                    "max_round_trips:=1 detection_confidence:=0.35 loop:=false"
+                    "max_round_trips:=1 loop:=false "
+                    "patrol_base_speed_mps:=0.12 base_step_timeout_sec:=12.0 "
+                    "grasp_timeout_sec:=25.0 "
+                    "candidate_min_base_z_m:=-0.18 candidate_max_reach_m:=1.03 "
+                    "reach_recovery_enabled:=false initial_detection_wait_sec:=0.0 "
+                    "detection_confidence:=0.08 detection_timeout_sec:=3.0"
                 ),
             ),
             DeclareLaunchArgument("service_stop_timeout_sec", default_value="4.0"),

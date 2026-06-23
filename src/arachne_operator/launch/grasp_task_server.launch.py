@@ -16,7 +16,7 @@ def generate_launch_description():
             DeclareLaunchArgument("device_id", default_value="0"),
             DeclareLaunchArgument("real_execute_backend", default_value="sdk_move_joint"),
             DeclareLaunchArgument("real_return_home", default_value="true"),
-            DeclareLaunchArgument("real_sdk_move_speed", default_value="0.18"),
+            DeclareLaunchArgument("real_sdk_move_speed", default_value="0.36"),
             DeclareLaunchArgument("real_sdk_move_accel", default_value="0.45"),
             DeclareLaunchArgument(
                 "aubo_teach_flag_path",

@@ -75,8 +75,8 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("patrol_box_width_m", 1.0)
         self.declare_parameter("patrol_box_height_m", 1.2)
         self.declare_parameter("patrol_entry_m", 0.3)
-        self.declare_parameter("patrol_base_speed_mps", 0.06)
-        self.declare_parameter("max_round_trips", 2)
+        self.declare_parameter("patrol_base_speed_mps", 0.12)
+        self.declare_parameter("max_round_trips", 1)
         self.declare_parameter("detection_confidence", 0.08)
         self.declare_parameter("detection_timeout_sec", 3.0)
         self.declare_parameter("initial_detection_wait_sec", 0.0)
@@ -88,7 +88,7 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("candidate_max_reach_m", 1.03)
         self.declare_parameter("candidate_max_depth_m", 0.85)
         self.declare_parameter("patrol_turn_scale", 1.0)
-        self.declare_parameter("base_step_timeout_sec", 8.0)
+        self.declare_parameter("base_step_timeout_sec", 12.0)
         self.declare_parameter("base_stop_wait_sec", 3.0)
         self.declare_parameter("grasp_timeout_sec", 90.0)
         self.declare_parameter("reach_recovery_enabled", True)
@@ -341,9 +341,10 @@ class RoadCleanupTaskServer(Node):
         if self.cancel_event.is_set() and self.state != "paused":
             self._finish("canceled", "road cleanup canceled")
         elif self.state not in TERMINAL_STATES:
-            self._run_return_home()
-            if self.state in TERMINAL_STATES:
-                return
+            if bool(self.get_parameter("auto_return_home_on_empty_route").value):
+                self._run_return_home()
+                if self.state in TERMINAL_STATES:
+                    return
             self._finish("succeeded", "road cleanup complete")
 
     def _run_return_home(self) -> None:
