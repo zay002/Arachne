@@ -1,9 +1,11 @@
 [Desktop Entry]
+Version=1.0
 Type=Application
 Name=Arachne Real Teach Panel
 Comment=Start environment, real bringup and teach panel
 Icon=utilities-terminal
 Terminal=true
-Exec=ARACHNE_TEACH_PANEL_CONFIRM=YES /bin/bash -lc '/home/jetson/zhaoyang/Arachne/scripts/operator/start_real_teach_with_bringup.sh'
-Categories=Utility;Development;
+Exec=/home/jetson/zhaoyang/Arachne/scripts/operator/launch_arachne_real_teach.sh
+Path=/home/jetson/zhaoyang/Arachne
+Categories=Utility;
 StartupNotify=true
