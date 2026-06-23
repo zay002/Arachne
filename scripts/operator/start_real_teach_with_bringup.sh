@@ -17,15 +17,28 @@ source "${ROOT_DIR}/scripts/env/arachne_env.sh"
 source "${ROOT_DIR}/install/setup.bash"
 set -u
 
+CONFIRM_REQUIRED="${ARACHNE_TEACH_PANEL_CONFIRM:-NO}"
+
+if [[ -z "${CONFIRM_REQUIRED}" ]]; then
+  CONFIRM_REQUIRED="NO"
+fi
+
 cat <<'EOF'
 开始一键启动（real bringup + teach panel）
 请确认：急停可达、场地安全、无人员在机械臂附近。
 EOF
 
-read -r -p "确认已满足安全条件并允许启动真机？(YES/NO): " confirm
-if [[ "${confirm}" != "YES" ]]; then
-  echo "已取消启动。"
-  exit 1
+if [[ "${CONFIRM_REQUIRED}" == "YES" ]]; then
+  :
+elif [[ -t 0 ]]; then
+  read -r -p "确认已满足安全条件并允许启动真机？(YES/NO): " confirm
+  if [[ "${confirm}" != "YES" ]]; then
+    echo "已取消启动。"
+    exit 1
+  fi
+else
+  echo "检测到非交互终端：为避免窗口直接退出，请先设置 ARACHNE_TEACH_PANEL_CONFIRM=YES。"
+  exit 2
 fi
 
 # 保持默认：先停止旧会话，再启动 real_bringup，最后启动 teach panel
@@ -33,4 +46,3 @@ export ARACHNE_TEACH_STOP_EXISTING="${ARACHNE_TEACH_STOP_EXISTING:-true}"
 export ARACHNE_TEACH_START_REAL_BRINGUP="${ARACHNE_TEACH_START_REAL_BRINGUP:-true}"
 
 exec "${ROOT_DIR}/scripts/operator/teach_panel.sh" "$@"
-
