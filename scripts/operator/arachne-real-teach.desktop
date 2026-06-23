@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Arachne Real Teach Panel
+Comment=Start environment, real bringup and teach panel
+Icon=utilities-terminal
+Terminal=true
+Exec=/bin/bash -lc 'cd "$(dirname "$(readlink -f "%k")")/../.." && ./scripts/operator/start_real_teach_with_bringup.sh'
+Categories=Utility;Development;
+StartupNotify=true

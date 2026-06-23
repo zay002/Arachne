@@ -40,7 +40,17 @@ AUBO_ROBOT_IP=192.168.127.128 ./scripts/hardware/check_aubo_running_readonly.sh
 ```bash
 ./scripts/operator/teach_panel.sh
 ./scripts/hardware/real_teach_demo.sh
+./scripts/operator/start_real_teach_with_bringup.sh
 ```
+
+桌面启动（可选）：
+
+```bash
+chmod +x scripts/operator/start_real_teach_with_bringup.sh
+cp scripts/operator/arachne-real-teach.desktop ~/Desktop/
+```
+
+双击桌面图标即可启动：环境加载 + real_bringup + 示教器。
 
 ## 视觉任务
 
