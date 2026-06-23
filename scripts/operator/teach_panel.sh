@@ -51,7 +51,7 @@ if [[ "${START_REAL_BRINGUP}" == "true" ]]; then
   "${ROOT_DIR}/scripts/hardware/real_bringup.sh" &
   bringup_pid=$!
   trap '[[ -n "${bringup_pid}" ]] && kill "${bringup_pid}" 2>/dev/null || true' EXIT
-  bringup_grace_sec="${ARACHNE_TEACH_BRINGUP_GRACE_SEC:-8}"
+  bringup_grace_sec="${ARACHNE_TEACH_BRINGUP_GRACE_SEC:-30}"
   for ((i = 0; i < bringup_grace_sec; i++)); do
     sleep 1
     if ! kill -0 "${bringup_pid}" 2>/dev/null; then

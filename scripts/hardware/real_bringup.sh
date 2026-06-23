@@ -11,6 +11,7 @@ AUBO_ROBOT_IP="${AUBO_ROBOT_IP:-192.168.127.128}"
 AUBO_TYPE="${AUBO_TYPE:-aubo_i5}"
 AUBO_CONTROL_CPUSET="${AUBO_CONTROL_CPUSET-3}"
 AUBO_CONTROL_PREFIX="${AUBO_CONTROL_PREFIX:-}"
+AUBO_PREP_TIMEOUT="${AUBO_PREP_TIMEOUT:-2.0}"
 SKIP_AUBO_CHECK="${SKIP_AUBO_CHECK:-false}"
 HURRY_AUTO_ATTACH="${HURRY_AUTO_ATTACH:-true}"
 AUBO_TEACH_FLAG_PATH="${AUBO_TEACH_FLAG_PATH:-/tmp/arachne_aubo_teach_mode}"
@@ -202,7 +203,7 @@ if [[ "${USE_MS42DC}" == "true" ]]; then
 fi
 
 if [[ "${USE_AUBO}" == "true" && "${SKIP_AUBO_CHECK}" != "true" ]]; then
-  "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/hardware/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}"
+  "${ARACHNE_SYSTEM_PYTHON}" "${ROOT_DIR}/scripts/hardware/real_aubo_prepare.py" --ip "${AUBO_ROBOT_IP}" --timeout "${AUBO_PREP_TIMEOUT}"
 fi
 
 if [[ "${USE_AUBO}" == "true" && "${AUBO_KEEP_TEACH_FLAG}" != "true" ]]; then
