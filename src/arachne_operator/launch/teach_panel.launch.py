@@ -568,7 +568,7 @@ def generate_launch_description():
                     "--arm-collision-samples-per-link 1 --arm-collision-radius 0.018 "
                     "--collision-margin 0.0 --rear-rack-collision-margin 0.0 "
                     "--trajectory-max-duration 8 --max-grasp-orientation-candidates 1 "
-                    "--local-planning-timeout-sec 3.0 "
+                    "--local-planning-timeout-sec 2.0 --local-ik-max-iterations 90 "
                     "--grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0 "
                     "--local-position-tolerance 0.045 --local-orientation-tolerance 0.50 "
                     "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "

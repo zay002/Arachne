@@ -39,8 +39,10 @@ def generate_launch_description():
                     "--planning-key-waypoints approach,grasp,safe_mid,basket_over "
                     "--vertical-approach --no-lock-grasp-orientation "
                     "--tool-orientation-limit-deg 45 "
-                    "--grasp-orientation-yaw-offsets-deg 0,15,-15,30,-30 "
+                    "--grasp-orientation-yaw-offsets-deg 0 "
                     "--grasp-orientation-tilt-offsets-deg 0,8,-8 "
+                    "--local-position-tolerance 0.045 --local-orientation-tolerance 0.50 "
+                    "--local-planning-timeout-sec 2.0 --local-ik-max-iterations 90 "
                     "--real-gripper-require-capture "
                     "--real-sdk-semantic-targets-only --real-sdk-max-targets 6"
                 ),

@@ -53,6 +53,7 @@ def generate_launch_description():
         parameters=[
             {
                 "planner_id": LaunchConfiguration("planner_id"),
+                "use_moveit": ParameterValue(LaunchConfiguration("use_moveit"), value_type=bool),
                 "playback_speed": ParameterValue(
                     LaunchConfiguration("playback_speed"), value_type=float
                 ),
@@ -101,6 +102,9 @@ def generate_launch_description():
                 "detection_lock_frames": ParameterValue(
                     LaunchConfiguration("detection_lock_frames"), value_type=int
                 ),
+                "fixed_safe_mid_joints": LaunchConfiguration("fixed_safe_mid_joints"),
+                "fixed_basket_over_joints": LaunchConfiguration("fixed_basket_over_joints"),
+                "fixed_search_joints": LaunchConfiguration("fixed_search_joints"),
             }
         ],
         output="screen",
@@ -165,6 +169,15 @@ def generate_launch_description():
             DeclareLaunchArgument("scan_arc_samples", default_value="9"),
             DeclareLaunchArgument("scan_cycle_duration_sec", default_value="4.2"),
             DeclareLaunchArgument("detection_lock_frames", default_value="1"),
+            DeclareLaunchArgument(
+                "fixed_safe_mid_joints",
+                default_value="-1.392228627,-0.587456810,1.402798238,0.420158124,1.570706911,0.178573568",
+            ),
+            DeclareLaunchArgument(
+                "fixed_basket_over_joints",
+                default_value="-1.187131238,-0.087444694,2.606213310,1.122582998,1.570733434,0.383692391",
+            ),
+            DeclareLaunchArgument("fixed_search_joints", default_value=""),
             DeclareLaunchArgument("launch_demo_rviz", default_value="true"),
             display,
             moveit,

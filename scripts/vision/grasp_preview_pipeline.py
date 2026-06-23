@@ -498,6 +498,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--local-position-tolerance", type=float, default=0.035, help=hidden)
     parser.add_argument("--local-orientation-tolerance", type=float, default=0.35, help=hidden)
     parser.add_argument("--local-planning-timeout-sec", type=float, default=0.0, help=hidden)
+    parser.add_argument("--local-ik-max-iterations", type=int, default=60, help=hidden)
     parser.add_argument(
         "--moveit-local-first",
         action=argparse.BooleanOptionalAction,
@@ -613,6 +614,11 @@ def _parse_args() -> argparse.Namespace:
         help=hidden,
     )
     parser.add_argument("--real-home-duration", type=float, default=2.5, help=hidden)
+    parser.add_argument("--real-fixed-post-grasp", action="store_true", help=hidden)
+    parser.add_argument("--real-fixed-lift-joints", default="", help=hidden)
+    parser.add_argument("--real-fixed-basket-joints", default="", help=hidden)
+    parser.add_argument("--real-fixed-search-joints", default="", help=hidden)
+    parser.add_argument("--real-fixed-post-grasp-duration", type=float, default=1.2, help=hidden)
     parser.add_argument(
         "--real-execute-gripper",
         action="store_true",
@@ -1948,6 +1954,9 @@ class GraspPreviewNode(Node):
         selected[close_index] = close_label
         selected[open_index] = open_label
 
+        if bool(self.args.real_fixed_post_grasp):
+            return self._real_fixed_post_grasp_targets(frames[close_index], close_label, open_label)
+
         max_delta = max(float(self.args.real_sdk_max_segment_joint_delta), 0.05)
         max_targets = max(int(self.args.real_sdk_max_targets), 2)
         if not bool(self.args.real_sdk_semantic_targets_only):
@@ -1987,6 +1996,63 @@ class GraspPreviewNode(Node):
         if bool(self.args.real_return_home):
             targets.append(("home", self._real_home_frame(frames[-1])))
         return targets
+
+    def _real_fixed_post_grasp_targets(
+        self,
+        grasp_frame: JointTrajectoryFrame,
+        close_label: str,
+        open_label: str,
+    ) -> list[tuple[str, JointTrajectoryFrame]]:
+        basket_joints = self._optional_real_fixed_joints(
+            str(self.args.real_fixed_basket_joints), "--real-fixed-basket-joints"
+        )
+        if basket_joints is None:
+            raise RuntimeError("--real-fixed-post-grasp requires --real-fixed-basket-joints")
+        duration = max(float(self.args.real_fixed_post_grasp_duration), 0.2)
+        targets: list[tuple[str, JointTrajectoryFrame]] = [(close_label, grasp_frame)]
+        previous = grasp_frame
+        for label, joints in (
+            (
+                "lift_safe",
+                self._optional_real_fixed_joints(
+                    str(self.args.real_fixed_lift_joints), "--real-fixed-lift-joints"
+                ),
+            ),
+            (open_label, basket_joints),
+            (
+                "search_return",
+                self._optional_real_fixed_joints(
+                    str(self.args.real_fixed_search_joints), "--real-fixed-search-joints"
+                ),
+            ),
+        ):
+            if joints is None:
+                continue
+            previous = self._joint_target_after(previous, joints, duration)
+            targets.append((label, previous))
+        if bool(self.args.real_return_home):
+            targets.append(("home", self._real_home_frame(previous)))
+        return targets
+
+    def _optional_real_fixed_joints(self, raw: str, label: str) -> tuple[float, ...] | None:
+        if not str(raw).strip():
+            return None
+        values = tuple(_float_values(str(raw), 6, label))
+        return values  # type: ignore[return-value]
+
+    def _joint_target_after(
+        self,
+        previous_frame: JointTrajectoryFrame,
+        positions: tuple[float, ...],
+        duration: float,
+    ) -> JointTrajectoryFrame:
+        zeros = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        return JointTrajectoryFrame(
+            float(previous_frame.time_from_start) + duration,
+            positions,  # type: ignore[arg-type]
+            zeros,
+            zeros,
+        )
 
     def _real_sdk_semantic_frame_indices(
         self, preview: GraspPreview, frames: list[JointTrajectoryFrame]
@@ -4374,12 +4440,12 @@ class GraspPreviewNode(Node):
                 ok, q_solution, position_error, orientation_error, _iterations = self.kinematics.solve_pose(
                     q_seed,
                     target_transform,
-                    position_tolerance=PREVIEW_IK_TOLERANCE_M,
-                    orientation_tolerance=PREVIEW_IK_ORIENTATION_TOLERANCE_RAD,
+                    position_tolerance=max(float(self.args.local_position_tolerance), PREVIEW_IK_TOLERANCE_M),
+                    orientation_tolerance=max(float(self.args.local_orientation_tolerance), 0.01),
                     damping=PREVIEW_IK_DAMPING,
-                    max_iterations=PREVIEW_IK_MAX_ITERATIONS,
+                    max_iterations=max(int(self.args.local_ik_max_iterations), 10),
                     max_step=PREVIEW_IK_MAX_STEP,
-                    orientation_weight=PREVIEW_IK_ORIENTATION_WEIGHT,
+                    orientation_weight=0.25,
                 )
                 q_unwrapped = q_waypoints[-1] + self._joint_delta(q_solution, q_waypoints[-1])
                 endpoint_safe, endpoint_clearance, endpoint_hit_name = self._arm_collision_clearance_base(

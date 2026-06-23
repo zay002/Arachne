@@ -29,6 +29,9 @@ SCAN_ARC_ANGLE_DEG="${SCAN_ARC_ANGLE_DEG:-72.0}"
 SCAN_ARC_SAMPLES="${SCAN_ARC_SAMPLES:-9}"
 SCAN_CYCLE_DURATION_SEC="${SCAN_CYCLE_DURATION_SEC:-4.2}"
 DETECTION_LOCK_FRAMES="${DETECTION_LOCK_FRAMES:-1}"
+FIXED_SAFE_MID_JOINTS="${FIXED_SAFE_MID_JOINTS:--1.392228627,-0.587456810,1.402798238,0.420158124,1.570706911,0.178573568}"
+FIXED_BASKET_OVER_JOINTS="${FIXED_BASKET_OVER_JOINTS:--1.187131238,-0.087444694,2.606213310,1.122582998,1.570733434,0.383692391}"
+FIXED_SEARCH_JOINTS="${FIXED_SEARCH_JOINTS:--1.72,-0.44,1.66,0.92,1.68,-0.05}"
 
 cleanup_stale_demo() {
   local patterns=(
@@ -88,4 +91,7 @@ exec ros2 launch arachne_sim urban_trash_sorting_demo.launch.py \
   scan_arc_samples:="${SCAN_ARC_SAMPLES}" \
   scan_cycle_duration_sec:="${SCAN_CYCLE_DURATION_SEC}" \
   detection_lock_frames:="${DETECTION_LOCK_FRAMES}" \
+  fixed_safe_mid_joints:="${FIXED_SAFE_MID_JOINTS}" \
+  fixed_basket_over_joints:="${FIXED_BASKET_OVER_JOINTS}" \
+  fixed_search_joints:="${FIXED_SEARCH_JOINTS}" \
   launch_demo_rviz:="${WITH_RVIZ}"

@@ -85,6 +85,11 @@ AUBO_MOVE_JOINT_WAIT_SERVER_SEC="${ARACHNE_GRASP_AUBO_MOVE_JOINT_WAIT_SERVER_SEC
 REAL_RETURN_HOME="${ARACHNE_GRASP_REAL_RETURN_HOME:-true}"
 REAL_HOME_JOINTS="${ARACHNE_GRASP_REAL_HOME_JOINTS:-${ARACHNE_AUBO_HOME_JOINTS_RAD:--1.5707963267949,0.201570428261868,1.65970467002488,0.485178041391533,1.67675136677345,0.76432946885334}}"
 REAL_HOME_DURATION="${ARACHNE_GRASP_REAL_HOME_DURATION:-2.5}"
+REAL_FIXED_POST_GRASP="${ARACHNE_GRASP_REAL_FIXED_POST_GRASP:-false}"
+REAL_FIXED_LIFT_JOINTS="${ARACHNE_GRASP_REAL_FIXED_LIFT_JOINTS:--1.392228627,-0.587456810,1.402798238,0.420158124,1.570706911,0.178573568}"
+REAL_FIXED_BASKET_JOINTS="${ARACHNE_GRASP_REAL_FIXED_BASKET_JOINTS:--1.187131238,-0.087444694,2.606213310,1.122582998,1.570733434,0.383692391}"
+REAL_FIXED_SEARCH_JOINTS="${ARACHNE_GRASP_REAL_FIXED_SEARCH_JOINTS:-}"
+REAL_FIXED_POST_GRASP_DURATION="${ARACHNE_GRASP_REAL_FIXED_POST_GRASP_DURATION:-1.2}"
 REMOTE_PLANNER_URL="${ARACHNE_REMOTE_PLANNER_URL:-}"
 REMOTE_PLANNER_TIMEOUT="${ARACHNE_REMOTE_PLANNER_TIMEOUT:-2.0}"
 START_MODEL="${ARACHNE_GRASP_START_MODEL:-true}"
@@ -133,6 +138,11 @@ mkdir -p "${LOG_DIR}"
   echo "real_return_home: ${REAL_RETURN_HOME}"
   echo "real_home_joints: ${REAL_HOME_JOINTS}"
   echo "real_home_duration: ${REAL_HOME_DURATION}"
+  echo "real_fixed_post_grasp: ${REAL_FIXED_POST_GRASP}"
+  echo "real_fixed_lift_joints: ${REAL_FIXED_LIFT_JOINTS}"
+  echo "real_fixed_basket_joints: ${REAL_FIXED_BASKET_JOINTS}"
+  echo "real_fixed_search_joints: ${REAL_FIXED_SEARCH_JOINTS}"
+  echo "real_fixed_post_grasp_duration: ${REAL_FIXED_POST_GRASP_DURATION}"
   echo "remote_planner_url: ${REMOTE_PLANNER_URL:-disabled}"
   echo "remote_planner_timeout: ${REMOTE_PLANNER_TIMEOUT}"
 } >"${LOG_DIR}/00_environment.txt"
@@ -385,7 +395,20 @@ run_pipeline() {
       "${return_home_arg}"
       "--real-home-joints=${REAL_HOME_JOINTS}"
       --real-home-duration "${REAL_HOME_DURATION}"
+      --real-fixed-post-grasp-duration "${REAL_FIXED_POST_GRASP_DURATION}"
     )
+    if [[ "${REAL_FIXED_POST_GRASP}" == "true" ]]; then
+      execute_args+=(--real-fixed-post-grasp)
+    fi
+    if [[ -n "${REAL_FIXED_LIFT_JOINTS}" ]]; then
+      execute_args+=("--real-fixed-lift-joints=${REAL_FIXED_LIFT_JOINTS}")
+    fi
+    if [[ -n "${REAL_FIXED_BASKET_JOINTS}" ]]; then
+      execute_args+=("--real-fixed-basket-joints=${REAL_FIXED_BASKET_JOINTS}")
+    fi
+    if [[ -n "${REAL_FIXED_SEARCH_JOINTS}" ]]; then
+      execute_args+=("--real-fixed-search-joints=${REAL_FIXED_SEARCH_JOINTS}")
+    fi
     if [[ "${PREFER_AUBO_MOVE_JOINT_ACTION}" == "true" ]]; then
       execute_args+=(--prefer-aubo-move-joint-action)
     else
