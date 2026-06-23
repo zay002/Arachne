@@ -125,6 +125,12 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
+    except socket.timeout:
+        print("ERROR: Aubo control RPC 未就绪，请稍后再试或先确认控制柜已完成上电/启动。", file=sys.stderr)
+        raise SystemExit(1)
     except Exception as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        msg = str(exc)
+        if "timed out" in msg.lower():
+            msg = "Aubo 控制 RPC 未就绪（响应慢），请确认连接正常并稍后重试。"
+        print(f"ERROR: {msg}", file=sys.stderr)
         raise SystemExit(1)
