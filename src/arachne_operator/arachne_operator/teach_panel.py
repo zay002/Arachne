@@ -6,6 +6,7 @@ import os
 import signal
 import shlex
 import socket
+import re
 import subprocess
 import threading
 import time
@@ -612,6 +613,7 @@ class TeachPanelNode(Node):
         self.replay_thread: threading.Thread | None = None
         self._active_goal_handle = None
         self._last_manual_arm_stream_status = 0.0
+        self.aubo_reachable = False
         self.workspace_root = self._resolve_workspace_root()
         self.runtime_log_dir = self._make_runtime_log_dir()
         self.event_log_path = self.runtime_log_dir / "events.jsonl"
@@ -717,6 +719,9 @@ class TeachPanelNode(Node):
         return current_nonzero
 
     def _joint_state_callback(self, msg: JointState) -> None:
+        with self.lock:
+            if not self._aubo_reachable_locked():
+                return
         positions = dict(zip(msg.name, msg.position))
         updates: dict[str, float] = {}
         for name in self.arm_state_joint_names:
@@ -743,10 +748,56 @@ class TeachPanelNode(Node):
             with self.lock:
                 self.hardware_status[key] = data
                 if key == "Aubo":
+                    reachability = self._infer_aubo_reachability_locked(data)
+                    if reachability is False:
+                        self.aubo_reachable = False
+                        self.current_arm.clear()
+                        self.tool_position = None
+                    elif reachability is True:
+                        self.aubo_reachable = True
                     self._update_aubo_teach_state_locked(data)
             self._log_hardware_status_change(key, data)
 
         return callback
+
+    def _is_aubo_unreachable_status_locked(self, status: str) -> bool:
+        lower = status.strip().lower()
+        return any(
+            keyword in lower
+            for keyword in (
+                "not reachable",
+                "unreachable",
+                "offline",
+                "connection refused",
+                "timeout",
+                "timed out",
+            )
+        )
+
+    def _infer_aubo_reachability_locked(self, status: str) -> bool | None:
+        lower = status.strip().lower()
+        if self._is_aubo_unreachable_status_locked(lower):
+            return False
+
+        # Keep `aubo_reachable` tied to explicit connectivity status messages.
+        # Other service-status texts (e.g. action server ready) should not
+        # re-enable controls.
+        if "reachable" in lower and "not" not in lower:
+            return True
+        if lower.startswith("aubo") and "mode=" in lower:
+            mode = re.search(r"mode=([a-z_]+)", lower)
+            safety = re.search(r"safety=([a-z_]+)", lower)
+            if mode is not None and safety is not None:
+                return mode.group(1) == "running" and safety.group(1) in {
+                    "normal",
+                    "reducedmode",
+                }
+        if lower in {"", "waiting", "unknown"}:
+            return False
+        return None
+
+    def _aubo_reachable_locked(self) -> bool:
+        return self.aubo_reachable
 
     def _update_aubo_teach_state_locked(self, status: str) -> None:
         data = status.strip().lower()
@@ -801,8 +852,10 @@ class TeachPanelNode(Node):
     def snapshot(self) -> dict[str, str]:
         with self.lock:
             base = self.base_pose
-            tool = self.tool_position
-            arm_ready = self._current_arm_vector_locked() is not None
+            tool = self.tool_position if self._aubo_reachable_locked() else None
+            arm_ready = (
+                self._current_arm_vector_locked() is not None and self._aubo_reachable_locked()
+            )
             managed = {
                 key: self._managed_process_status_locked(key)
                 for key in MANAGED_SERVICE_COMMAND_PARAMS
@@ -842,6 +895,8 @@ class TeachPanelNode(Node):
 
     def tool_snapshot(self) -> tuple[float, float, float] | None:
         with self.lock:
+            if not self._aubo_reachable_locked():
+                return None
             return tuple(self.tool_position) if self.tool_position is not None else None
 
     def log_snapshot(self) -> list[str]:
@@ -2973,6 +3028,8 @@ class TeachPanelNode(Node):
             return list(vector) if vector is not None else None
 
     def _current_arm_vector_locked(self) -> list[float] | None:
+        if not self._aubo_reachable_locked():
+            return None
         if not all(name in self.current_arm for name in self.arm_state_joint_names):
             return None
         return [self.current_arm[name] for name in self.arm_state_joint_names]
@@ -3338,8 +3395,8 @@ class TeachPanelApp:
         self.waypoints: list[TeachWaypoint] = []
         self.root = tk.Tk()
         self.root.title("Arachne Scope")
-        self.root.geometry("1100x720")
-        self.root.minsize(820, 520)
+        self.root.geometry("1320x900")
+        self.root.minsize(980, 700)
         self.status_vars: dict[str, tk.StringVar] = {}
         self.label_var = tk.StringVar(value="wp_1")
         self.wait_var = tk.StringVar(value="2.0")
@@ -3557,12 +3614,20 @@ class TeachPanelApp:
         self.node.command_aubo_lifecycle("power_off")
 
     def _build_home_tab(self) -> None:
-        tab = self._add_scrollable_tab("Home")
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Home")
         tab.columnconfigure(0, weight=1)
-        tab.columnconfigure(1, weight=1)
+        tab.rowconfigure(0, weight=0)
         tab.rowconfigure(1, weight=1)
+        tab.rowconfigure(2, weight=0)
 
-        overview = ttk.LabelFrame(tab, text="Robot Status")
+        header = ttk.Frame(tab)
+        header.grid(row=0, column=0, sticky="nsew")
+        header.columnconfigure(0, weight=2)
+        header.columnconfigure(1, weight=1)
+        header.rowconfigure(0, weight=1)
+
+        overview = ttk.LabelFrame(header, text="Robot Status")
         overview.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(0, 8))
         overview.columnconfigure(1, weight=1)
         for row, key in enumerate(
@@ -3590,7 +3655,7 @@ class TeachPanelApp:
             self.status_vars[key] = var
             ttk.Label(overview, textvariable=var).grid(row=row, column=1, sticky="ew", padx=6, pady=4)
 
-        quick = ttk.Frame(tab)
+        quick = ttk.Frame(header)
         quick.grid(row=0, column=1, sticky="nsew", pady=(0, 8))
         for column in range(2):
             quick.columnconfigure(column, weight=1)
@@ -3683,9 +3748,17 @@ class TeachPanelApp:
         )
         gripper_group.grid(row=3, column=0, columnspan=2, sticky="ew")
 
-        services = ttk.LabelFrame(tab, text="Runtime Services")
-        services.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        details = ttk.Notebook(tab)
+        details.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        details.rowconfigure(0, weight=1)
+        details.columnconfigure(0, weight=1)
+
+        services = ttk.Frame(details)
+        details.add(services, text="Runtime Services")
+        services.columnconfigure(0, weight=1)
         services.columnconfigure(1, weight=1)
+        services.columnconfigure(2, weight=1)
+        services.columnconfigure(3, weight=1)
         for row, (key, label) in enumerate(
             (
                 ("camera", "Gemini Camera"),
@@ -3717,8 +3790,14 @@ class TeachPanelApp:
                 style="Danger.TButton",
             ).grid(row=row, column=3, sticky="ew", padx=4, pady=4)
 
-        joints = ttk.LabelFrame(tab, text="Monitor and Joint")
-        joints.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+        monitor = ttk.Frame(details)
+        details.add(monitor, text="Monitor and Log")
+        monitor.columnconfigure(0, weight=1)
+        monitor.columnconfigure(1, weight=1)
+        monitor.rowconfigure(0, weight=1)
+
+        joints = ttk.LabelFrame(monitor, text="Monitor and Joint")
+        joints.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         joints.rowconfigure(0, weight=1)
         joints.columnconfigure(0, weight=1)
         self.joint_tree = ttk.Treeview(joints, columns=("rad", "deg"), show="headings", height=8)
@@ -3728,8 +3807,8 @@ class TeachPanelApp:
         self.joint_tree.column("deg", width=120, anchor="e")
         self.joint_tree.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
 
-        live_log = ttk.LabelFrame(tab, text="Variables and Log")
-        live_log.grid(row=1, column=1, sticky="nsew")
+        live_log = ttk.LabelFrame(monitor, text="Variables and Log")
+        live_log.grid(row=0, column=1, sticky="nsew")
         live_log.rowconfigure(0, weight=1)
         live_log.columnconfigure(0, weight=1)
         text = tk.Text(live_log, height=10, width=60, state="disabled", wrap="word")
