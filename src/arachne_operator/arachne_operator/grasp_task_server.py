@@ -150,6 +150,10 @@ class GraspTaskServer(Node):
         self.declare_parameter("device_id", 0)
         self.declare_parameter("real_execute_backend", "sdk_move_joint")
         self.declare_parameter("real_return_home", True)
+        self.declare_parameter("real_fixed_post_grasp", True)
+        self.declare_parameter(
+            "real_fixed_search_joints", "-1.72,-0.44,1.66,0.92,1.68,-0.05"
+        )
         self.declare_parameter("real_sdk_move_speed", 0.36)
         self.declare_parameter("real_sdk_move_accel", 0.45)
         self.declare_parameter("real_sdk_ip", os.environ.get("AUBO_ROBOT_IP", "192.168.127.128"))
@@ -165,7 +169,7 @@ class GraspTaskServer(Node):
         self.declare_parameter("grasp_base_offset", "0,0,0")
         self.declare_parameter(
             "extra_args",
-            "--planner-backend local --planning-key-waypoints approach,grasp,safe_mid,basket_over --vertical-approach --no-lock-grasp-orientation --tool-orientation-limit-deg 45 --grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0,8,-8 --local-position-tolerance 0.045 --local-orientation-tolerance 0.50 --local-planning-timeout-sec 2.0 --local-ik-max-iterations 90 --real-gripper-require-capture --real-sdk-semantic-targets-only --real-sdk-max-targets 6",
+            "--planner-backend local --planning-key-waypoints approach,grasp --vertical-approach --no-lock-grasp-orientation --tool-orientation-limit-deg 45 --grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0,8,-8 --local-position-tolerance 0.045 --local-orientation-tolerance 0.50 --local-planning-timeout-sec 2.0 --local-ik-max-iterations 90 --real-gripper-require-capture --real-sdk-semantic-targets-only --real-sdk-max-targets 6",
         )
         self.declare_parameter("preview_on_start", False)
         self.declare_parameter("preview_runner_script", "scripts/vision/grasp_preview.sh")
@@ -1681,6 +1685,12 @@ class GraspTaskServer(Node):
         env["ARACHNE_GRASP_REAL_RETURN_HOME"] = (
             "true" if bool(self.get_parameter("real_return_home").value) else "false"
         )
+        env["ARACHNE_GRASP_REAL_FIXED_POST_GRASP"] = (
+            "true" if bool(self.get_parameter("real_fixed_post_grasp").value) else "false"
+        )
+        env["ARACHNE_GRASP_REAL_FIXED_SEARCH_JOINTS"] = str(
+            self.get_parameter("real_fixed_search_joints").value
+        )
         env["ARACHNE_GRASP_REAL_SDK_MOVE_SPEED"] = str(
             self.get_parameter("real_sdk_move_speed").value
         )
@@ -1737,6 +1747,8 @@ class GraspTaskServer(Node):
             "device_id",
             "real_execute_backend",
             "real_return_home",
+            "real_fixed_post_grasp",
+            "real_fixed_search_joints",
             "real_sdk_move_speed",
             "real_sdk_move_accel",
             "aubo_teach_flag_path",

@@ -575,6 +575,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--real-search-scan-period-sec", type=float, default=5.0, help=hidden)
     parser.add_argument("--real-search-scan-shoulder-deg", type=float, default=4.0, help=hidden)
     parser.add_argument("--real-search-scan-wrist3-deg", type=float, default=8.0, help=hidden)
+    parser.add_argument("--real-search-scan-left-delta", default="-0.24,-0.04,-0.04,0.06,0.02,-0.21", help=hidden)
+    parser.add_argument("--real-search-scan-right-delta", default="0.24,0.02,0.04,-0.08,-0.02,0.23", help=hidden)
     parser.add_argument("--real-search-scan-speed", type=float, default=0.08, help=hidden)
     parser.add_argument("--real-search-scan-accel", type=float, default=0.20, help=hidden)
     parser.add_argument("--perception-only-restart-sec", type=float, default=1.0, help=hidden)
@@ -1594,6 +1596,17 @@ class GraspPreviewNode(Node):
         period = max(float(self.args.real_search_scan_period_sec), 1.0)
         shoulder = math.radians(float(self.args.real_search_scan_shoulder_deg))
         wrist3 = math.radians(float(self.args.real_search_scan_wrist3_deg))
+        left_delta = np.asarray(
+            _float_values(str(self.args.real_search_scan_left_delta), 6, "--real-search-scan-left-delta"),
+            dtype=float,
+        )
+        right_delta = np.asarray(
+            _float_values(str(self.args.real_search_scan_right_delta), 6, "--real-search-scan-right-delta"),
+            dtype=float,
+        )
+        if float(np.max(np.abs(left_delta))) < 1e-6 and float(np.max(np.abs(right_delta))) < 1e-6:
+            left_delta = np.array([-shoulder, 0.0, 0.0, 0.0, 0.0, -wrist3], dtype=float)
+            right_delta = np.array([shoulder, 0.0, 0.0, 0.0, 0.0, wrist3], dtype=float)
         owner_owned = False
         gate_owned = False
         center: np.ndarray | None = None
@@ -1627,16 +1640,12 @@ class GraspPreviewNode(Node):
                     center = self._real_sdk_joint_positions(rpc)
                     self.get_logger().info(
                         "REAL search scan active: "
-                        f"shoulder=+/-{math.degrees(abs(shoulder)):.1f}deg "
-                        f"wrist3=+/-{math.degrees(abs(wrist3)):.1f}deg"
+                        f"left_delta={left_delta.tolist()} right_delta={right_delta.tolist()}"
                     )
                 if center is None:
                     center = self._real_sdk_joint_positions(rpc)
-                target = np.asarray(center, dtype=float)
-                # ponytail: small joint-space arc; replace with full IK camera arc if this proves useful.
-                sign = -1.0 if phase % 2 == 0 else 1.0
-                target[0] = center[0] + sign * shoulder
-                target[5] = center[5] - sign * wrist3
+                # ponytail: copy sim's joint-space scan deltas around the live center pose.
+                target = np.asarray(center, dtype=float) + (left_delta if phase % 2 == 0 else right_delta)
                 result = rpc.robot_call(
                     "MotionControl.moveJoint",
                     [[float(value) for value in target], accel, speed, 0.0, 0.0],

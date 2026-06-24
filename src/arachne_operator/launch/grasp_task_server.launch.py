@@ -16,6 +16,11 @@ def generate_launch_description():
             DeclareLaunchArgument("device_id", default_value="0"),
             DeclareLaunchArgument("real_execute_backend", default_value="sdk_move_joint"),
             DeclareLaunchArgument("real_return_home", default_value="true"),
+            DeclareLaunchArgument("real_fixed_post_grasp", default_value="true"),
+            DeclareLaunchArgument(
+                "real_fixed_search_joints",
+                default_value="-1.72,-0.44,1.66,0.92,1.68,-0.05",
+            ),
             DeclareLaunchArgument("real_sdk_move_speed", default_value="0.36"),
             DeclareLaunchArgument("real_sdk_move_accel", default_value="0.45"),
             DeclareLaunchArgument(
@@ -36,7 +41,7 @@ def generate_launch_description():
                 "extra_args",
                 default_value=(
                     "--planner-backend local "
-                    "--planning-key-waypoints approach,grasp,safe_mid,basket_over "
+                    "--planning-key-waypoints approach,grasp "
                     "--vertical-approach --no-lock-grasp-orientation "
                     "--tool-orientation-limit-deg 45 "
                     "--grasp-orientation-yaw-offsets-deg 0 "
@@ -106,6 +111,12 @@ def generate_launch_description():
                         "real_execute_backend": LaunchConfiguration("real_execute_backend"),
                         "real_return_home": ParameterValue(
                             LaunchConfiguration("real_return_home"), value_type=bool
+                        ),
+                        "real_fixed_post_grasp": ParameterValue(
+                            LaunchConfiguration("real_fixed_post_grasp"), value_type=bool
+                        ),
+                        "real_fixed_search_joints": LaunchConfiguration(
+                            "real_fixed_search_joints"
                         ),
                         "real_sdk_move_speed": ParameterValue(
                             LaunchConfiguration("real_sdk_move_speed"), value_type=float
