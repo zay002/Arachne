@@ -56,7 +56,11 @@ class MS42DCDirectSerialDriver(Node):
             Float64, str(self.get_parameter("angle_topic").value), self._on_angle, 10
         )
         self.create_timer(1.0, self._publish_status)
-        self._open_serial()
+        try:
+            self._open_serial()
+        except (OSError, serial.SerialException) as exc:
+            self.last_status = f"serial unavailable: {self.get_parameter('port').value}: {exc}"
+            self.get_logger().warning(self.last_status)
 
     def _on_command(self, msg: String) -> None:
         command = msg.data.strip().lower()

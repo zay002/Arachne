@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import os
@@ -32,7 +33,13 @@ from std_msgs.msg import Float64MultiArray, String
 from std_srvs.srv import Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
+from arachne_operator.control_owner import (
+    DEFAULT_AUBO_CONTROL_OWNER_PATH,
+    claim_control_owner as _claim_control_owner,
+    release_control_owner as _release_control_owner,
+)
 from arachne_operator.real_hardware_acceptance_test import AuboI5Kinematics
+from arachne_operator.repo_paths import root_dir
 
 
 DEFAULT_REAL_ARM_JOINTS = (
@@ -56,7 +63,6 @@ DEFAULT_REAR_RACK_KEEPOUT_MIN_XYZ = "-0.41,-0.22,0.04"
 DEFAULT_REAR_RACK_KEEPOUT_MAX_XYZ = "0.09,0.22,0.82"
 DEFAULT_TEACH_CONFIG_PATH = "recordings/teach/teach_panel_config.json"
 DEFAULT_AUBO_TEACH_FLAG_PATH = "/tmp/arachne_aubo_teach_mode"
-DEFAULT_AUBO_CONTROL_OWNER_PATH = "/tmp/arachne_aubo_control_owner"
 MANAGED_SERVICE_COMMAND_PARAMS = {
     "camera": "camera_command",
     "viewer": "camera_view_command",
@@ -64,95 +70,14 @@ MANAGED_SERVICE_COMMAND_PARAMS = {
     "grasp_server": "grasp_server_command",
     "cleanup_server": "cleanup_server_command",
 }
-
-
-def _control_owner_payload(owner: str) -> str:
-    return json.dumps(
-        {"owner": owner, "pid": os.getpid(), "created_at": time.time()},
-        separators=(",", ":"),
-    ) + "\n"
-
-
-def _parse_control_owner(text: str) -> tuple[str, int | None]:
-    text = text.strip()
-    if not text:
-        return "", None
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return text.splitlines()[0].strip(), None
-    owner = str(data.get("owner", "")).strip()
-    pid_value = data.get("pid")
-    try:
-        pid = int(pid_value) if pid_value is not None else None
-    except (TypeError, ValueError):
-        pid = None
-    return owner, pid
-
-
-def _pid_alive(pid: int | None) -> bool:
-    if pid is None:
-        return True
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-def _claim_control_owner(path: Path, owner: str) -> tuple[bool, str]:
-    owner = owner.strip() or "unknown"
-    for _attempt in range(2):
-        try:
-            fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-        except FileExistsError:
-            try:
-                text = path.read_text(encoding="utf-8", errors="replace")
-            except OSError as exc:
-                return False, f"unreadable owner file {path}: {exc}"
-            active_owner, pid = _parse_control_owner(text)
-            if active_owner == owner and pid == os.getpid():
-                return True, f"already owned by {owner}"
-            if pid is not None and not _pid_alive(pid):
-                try:
-                    path.unlink(missing_ok=True)
-                except OSError as exc:
-                    return False, f"stale owner {active_owner or text!r} could not be cleared: {exc}"
-                continue
-            pid_text = str(pid) if pid is not None else "unknown"
-            return False, f"owned by {active_owner or text.strip() or 'unknown'} pid={pid_text}"
-        except OSError as exc:
-            return False, f"could not create owner file {path}: {exc}"
-
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(_control_owner_payload(owner))
-        except OSError as exc:
-            try:
-                path.unlink(missing_ok=True)
-            except OSError:
-                pass
-            return False, f"could not write owner file {path}: {exc}"
-        return True, f"owned by {owner}"
-    return False, f"could not claim owner file {path}"
-
-
-def _release_control_owner(path: Path, owner: str) -> None:
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except (FileNotFoundError, OSError):
-        return
-    active_owner, pid = _parse_control_owner(text)
-    if active_owner != (owner.strip() or "unknown"):
-        return
-    if pid is not None and pid != os.getpid():
-        return
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        return
+MANAGED_SERVICE_READY_SERVICES = {
+    "grasp_server": ("/arachne/grasp_task/status", "/arachne/grasp_task/start"),
+    "cleanup_server": ("/arachne/road_cleanup/status", "/arachne/road_cleanup/start"),
+}
+MANAGED_SERVICE_READY_TOPICS = {
+    "grasp_server": "/arachne/grasp_task/state",
+    "cleanup_server": "/arachne/road_cleanup/state",
+}
 
 
 class AuboDirectJsonRpc:
@@ -426,15 +351,22 @@ class TeachPanelNode(Node):
         self.declare_parameter(
             "camera_view_command",
             (
-                "${ARACHNE_SYSTEM_PYTHON:-python3} scripts/vision/raw_image_viewer.py "
+                "ros2 run arachne_operator raw_image_viewer "
                 "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30"
             ),
         )
-        self.declare_parameter("slam_command", "scripts/hardware/real_lidar_nav.sh")
+        self.declare_parameter(
+            "slam_command",
+            (
+                "ros2 launch arachne_nav nav2_lidar.launch.py "
+                "with_lslidar_driver:=true with_pointcloud_to_scan:=true "
+                "with_robot_state_publisher:=false with_rviz:=true"
+            ),
+        )
         self.declare_parameter(
             "grasp_server_command",
             (
-                "scripts/vision/grasp_task_server.sh "
+                "ros2 launch arachne_operator grasp_task_server.launch.py "
                 "execute_real:=true confirm_execute_real:=true with_rviz:=false "
                 "confidence:=0.08 "
                 "real_fixed_post_grasp:=true "
@@ -464,7 +396,7 @@ class TeachPanelNode(Node):
         self.declare_parameter(
             "cleanup_server_command",
             (
-                "scripts/vision/road_cleanup_task_server.sh "
+                "ros2 launch arachne_operator road_cleanup_task_server.launch.py "
                 "patrol_pattern:=line patrol_distance_m:=1.0 patrol_step_m:=0.20 "
                 "max_round_trips:=1 loop:=false "
                 "patrol_base_speed_mps:=0.05 base_step_timeout_sec:=120.0 "
@@ -661,10 +593,7 @@ class TeachPanelNode(Node):
         configured = str(self.get_parameter("workspace_root").value).strip()
         if configured:
             return Path(configured).expanduser().resolve()
-        for parent in Path(__file__).resolve().parents:
-            if (parent / "scripts/env/arachne_env.sh").exists():
-                return parent
-        return Path.cwd().resolve()
+        return root_dir()
 
     def _workspace_path(self, path: str | Path) -> Path:
         resolved = Path(str(path)).expanduser()
@@ -3124,6 +3053,13 @@ class TeachPanelNode(Node):
         if already_message:
             self._status(already_message)
             return
+        ready_services = MANAGED_SERVICE_READY_SERVICES.get(name, ())
+        ready_topic = MANAGED_SERVICE_READY_TOPICS.get(name, "")
+        if ready_services and self._services_exist(ready_services) and self._topic_has_publisher(ready_topic):
+            self._status(f"service {name} already available")
+            with self.lock:
+                self.hardware_status[f"Svc:{name}"] = "external"
+            return
 
         log_path = self.runtime_log_dir / f"{name}.log"
         shell_command = "\n".join(
@@ -3131,9 +3067,7 @@ class TeachPanelNode(Node):
                 "set -euo pipefail",
                 f"cd {shlex.quote(str(self.workspace_root))}",
                 "set +u",
-                "source scripts/env/arachne_env.sh",
                 "[[ -f install/setup.bash ]] && source install/setup.bash",
-                "[[ -f scripts/env/arachne_real_defaults.sh ]] && source scripts/env/arachne_real_defaults.sh",
                 "set -u",
                 f"exec {command}",
             ]
@@ -3180,6 +3114,13 @@ class TeachPanelNode(Node):
             pid=process.pid,
         )
         self._status(f"service {name} started pid={process.pid}; log={log_path}")
+
+    def _services_exist(self, service_names: tuple[str, ...]) -> bool:
+        available = {name for name, _types in self.get_service_names_and_types()}
+        return all(name in available for name in service_names)
+
+    def _topic_has_publisher(self, topic_name: str) -> bool:
+        return bool(topic_name and self.get_publishers_info_by_topic(topic_name))
 
     def _stop_managed_process_worker(self, name: str, *, quiet: bool = False) -> None:
         timeout_sec = max(float(self.get_parameter("service_stop_timeout_sec").value), 0.5)
@@ -3984,7 +3925,7 @@ class TeachPanelApp:
 
         payload = ttk.LabelFrame(tab, text="Aubo Payload")
         payload.grid(row=3, column=0, sticky="ew", pady=(10, 0))
-        ttk.Label(payload, text="Startup payload is configured by scripts/hardware/real_full_teach.sh.").grid(
+        ttk.Label(payload, text="Startup payload is configured by launch parameters.").grid(
             row=0, column=0, sticky="w", padx=6, pady=4
         )
         payload_mass = float(self.node.get_parameter("aubo_payload_mass_kg").value)
@@ -4595,8 +4536,19 @@ class TeachPanelApp:
         self.root.mainloop()
 
 
-def main() -> None:
-    rclpy.init()
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Arachne teach panel")
+    parser.add_argument(
+        "--headless-check",
+        action="store_true",
+        help="validate imports and entrypoint wiring without starting Tk or hardware I/O",
+    )
+    args, ros_args = parser.parse_known_args(argv)
+    if args.headless_check:
+        print("teach_panel headless check ok")
+        return
+
+    rclpy.init(args=ros_args)
     node = TeachPanelNode()
     executor = MultiThreadedExecutor(num_threads=6)
     executor.add_node(node)

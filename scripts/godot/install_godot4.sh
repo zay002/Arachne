@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Arachne helper only; not a stable runtime entrypoint. Prefer ROS2 package entrypoints in README.md.
 set -euo pipefail
 
 VERSION="${GODOT_VERSION:-4.6.3-stable}"

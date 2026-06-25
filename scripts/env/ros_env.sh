@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Arachne helper only; not a stable runtime entrypoint. Prefer ROS2 package entrypoints in README.md.
 # Shared ROS environment helpers for Arachne shell entrypoints.
 
 arachne_detect_ros_distro() {

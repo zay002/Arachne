@@ -42,14 +42,14 @@ try:
     from arachne_operator.real_hardware_acceptance_test import AuboI5Kinematics
     from arachne_operator.aubo_move_joint_client import AuboMoveJointClient
 except ModuleNotFoundError:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src" / "arachne_operator"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src" / "arachne_operator"))
     from arachne_operator.real_hardware_acceptance_test import AuboI5Kinematics
     from arachne_operator.aubo_move_joint_client import AuboMoveJointClient
 
 try:
     from arachne_hardware.aubo_tcp_driver import AuboDirectJsonRpc
 except ModuleNotFoundError:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src" / "arachne_hardware"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src" / "arachne_hardware"))
     from arachne_hardware.aubo_tcp_driver import AuboDirectJsonRpc
 
 

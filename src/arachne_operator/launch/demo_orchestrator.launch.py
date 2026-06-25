@@ -43,14 +43,14 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "camera_view_command",
                 default_value=(
-                    "${ARACHNE_SYSTEM_PYTHON:-python3} scripts/vision/raw_image_viewer.py "
+                    "ros2 run arachne_operator raw_image_viewer "
                     "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30"
                 ),
             ),
             DeclareLaunchArgument(
                 "grasp_server_command",
                 default_value=(
-                    "scripts/vision/grasp_task_server.sh "
+                    "ros2 launch arachne_operator grasp_task_server.launch.py "
                     "execute_real:=true confirm_execute_real:=true with_rviz:=false "
                     "confidence:=0.08 "
                     "real_fixed_post_grasp:=true "
@@ -79,7 +79,7 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "cleanup_server_command",
                 default_value=(
-                    "scripts/vision/road_cleanup_task_server.sh "
+                    "ros2 launch arachne_operator road_cleanup_task_server.launch.py "
                     "patrol_pattern:=line patrol_distance_m:=1.5 patrol_step_m:=0.20 "
                     "max_round_trips:=1 loop:=false "
                     "patrol_base_speed_mps:=0.08 base_step_timeout_sec:=5.0 "

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Arachne helper only; not a stable runtime entrypoint. Prefer ROS2 package entrypoints in README.md.
 set -euo pipefail
 
 if [[ -f "/opt/ros/${ROS_DISTRO:-humble}/setup.bash" ]]; then

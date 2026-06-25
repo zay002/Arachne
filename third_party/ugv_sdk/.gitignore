@@ -19,10 +19,6 @@ cmake-build-release/
 *.log
 #*.data
 
-# Doxygen
-docs/doxygen/html/
-docs/doxygen/latex
-
 # Qt Creator
 pc/visualization/CMakeLists.txt.user
 

@@ -6,7 +6,7 @@ from ament_index_python.packages import get_package_share_directory, PackageNotF
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -368,7 +368,13 @@ def generate_launch_description():
             DeclareLaunchArgument("scout_can_bitrate", default_value="500000"),
             DeclareLaunchArgument("scout_frame_type", default_value="standard"),
             DeclareLaunchArgument("ms42dc_driver", default_value="direct"),
-            DeclareLaunchArgument("ms42dc_port", default_value="/dev/motor_serial"),
+            DeclareLaunchArgument(
+                "ms42dc_port",
+                default_value=EnvironmentVariable(
+                    "MS42DC_PORT",
+                    default_value="/dev/serial/by-id/usb-1a86_USB_Single_Serial_58EB003416-if00",
+                ),
+            ),
             DeclareLaunchArgument("ms42dc_baudrate", default_value="115200"),
             DeclareLaunchArgument("ms42dc_device_id", default_value="1"),
             DeclareLaunchArgument("ms42dc_sub_divide", default_value="32"),

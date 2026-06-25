@@ -130,9 +130,7 @@ There are certain cases where you may want to use the C++ interface from the SDK
 
 #### The communication pipeline
 
-The complete pipeline from the robot base to a ROS application is illustrated in the following diagram. A main function of the SDK is to translate between raw CAN frames and C++ data structures so that you can programmatically interact with the robot.
-
-![Interface Hierarchy](./docs/interface_hierarchy.png)
+The SDK translates between raw CAN frames and C++ data structures so that you can programmatically interact with the robot.
 
 With this structure in mind, whenever you are facing issues communicating with the robot, you can follow the pipeline to locate the cause of the problem: 
 

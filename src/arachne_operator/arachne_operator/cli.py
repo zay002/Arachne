@@ -2,41 +2,29 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import socket
 import subprocess
-import sys
 import time
-from pathlib import Path
+import shutil
 
-
-def root_dir() -> Path:
-    path = Path.cwd()
-    while path != path.parent:
-        if (path / "scripts/env/arachne_env.sh").exists():
-            return path
-        path = path.parent
-    return Path(__file__).resolve().parents[3]
-
+from arachne_operator.entrypoint_checks import (
+    check_entrypoints,
+    smoke_grasp_task,
+    smoke_road_cleanup,
+    smoke_teach_panel,
+)
+from arachne_operator.process_utils import have, output as _output, py, run as _run
+from arachne_operator.repo_paths import root_dir
 
 ROOT = root_dir()
 
 
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
-    print("+", " ".join(cmd))
-    return subprocess.run(cmd, cwd=ROOT, check=True, **kwargs)
+    return _run(cmd, cwd=ROOT, **kwargs)
 
 
 def output(cmd: list[str], **kwargs) -> str:
-    return subprocess.check_output(cmd, cwd=ROOT, text=True, **kwargs)
-
-
-def have(name: str) -> bool:
-    return shutil.which(name) is not None
-
-
-def py() -> str:
-    return os.environ.get("ARACHNE_SYSTEM_PYTHON", sys.executable)
+    return _output(cmd, cwd=ROOT, **kwargs)
 
 
 def tcp_check(ip: str, port: int, timeout: float) -> None:
@@ -60,7 +48,7 @@ def cmd_check_action_stack(_args: argparse.Namespace) -> int:
     ):
         if not (ROOT / path).is_file():
             raise SystemExit(f"missing required file: {path}")
-    run([py(), "-m", "compileall", "src/arachne_hardware/arachne_hardware", "src/arachne_operator/arachne_operator", "scripts/vision"])
+    run([py(), "-m", "compileall", "src/arachne_hardware/arachne_hardware", "src/arachne_operator/arachne_operator"])
     run(["ros2", "interface", "show", "arachne_hardware/action/AuboMoveJoint"], stdout=subprocess.DEVNULL)
     if "aubo_move_joint_action_server" not in output(["ros2", "pkg", "executables", "arachne_hardware"]):
         raise SystemExit("missing arachne_hardware aubo_move_joint_action_server executable")
@@ -72,19 +60,11 @@ def cmd_check_action_stack(_args: argparse.Namespace) -> int:
 
 def cmd_check_offline(_args: argparse.Namespace) -> int:
     print("[arachne check offline] offline only: no real hardware will be contacted")
-    run([py(), "-m", "compileall", "src/arachne_hardware/arachne_hardware", "src/arachne_operator/arachne_operator", "scripts/vision"])
-    for script in (
-        "scripts/build/check_aubo_action_stack.sh",
-        "scripts/hardware/check_aubo_readonly.sh",
-        "scripts/operator/teach_panel.sh",
-        "scripts/hardware/real_bringup.sh",
-        "scripts/hardware/real_teach_demo.sh",
-        "scripts/vision/grasp_task_server.sh",
-        "scripts/vision/road_cleanup_task_server.sh",
-        "scripts/vision/grasp_preview_real_sync.sh",
-    ):
-        run(["bash", "-n", script])
-    run(["./scripts/build/check_workspace.sh"])
+    run([py(), "-m", "compileall", "src/arachne_hardware/arachne_hardware", "src/arachne_operator/arachne_operator"])
+    cmd_check_entrypoints(_args)
+    cmd_smoke_teach_panel(argparse.Namespace())
+    cmd_smoke_grasp_task(argparse.Namespace())
+    cmd_smoke_road_cleanup(argparse.Namespace())
     if have("ros2") and have("colcon"):
         run(["colcon", "build", "--base-paths", "src", "--packages-select", "arachne_hardware", "arachne_operator"])
     else:
@@ -93,9 +73,33 @@ def cmd_check_offline(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check_entrypoints(_args: argparse.Namespace) -> int:
+    check_entrypoints(ROOT)
+    print("[arachne check entrypoints] passed")
+    return 0
+
+
+def cmd_smoke_teach_panel(_args: argparse.Namespace) -> int:
+    smoke_teach_panel()
+    print("[arachne smoke teach-panel] passed")
+    return 0
+
+
+def cmd_smoke_grasp_task(_args: argparse.Namespace) -> int:
+    smoke_grasp_task()
+    print("[arachne smoke grasp-task] passed")
+    return 0
+
+
+def cmd_smoke_road_cleanup(_args: argparse.Namespace) -> int:
+    smoke_road_cleanup()
+    print("[arachne smoke road-cleanup] passed")
+    return 0
+
+
 def readonly_probe(ip: str, port: int, timeout: float) -> str:
     tcp_check(ip, port, timeout)
-    return output([py(), "scripts/hardware/real_aubo_probe.py", "--ip", ip, "--timeout", str(timeout), "--ports", str(port)])
+    return output([py(), "-m", "arachne_operator.aubo_readonly_probe", "--ip", ip, "--timeout", str(timeout), "--ports", str(port)])
 
 
 def cmd_check_aubo_readonly(_args: argparse.Namespace) -> int:
@@ -253,12 +257,22 @@ def build_parser() -> argparse.ArgumentParser:
     check = sub.add_parser("check")
     check_sub = check.add_subparsers(dest="command", required=True)
     check_sub.add_parser("offline").set_defaults(func=cmd_check_offline)
+    check_sub.add_parser("entrypoints").set_defaults(func=cmd_check_entrypoints)
     check_sub.add_parser("aubo-action-stack").set_defaults(func=cmd_check_action_stack)
     check_sub.add_parser("aubo-readonly").set_defaults(func=cmd_check_aubo_readonly)
     check_sub.add_parser("aubo-running").set_defaults(func=cmd_check_aubo_running)
 
     smoke = sub.add_parser("smoke")
     smoke_sub = smoke.add_subparsers(dest="command", required=True)
+    teach_smoke = smoke_sub.add_parser("teach-panel")
+    teach_smoke.add_argument("--headless", action="store_true")
+    teach_smoke.set_defaults(func=cmd_smoke_teach_panel)
+    grasp_smoke = smoke_sub.add_parser("grasp-task")
+    grasp_smoke.add_argument("--dry-run", action="store_true")
+    grasp_smoke.set_defaults(func=cmd_smoke_grasp_task)
+    cleanup_smoke = smoke_sub.add_parser("road-cleanup")
+    cleanup_smoke.add_argument("--dry-run", action="store_true")
+    cleanup_smoke.set_defaults(func=cmd_smoke_road_cleanup)
     smoke_sub.add_parser("aubo-dry-run").set_defaults(func=cmd_smoke_aubo_dry_run)
     smoke_sub.add_parser("demo-orchestrator").set_defaults(func=cmd_smoke_demo)
 

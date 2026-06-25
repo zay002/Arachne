@@ -6,7 +6,7 @@ Arachne 在 `third_party/` 中保留可直接构建和演示所需的最小第�
 
 - `aubo_description`：Aubo 官方描述包元信息、完整 URDF/xacro 文本，以及 Aubo i5 系列 DAE/STL 运行网格，来源为 `AuboRobot/aubo_description`；这样桌面端和 Jetson 分支会共用官方 i5 尺寸与关节定义。
 - `scout_ros2`：Scout 2.0 ROS2 描述、消息和 base 节点，来源为 `agilexrobotics/scout_ros2`。
-- `ugv_sdk`：AgileX UGV SDK 源码和构建文件，不包含大型 `docs/` 手册。
+- `ugv_sdk`：AgileX UGV SDK 源码和构建文件，不包含大型手册。
 - `aubo_ros2_driver`：Aubo ROS2 driver，并保留 Arachne 当前真机安全启动流程所需补丁。
 - `dh_ag95_gripper_ros2`：AG95 可选夹爪描述和 driver。
 - `ms42dc_step_motor_ros2`：易爪机器人 MS42DC 厂家 ROS2 示例源码。

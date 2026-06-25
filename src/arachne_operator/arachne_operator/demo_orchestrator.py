@@ -30,6 +30,14 @@ MANAGED_PROCESS_COMMAND_PARAMS = {
     "grasp_server": "grasp_server_command",
     "cleanup_server": "cleanup_server_command",
 }
+MANAGED_PROCESS_READY_SERVICES = {
+    "grasp_server": ("/arachne/grasp_task/status", "/arachne/grasp_task/start"),
+    "cleanup_server": ("/arachne/road_cleanup/status", "/arachne/road_cleanup/start"),
+}
+MANAGED_PROCESS_READY_TOPICS = {
+    "grasp_server": "/arachne/grasp_task/state",
+    "cleanup_server": "/arachne/road_cleanup/state",
+}
 
 
 class DemoOrchestrator(Node):
@@ -377,6 +385,12 @@ class DemoOrchestrator(Node):
             existing = self.managed_processes.get(name)
             if existing is not None and existing.poll() is None:
                 return
+        ready_services = MANAGED_PROCESS_READY_SERVICES.get(name, ())
+        ready_topic = MANAGED_PROCESS_READY_TOPICS.get(name, "")
+        if ready_services and self._services_exist(ready_services) and self._topic_has_publisher(ready_topic):
+            self.get_logger().info(f"service {name} already available")
+            self._publish_state()
+            return
 
         log_path = self.runtime_log_dir / f"{name}.log"
         shell_command = "\n".join(
@@ -427,6 +441,13 @@ class DemoOrchestrator(Node):
             self.managed_process_log_handles[name] = handle
         self.get_logger().info(f"service {name} started pid={process.pid}; log={log_path}")
         self._publish_state()
+
+    def _services_exist(self, service_names: tuple[str, ...]) -> bool:
+        available = {name for name, _types in self.get_service_names_and_types()}
+        return all(name in available for name in service_names)
+
+    def _topic_has_publisher(self, topic_name: str) -> bool:
+        return bool(topic_name and self.get_publishers_info_by_topic(topic_name))
 
     def _stop_process(self, name: str, *, quiet: bool = False) -> None:
         timeout_sec = max(float(self.get_parameter("service_stop_timeout_sec").value), 0.5)

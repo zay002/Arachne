@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import os
@@ -20,19 +21,13 @@ from std_msgs.msg import Bool, Empty, String
 from std_srvs.srv import Trigger
 
 from arachne_operator.aubo_move_joint_client import AuboMoveJointClient
+from arachne_operator.joint_utils import AUBO_JOINT_ALIASES
+from arachne_operator.repo_paths import root_dir
 
 
 TERMINAL_STATES = {"succeeded", "failed", "canceled"}
 STARTABLE_STATES = ("idle", "paused", *TERMINAL_STATES)
 DEFAULT_SEARCH_JOINTS = "-1.611779,-0.457910,1.071527,-0.044520,1.575231,0.771459"
-AUBO_JOINT_ALIASES = (
-    ("shoulder_joint", ("shoulder_joint", "aubo_shoulder_joint")),
-    ("upperArm_joint", ("upperArm_joint", "aubo_upperArm_joint", "upper_arm_joint")),
-    ("foreArm_joint", ("foreArm_joint", "aubo_foreArm_joint", "fore_arm_joint")),
-    ("wrist1_joint", ("wrist1_joint", "aubo_wrist1_joint")),
-    ("wrist2_joint", ("wrist2_joint", "aubo_wrist2_joint")),
-    ("wrist3_joint", ("wrist3_joint", "aubo_wrist3_joint")),
-)
 
 
 @dataclass
@@ -86,6 +81,7 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("grasp_status_service", "/arachne/grasp_task/status")
         self.declare_parameter("grasp_preflight_service", "/arachne/grasp_task/preflight")
         self.declare_parameter("log_root", "log/road_cleanup_tasks")
+        self.workspace_root = root_dir()
         self.declare_parameter("base_stop_service", "/arachne/grasp_task/base_stop")
         self.declare_parameter("base_status_service", "/arachne/grasp_task/base_status")
         self.declare_parameter("restart_search_topic", "/arachne/grasp_preview/restart_search")
@@ -1409,7 +1405,7 @@ class RoadCleanupTaskServer(Node):
         self.task_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
         root = Path(str(self.get_parameter("log_root").value)).expanduser()
         if not root.is_absolute():
-            root = Path.cwd() / root
+            root = self.workspace_root / root
         self.run_dir = root / self.task_id
         self.run_dir.mkdir(parents=True, exist_ok=True)
         latest = root / "latest"
@@ -1478,7 +1474,18 @@ class RoadCleanupTaskServer(Node):
 
 
 def main(args: list[str] | None = None) -> None:
-    rclpy.init(args=args)
+    parser = argparse.ArgumentParser(description="Arachne road cleanup task server")
+    parser.add_argument(
+        "--dry-run-check",
+        action="store_true",
+        help="validate imports and entrypoint wiring without starting patrol or hardware I/O",
+    )
+    parsed, ros_args = parser.parse_known_args(args)
+    if parsed.dry_run_check:
+        print("road_cleanup_task_server dry-run check ok")
+        return
+
+    rclpy.init(args=ros_args)
     node = RoadCleanupTaskServer()
     executor = MultiThreadedExecutor(num_threads=4)
     executor.add_node(node)
@@ -1500,3 +1507,7 @@ def main(args: list[str] | None = None) -> None:
                 rclpy.shutdown()
             except KeyboardInterrupt:
                 pass
+
+
+if __name__ == "__main__":
+    main()

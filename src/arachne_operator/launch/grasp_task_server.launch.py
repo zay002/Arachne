@@ -21,6 +21,14 @@ def generate_launch_description():
                 "real_fixed_search_joints",
                 default_value="-1.629044,0.031622,1.684745,0.079056,1.575197,0.754000",
             ),
+            DeclareLaunchArgument(
+                "real_fixed_lift_joints",
+                default_value="-1.392228627,-0.587456810,1.402798238,0.420158124,1.570706911,0.178573568",
+            ),
+            DeclareLaunchArgument(
+                "real_fixed_basket_joints",
+                default_value="-1.187592607,0.410946348,2.275480439,0.311525006,1.571670234,0.382880501",
+            ),
             DeclareLaunchArgument("real_sdk_move_speed", default_value="0.36"),
             DeclareLaunchArgument("real_sdk_move_accel", default_value="0.45"),
             DeclareLaunchArgument(
@@ -118,6 +126,12 @@ def generate_launch_description():
                         ),
                         "real_fixed_search_joints": LaunchConfiguration(
                             "real_fixed_search_joints"
+                        ),
+                        "real_fixed_lift_joints": LaunchConfiguration(
+                            "real_fixed_lift_joints"
+                        ),
+                        "real_fixed_basket_joints": LaunchConfiguration(
+                            "real_fixed_basket_joints"
                         ),
                         "real_sdk_move_speed": ParameterValue(
                             LaunchConfiguration("real_sdk_move_speed"), value_type=float

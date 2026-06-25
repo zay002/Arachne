@@ -56,6 +56,45 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("with_camera")),
     )
 
+    real_bringup = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution(
+                [FindPackageShare("arachne_hardware"), "launch", "real_bringup.launch.py"]
+            )
+        ),
+        launch_arguments={
+            "aubo_robot_ip": LaunchConfiguration("aubo_sdk_ip"),
+            "aubo_teach_command_topic": LaunchConfiguration("aubo_teach_command_topic"),
+            "aubo_sdk_velocity_command_topic": LaunchConfiguration(
+                "arm_velocity_command_topic"
+            ),
+            "aubo_rpc_port": LaunchConfiguration("aubo_sdk_rpc_port"),
+            "aubo_rpc_timeout_sec": LaunchConfiguration("aubo_sdk_rpc_timeout_sec"),
+            "aubo_teach_flag_path": LaunchConfiguration("aubo_sdk_teach_flag_path"),
+            "aubo_control_owner_path": LaunchConfiguration("aubo_sdk_control_owner_path"),
+            "aubo_teach_control_owner_name": LaunchConfiguration(
+                "aubo_sdk_control_owner_name"
+            ),
+            "aubo_sdk_velocity_control_owner_name": LaunchConfiguration(
+                "aubo_sdk_control_owner_name"
+            ),
+            "aubo_move_joint_action_name": LaunchConfiguration("aubo_move_joint_action_name"),
+            "aubo_sdk_move_joint_speed_rad_sec": LaunchConfiguration(
+                "aubo_sdk_move_speed_rad_sec"
+            ),
+            "aubo_sdk_move_joint_accel_rad_sec2": LaunchConfiguration(
+                "aubo_sdk_move_accel_rad_sec2"
+            ),
+            "aubo_sdk_move_joint_goal_tolerance_rad": LaunchConfiguration(
+                "aubo_sdk_goal_tolerance_rad"
+            ),
+            "aubo_sdk_move_joint_arrival_padding_sec": LaunchConfiguration(
+                "aubo_sdk_arrival_timeout_padding_sec"
+            ),
+        }.items(),
+        condition=IfCondition(LaunchConfiguration("with_real_bringup")),
+    )
+
     demo_orchestrator = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
@@ -380,6 +419,7 @@ def generate_launch_description():
             DeclareLaunchArgument("camera_parent_frame", default_value="ee_camera_link"),
             DeclareLaunchArgument("camera_projection_flip_x", default_value="true"),
             DeclareLaunchArgument("camera_projection_flip_y", default_value="true"),
+            DeclareLaunchArgument("with_real_bringup", default_value="true"),
             DeclareLaunchArgument(
                 "arm_follow_joint_trajectory_action",
                 default_value="/joint_trajectory_controller/follow_joint_trajectory",
@@ -395,8 +435,8 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "arm_state_joint_names",
                 default_value=(
-                    "shoulder_joint,upperArm_joint,foreArm_joint,"
-                    "wrist1_joint,wrist2_joint,wrist3_joint"
+                    "aubo_shoulder_joint,aubo_upperArm_joint,aubo_foreArm_joint,"
+                    "aubo_wrist1_joint,aubo_wrist2_joint,aubo_wrist3_joint"
                 ),
             ),
             DeclareLaunchArgument(
@@ -553,15 +593,22 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "camera_view_command",
                 default_value=(
-                    "${ARACHNE_SYSTEM_PYTHON:-python3} scripts/vision/raw_image_viewer.py "
+                    "ros2 run arachne_operator raw_image_viewer "
                     "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30"
                 ),
             ),
-            DeclareLaunchArgument("slam_command", default_value="scripts/hardware/real_lidar_nav.sh"),
+            DeclareLaunchArgument(
+                "slam_command",
+                default_value=(
+                    "ros2 launch arachne_nav nav2_lidar.launch.py "
+                    "with_lslidar_driver:=true with_pointcloud_to_scan:=true "
+                    "with_robot_state_publisher:=false with_rviz:=true"
+                ),
+            ),
             DeclareLaunchArgument(
                 "grasp_server_command",
                 default_value=(
-                    "scripts/vision/grasp_task_server.sh "
+                    "ros2 launch arachne_operator grasp_task_server.launch.py "
                     "execute_real:=true confirm_execute_real:=true with_rviz:=false "
                     "confidence:=0.08 "
                     "real_fixed_post_grasp:=true "
@@ -591,7 +638,7 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "cleanup_server_command",
                 default_value=(
-                    "scripts/vision/road_cleanup_task_server.sh "
+                    "ros2 launch arachne_operator road_cleanup_task_server.launch.py "
                     "patrol_pattern:=line patrol_distance_m:=1.0 patrol_step_m:=0.20 "
                     "max_round_trips:=1 loop:=false "
                     "patrol_base_speed_mps:=0.05 base_step_timeout_sec:=120.0 "
@@ -624,6 +671,7 @@ def generate_launch_description():
             DeclareLaunchArgument("cleanup_task_preflight_service", default_value="/arachne/road_cleanup/preflight"),
             visualization,
             camera,
+            real_bringup,
             demo_orchestrator,
             teach_panel_node,
             RegisterEventHandler(

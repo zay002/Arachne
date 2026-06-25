@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Arachne helper only; not a stable runtime entrypoint. Prefer ROS2 package entrypoints in README.md.
 set -euo pipefail
 
 GRACE_SEC="${GRACE_SEC:-2}"
@@ -59,8 +60,6 @@ PATTERNS=(
   "/install/arachne_operator/lib/arachne_operator/grasp_task_server"
   "ros2 launch arachne_operator road_cleanup_task_server.launch.py"
   "/install/arachne_operator/lib/arachne_operator/road_cleanup_task_server"
-  "/scripts/hardware/real_grasp_console.sh"
-  "/scripts/vision/grasp_preview.sh"
   "grasp_preview_pipeline.py"
   "raw_image_viewer.py"
   "image_view.*arachne/grasp_preview/annotated_image"

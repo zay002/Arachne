@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Arachne helper only; not a stable runtime entrypoint. Prefer ROS2 package entrypoints in README.md.
 # Source this file before building or running Arachne from a shell that may have
 # venv/conda/pyenv Python ahead of the Ubuntu Python used by ROS 2.
 

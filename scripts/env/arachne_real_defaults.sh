@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Arachne helper only; not a stable runtime entrypoint. Prefer ROS2 package entrypoints in README.md.
 # Shared real-hardware defaults captured from the current Aubo i5 setup.
 # Source this file from scripts that need the same home pose or payload values.
 

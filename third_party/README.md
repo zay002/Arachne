@@ -6,7 +6,7 @@ Arachne keeps a minimal third-party subset in `third_party/` so the workspace ca
 
 - `aubo_description`: official Aubo description package metadata, full URDF/xacro text, and Aubo i5-family DAE/STL runtime meshes from `AuboRobot/aubo_description`. This keeps the Aubo i5 dimensions and joint definitions canonical across desktop and Jetson branches.
 - `scout_ros2`: Scout 2.0 ROS2 description, messages, and base node from `agilexrobotics/scout_ros2`.
-- `ugv_sdk`: AgileX UGV SDK source and build files, without the large `docs/` manuals.
+- `ugv_sdk`: AgileX UGV SDK source and build files, without bulky manuals.
 - `aubo_ros2_driver`: Aubo ROS2 driver with the Arachne real-arm safe-start patches.
 - `dh_ag95_gripper_ros2`: optional AG95 gripper description and driver.
 - `ms42dc_step_motor_ros2`: Yizhua Robot MS42DC vendor ROS2 example source.

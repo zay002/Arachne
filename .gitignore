@@ -17,7 +17,6 @@ godot/**/.import/
 godot/**/assets/generated/
 godot/**/assets/vendor/*
 !godot/**/assets/vendor/README.md
-!godot/**/assets/vendor/README.zh-CN.md
 !godot/**/assets/vendor/.gdignore
 # Python generated files
 **/__pycache__/
@@ -47,9 +46,6 @@ credentials/
 recordings/*
 !recordings/teach/
 !recordings/teach/*.json
-
-# Internal stage reports are local working notes, not public docs.
-docs/reports/
 
 # Local planning notes are not part of the public repository.
 plan.md
@@ -112,7 +108,6 @@ third_party/scout_ros2/.git/
 !third_party/ugv_sdk/
 !third_party/ugv_sdk/**
 third_party/ugv_sdk/.git/
-third_party/ugv_sdk/docs/**
 
 !third_party/aubo_ros2_driver/
 !third_party/aubo_ros2_driver/**
@@ -140,7 +135,6 @@ third_party/scout_ros/**
 
 # Keep the small source assets needed to reproduce the active MS42DC model.
 !third_party/README.md
-!third_party/README.zh-CN.md
 !third_party/MS42DC.step
 !third_party/MS42DC_SPLIT/
 !third_party/MS42DC_SPLIT/*.stl

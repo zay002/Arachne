@@ -60,14 +60,8 @@ Gemini335 images:
 ./scripts/vision/export_yolo_engine.sh yolo26n.pt int8
 ```
 
-Preview a bottle detect-depth-grasp-to-basket path in RViz:
+Run the package-level grasp task server after the workspace is built:
 
 ```bash
-./scripts/vision/grasp_preview.sh
-```
-
-Preview with the RViz model seeded from the real Aubo pose:
-
-```bash
-./scripts/vision/grasp_preview_real_sync.sh
+ros2 run arachne_operator grasp_task_server
 ```
