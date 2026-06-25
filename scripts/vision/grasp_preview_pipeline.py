@@ -2923,6 +2923,7 @@ class GraspPreviewNode(Node):
                 {"name": name, "xyz": [float(value) for value in xyz]}
                 for name, xyz, _progress in self._planning_target_samples(preview)
             ],
+            "pointcloud_grasp_shape": self._pointcloud_shape_payload(preview.pointcloud_shape),
             "trajectory_message": str(preview.ik_message),
         }
         payload = {

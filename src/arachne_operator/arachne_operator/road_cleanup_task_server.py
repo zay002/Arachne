@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import rclpy
+from geometry_msgs.msg import Twist
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
@@ -78,6 +79,7 @@ class RoadCleanupTaskServer(Node):
             "/arachne/teach_visualization/joint_states",
         )
         self.declare_parameter("base_command_topic", "/arachne/grasp_task/base_command")
+        self.declare_parameter("cmd_vel_topic", "/cmd_vel")
         self.declare_parameter("base_state_topic", "/arachne/grasp_task/base_state")
         self.declare_parameter("grasp_start_service", "/arachne/grasp_task/start")
         self.declare_parameter("grasp_stop_service", "/arachne/grasp_task/stop")
@@ -102,7 +104,8 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("detection_confidence", 0.08)
         self.declare_parameter("detection_timeout_sec", 3.0)
         self.declare_parameter("scan_warmup_sec", 4.0)
-        self.declare_parameter("initial_detection_wait_sec", 4.0)
+        self.declare_parameter("initial_detection_wait_sec", 45.0)
+        self.declare_parameter("post_grasp_detection_wait_sec", 20.0)
         self.declare_parameter("skip_preflight", False)
         self.declare_parameter("move_to_search_pose_before_start", True)
         self.declare_parameter("require_search_pose_before_start", True)
@@ -117,6 +120,7 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("candidate_max_base_x_m", 1.03)
         self.declare_parameter("candidate_max_abs_base_y_m", 0.60)
         self.declare_parameter("candidate_min_base_z_m", -0.18)
+        self.declare_parameter("candidate_min_extent_z_m", 0.012)
         self.declare_parameter("candidate_max_reach_m", 1.03)
         self.declare_parameter("candidate_max_depth_m", 0.85)
         self.declare_parameter("patrol_turn_scale", 1.0)
@@ -166,6 +170,9 @@ class RoadCleanupTaskServer(Node):
         self.event_pub = self.create_publisher(String, "/arachne/road_cleanup/event", 10)
         self.base_command_pub = self.create_publisher(
             String, str(self.get_parameter("base_command_topic").value), 10
+        )
+        self.cmd_vel_pub = self.create_publisher(
+            Twist, str(self.get_parameter("cmd_vel_topic").value), 10
         )
         self.restart_search_pub = self.create_publisher(
             Empty, str(self.get_parameter("restart_search_topic").value), 10
@@ -261,6 +268,7 @@ class RoadCleanupTaskServer(Node):
     def _pause_cb(self, _request, response):
         self.cancel_event.set()
         self._set_real_search_scan(False)
+        self._publish_base_zero()
         self._call_trigger_background(self.base_stop_client, 1.0, "base_stop")
         self._call_trigger_background(self.grasp_stop_client, 1.0, "grasp_stop")
         self._set_state("paused", "road cleanup paused")
@@ -274,6 +282,7 @@ class RoadCleanupTaskServer(Node):
             if busy:
                 self.cancel_event.set()
                 self._set_real_search_scan(False)
+                self._publish_base_zero()
                 self._call_trigger_background(self.base_stop_client, 1.0, "base_stop")
                 self._call_trigger_background(self.grasp_stop_client, 1.0, "grasp_stop")
                 self._set_state("paused", "return requested while busy; stopped first")
@@ -290,6 +299,7 @@ class RoadCleanupTaskServer(Node):
     def _stop_cb(self, _request, response):
         self.cancel_event.set()
         self._set_real_search_scan(False)
+        self._publish_base_zero()
         self._call_trigger_background(self.base_stop_client, 1.0, "base_stop")
         self._call_trigger_background(self.grasp_stop_client, 1.0, "grasp_stop")
         self._set_state("canceled", "road cleanup stopping")
@@ -340,6 +350,7 @@ class RoadCleanupTaskServer(Node):
         with self.lock:
             self.latest_candidate = candidate
         self._event("candidate", asdict(candidate))
+        self._publish_base_zero()
         self._call_trigger_background(self.base_stop_client, 1.0, "base_stop_on_candidate")
 
     def _base_state_cb(self, msg: String) -> None:
@@ -413,8 +424,7 @@ class RoadCleanupTaskServer(Node):
                 self._handle_candidate(candidate)
                 if self._is_terminal() or self.cancel_event.is_set():
                     break
-                self._set_state("patrol", "resume patrol after grasp")
-                self._restart_visual_search("resume patrol after initial grasp")
+                self._wait_after_grasp("resume patrol after initial grasp")
                 break
             time.sleep(0.05)
         if not self._is_terminal() and not self.cancel_event.is_set():
@@ -427,8 +437,7 @@ class RoadCleanupTaskServer(Node):
                         break
                     if self.cancel_event.is_set():
                         break
-                    self._set_state("patrol", "resume patrol after grasp")
-                    self._restart_visual_search("resume patrol after grasp")
+                    self._wait_after_grasp("resume patrol after grasp")
                     continue
 
                 if not self._patrol_step():
@@ -453,19 +462,7 @@ class RoadCleanupTaskServer(Node):
             if distance <= 1e-3:
                 self._finish("succeeded", "return home complete: no completed base distance")
                 return
-            payload = {
-                "command": "drive_relative",
-                "distance_m": -distance,
-                "speed_m_s": max(float(self.get_parameter("patrol_base_speed_mps").value), 0.0),
-                "request_id": self._new_base_request_id("return"),
-            }
-            ok = self._execute_base_payload(
-                payload,
-                -distance,
-                "return_home_done",
-                monitor_candidates=False,
-                record_completed=False,
-            )
+            ok = self._drive_line_cmd_vel(-distance, monitor_candidates=False)
             if ok and not self.cancel_event.is_set():
                 with self.lock:
                     self.completed_base_segments = []
@@ -521,14 +518,60 @@ class RoadCleanupTaskServer(Node):
             "patrol",
             f"scan while moving forward step={distance:.2f}m",
         )
-        payload = {
-            "command": "drive_relative",
-            "distance_m": distance,
-            "speed_m_s": max(float(self.get_parameter("patrol_base_speed_mps").value), 0.0),
-            "request_id": self._new_base_request_id("line"),
-        }
         self._restart_visual_search("line patrol step start")
-        return self._execute_base_payload(payload, distance, "base_step_done")
+        return self._drive_line_cmd_vel(distance, monitor_candidates=True)
+
+    def _publish_base_zero(self) -> None:
+        msg = Twist()
+        for _ in range(4):
+            self.cmd_vel_pub.publish(msg)
+            time.sleep(0.02)
+
+    def _wait_after_grasp(self, reason: str) -> None:
+        self._set_state("searching", reason)
+        self._restart_visual_search(reason)
+        wait_sec = max(float(self.get_parameter("post_grasp_detection_wait_sec").value), 0.0)
+        deadline = time.monotonic() + wait_sec
+        while rclpy.ok() and not self.cancel_event.is_set() and time.monotonic() < deadline:
+            candidate = self._fresh_candidate()
+            if candidate is not None:
+                self._handle_candidate(candidate)
+                if self._is_terminal() or self.cancel_event.is_set():
+                    return
+                deadline = time.monotonic() + wait_sec
+                self._restart_visual_search("resume search after chained grasp")
+            time.sleep(0.05)
+
+    def _drive_line_cmd_vel(self, distance: float, *, monitor_candidates: bool) -> bool:
+        speed = max(float(self.get_parameter("patrol_base_speed_mps").value), 0.01)
+        signed_speed = math.copysign(speed, distance)
+        duration = min(abs(distance) / speed, 25.0)
+        start = time.monotonic()
+        msg = Twist()
+        msg.linear.x = signed_speed
+        self.base_segment_interrupted_by_grasp = False
+        try:
+            while rclpy.ok() and not self.cancel_event.is_set() and time.monotonic() - start < duration:
+                if monitor_candidates:
+                    candidate = self._fresh_candidate()
+                    if candidate is not None:
+                        self.base_segment_interrupted_by_grasp = True
+                        self._publish_base_zero()
+                        self._handle_candidate(candidate)
+                        return not self._is_terminal()
+                self.cmd_vel_pub.publish(msg)
+                time.sleep(0.05)
+        finally:
+            self._publish_base_zero()
+        elapsed = min(time.monotonic() - start, duration)
+        progress = math.copysign(min(abs(distance), elapsed * speed), distance)
+        if self.cancel_event.is_set():
+            return False
+        with self.lock:
+            self.progress_m += progress
+            self.completed_base_segments.extend(self._segments_from_base_payload({"command": "drive_relative"}, progress))
+        self._event("base_step_done", {"distance_m": distance, "progress_m": progress, "state": "timed_cmd_vel"})
+        return True
 
     def _waypoint_patrol_step(self) -> bool:
         if len(self.patrol_waypoints) < 2:
@@ -1224,6 +1267,12 @@ class RoadCleanupTaskServer(Node):
         max_depth = float(self.get_parameter("candidate_max_depth_m").value)
         if depth is not None and depth > max_depth:
             reasons.append(f"depth {depth:.2f}m > {max_depth:.2f}m")
+        shape = raw.get("pointcloud_grasp_shape")
+        if isinstance(shape, dict):
+            extent_z = self._optional_float(shape.get("extent_z_m"))
+            min_extent_z = float(self.get_parameter("candidate_min_extent_z_m").value)
+            if extent_z is not None and extent_z < min_extent_z:
+                reasons.append(f"extent_z {extent_z:.3f}m < {min_extent_z:.3f}m")
         base_xyz = raw.get("base_grasp_xyz")
         if not isinstance(base_xyz, list) or len(base_xyz) < 2:
             base_xyz = self._planning_waypoint_xyz(raw, "grasp")

@@ -598,7 +598,7 @@ def generate_launch_description():
                     "grasp_timeout_sec:=180.0 "
                     "candidate_min_base_z_m:=-0.18 candidate_max_reach_m:=1.03 "
                     "reach_recovery_enabled:=false "
-                    "scan_warmup_sec:=4.0 initial_detection_wait_sec:=4.0 "
+                    "scan_warmup_sec:=4.0 initial_detection_wait_sec:=45.0 "
                     "skip_preflight:=true move_to_search_pose_before_start:=true require_search_pose_before_start:=true "
                     "required_search_joints:=-1.611779,-0.457910,1.071527,-0.044520,1.575231,0.771459 "
                     "required_search_tolerance_rad:=0.08 "
