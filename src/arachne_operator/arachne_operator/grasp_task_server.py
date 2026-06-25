@@ -21,7 +21,7 @@ from nav_msgs.msg import Odometry
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import Image, JointState
-from std_msgs.msg import String
+from std_msgs.msg import Empty, String
 from std_srvs.srv import Trigger
 
 try:
@@ -128,19 +128,13 @@ class TaskSnapshot:
 
 
 class GraspTaskServer(Node):
-    """Guarded wrapper around the existing grasp_preview real execution demo.
-
-    This node intentionally reuses scripts/vision/grasp_preview_real_sync.sh
-    instead of duplicating detection, MoveIt planning, and Aubo SDK execution.
-    It adds a task-level state machine, preflight checks, process control, and a
-    stable log bundle per run.
-    """
+    """Guarded wrapper around the existing grasp_preview real execution demo."""
 
     def __init__(self) -> None:
         super().__init__("arachne_grasp_task_server")
 
         self.declare_parameter("workspace_root", "")
-        self.declare_parameter("runner_script", "scripts/vision/grasp_preview_real_sync.sh")
+        self.declare_parameter("runner_script", "scripts/vision/grasp_preview.sh")
         self.declare_parameter("log_root", "log/grasp_tasks")
         self.declare_parameter("execute_real", False)
         self.declare_parameter("confirm_execute_real", False)
@@ -152,7 +146,7 @@ class GraspTaskServer(Node):
         self.declare_parameter("real_return_home", True)
         self.declare_parameter("real_fixed_post_grasp", True)
         self.declare_parameter(
-            "real_fixed_search_joints", "-1.72,-0.44,1.66,0.92,1.68,-0.05"
+            "real_fixed_search_joints", "-1.629044,0.031622,1.684745,0.079056,1.575197,0.754000"
         )
         self.declare_parameter("real_sdk_move_speed", 0.36)
         self.declare_parameter("real_sdk_move_accel", 0.45)
@@ -164,7 +158,7 @@ class GraspTaskServer(Node):
         self.declare_parameter("aubo_control_owner_name", "grasp_task_server")
         self.declare_parameter("aubo_move_joint_action_name", "/arachne/aubo/move_joint")
         self.declare_parameter("prefer_aubo_move_joint_action", True)
-        self.declare_parameter("aubo_move_joint_fallback_internal", True)
+        self.declare_parameter("aubo_move_joint_fallback_internal", False)
         self.declare_parameter("aubo_move_joint_wait_server_sec", 0.5)
         self.declare_parameter("grasp_base_offset", "0,0,0")
         self.declare_parameter(
@@ -174,6 +168,12 @@ class GraspTaskServer(Node):
         self.declare_parameter("preview_on_start", False)
         self.declare_parameter("preview_runner_script", "scripts/vision/grasp_preview.sh")
         self.declare_parameter("preview_extra_args", "--planner-backend none --imgsz 768")
+        self.declare_parameter("warm_execute_preview", False)
+        self.declare_parameter("real_execute_trigger_topic", "/arachne/grasp_preview/execute_real")
+        self.declare_parameter("real_execute_trigger_service", "/arachne/grasp_preview/execute_real_now")
+        self.declare_parameter("restart_search_topic", "/arachne/grasp_preview/restart_search")
+        self.declare_parameter("warm_execute_timeout_sec", 25.0)
+        self.declare_parameter("warm_execute_trigger_wait_sec", 20.0)
         self.declare_parameter("planning_recovery_base_enabled", False)
         self.declare_parameter(
             "planning_recovery_base_sequence",
@@ -181,6 +181,7 @@ class GraspTaskServer(Node):
         )
         self.declare_parameter("planning_recovery_restore_on_failure", True)
         self.declare_parameter("preflight_timeout_sec", 2.0)
+        self.declare_parameter("skip_preflight", False)
         self.declare_parameter("status_publish_period_sec", 0.5)
         self.declare_parameter("require_safety_state_machine", False)
         self.declare_parameter("set_safety_autonomous_on_start", True)
@@ -194,6 +195,10 @@ class GraspTaskServer(Node):
         self.declare_parameter("retry_on_gripper_miss", True)
         self.declare_parameter("gripper_miss_retry_delay_sec", 0.8)
         self.declare_parameter("joint_states_topic", "/joint_states")
+        self.declare_parameter(
+            "teach_visualization_joint_states_topic",
+            "/arachne/teach_visualization/joint_states",
+        )
         self.declare_parameter("odom_topic", "/odom")
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
         self.declare_parameter("aubo_status_topic", "/arachne/hardware/aubo_status")
@@ -222,6 +227,7 @@ class GraspTaskServer(Node):
         self.process: subprocess.Popen[str] | None = None
         self.idle_preview_process: subprocess.Popen[str] | None = None
         self.idle_preview_log_file = None
+        self.idle_preview_reader: threading.Thread | None = None
         self.idle_preview_last_start = 0.0
         self.worker: threading.Thread | None = None
         self.base_worker: threading.Thread | None = None
@@ -230,6 +236,7 @@ class GraspTaskServer(Node):
         self.runner_real_execution_started = False
         self.runner_real_execution_blocked = False
         self.runner_gripper_capture_failed = False
+        self.runner_waiting_for_execute_trigger = False
         self.latest: dict[str, tuple[float, Any]] = {}
         self.state = "idle"
         self.message = "ready"
@@ -254,6 +261,12 @@ class GraspTaskServer(Node):
 
         self.state_pub = self.create_publisher(String, "/arachne/grasp_task/state", 10)
         self.event_pub = self.create_publisher(String, "/arachne/grasp_task/event", 10)
+        self.restart_search_pub = self.create_publisher(
+            Empty, str(self.get_parameter("restart_search_topic").value), 10
+        )
+        self.real_execute_trigger_pub = self.create_publisher(
+            Empty, str(self.get_parameter("real_execute_trigger_topic").value), 10
+        )
         self.base_state_pub = self.create_publisher(
             String, str(self.get_parameter("base_state_topic").value), 10
         )
@@ -273,10 +286,19 @@ class GraspTaskServer(Node):
             Trigger, "/arachne/safety/set_autonomous"
         )
         self.set_manual_client = self.create_client(Trigger, "/arachne/safety/set_manual")
+        self.real_execute_trigger_client = self.create_client(
+            Trigger, str(self.get_parameter("real_execute_trigger_service").value)
+        )
 
         self.create_subscription(
             JointState,
             str(self.get_parameter("joint_states_topic").value),
+            self._cache_joint_states,
+            10,
+        )
+        self.create_subscription(
+            JointState,
+            str(self.get_parameter("teach_visualization_joint_states_topic").value),
             self._cache_joint_states,
             10,
         )
@@ -345,7 +367,7 @@ class GraspTaskServer(Node):
         if env_root:
             return Path(env_root).expanduser().resolve()
         cwd = Path.cwd().resolve()
-        if (cwd / "scripts" / "vision" / "grasp_preview_real_sync.sh").exists():
+        if (cwd / "scripts" / "vision" / "grasp_preview.sh").exists():
             return cwd
         return Path(__file__).resolve().parents[3]
 
@@ -422,55 +444,89 @@ class GraspTaskServer(Node):
             self._stop_idle_preview("preview disabled")
             return
         if self._grasp_task_active():
-            self._stop_idle_preview("grasp task active")
+            if not bool(self.get_parameter("warm_execute_preview").value):
+                self._stop_idle_preview("grasp task active")
             return
         with self.lock:
             process = self.idle_preview_process
             last_start = self.idle_preview_last_start
         if process is not None and process.poll() is None:
             return
-        if time.monotonic() - last_start < 3.0:
+        if time.monotonic() - last_start < 10.0:
             return
         self._start_idle_preview()
 
     def _start_idle_preview(self) -> None:
+        with self.lock:
+            existing = self.idle_preview_process
+        if existing is not None and existing.poll() is None:
+            return
         self._clear_orphan_aubo_teach_gate()
         command, env = self._idle_preview_command()
         log_dir = self._log_root() / "idle_preview"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / (datetime.now().strftime("%Y%m%d_%H%M%S") + ".log")
         try:
-            log_file = log_path.open("w", encoding="utf-8")
             process = subprocess.Popen(
                 command,
                 cwd=str(self.root),
                 env=env,
-                stdout=log_file,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                bufsize=1,
                 start_new_session=True,
             )
         except Exception as exc:
             self._event("idle_preview_error", {"error": str(exc), "command": command})
             return
         with self.lock:
-            old_file = self.idle_preview_log_file
             self.idle_preview_process = process
-            self.idle_preview_log_file = log_file
             self.idle_preview_last_start = time.monotonic()
-        if old_file is not None:
-            try:
-                old_file.close()
-            except Exception:
-                pass
+            self.idle_preview_reader = threading.Thread(
+                target=self._idle_preview_reader_loop,
+                args=(process, log_path),
+                daemon=True,
+            )
+            self.idle_preview_reader.start()
         self._event("idle_preview_started", {"pid": process.pid, "log": str(log_path)})
+
+    def _idle_preview_reader_loop(self, process: subprocess.Popen[str], log_path: Path) -> None:
+        try:
+            with log_path.open("w", encoding="utf-8") as log_file:
+                if process.stdout is None:
+                    return
+                for line in process.stdout:
+                    log_file.write(line)
+                    log_file.flush()
+                    self._parse_process_line(line)
+        except Exception as exc:
+            self._event("idle_preview_reader_error", {"error": str(exc), "log": str(log_path)})
 
     def _idle_preview_command(self) -> tuple[list[str], dict[str, str]]:
         runner = Path(str(self.get_parameter("preview_runner_script").value))
         if not runner.is_absolute():
             runner = self.root / runner
         command = [str(runner)]
-        extra = shlex.split(str(self.get_parameter("preview_extra_args").value))
+        use_warm_execute = bool(self.get_parameter("warm_execute_preview").value) and bool(
+            self.get_parameter("execute_real").value
+        )
+        if use_warm_execute:
+            with self.lock:
+                has_cached_joints = self.latest.get("aubo_joints") is not None
+            if not has_cached_joints:
+                self._refresh_aubo_joints_from_rpc()
+        extra_source = "extra_args" if use_warm_execute else "preview_extra_args"
+        extra = shlex.split(str(self.get_parameter(extra_source).value))
+        if use_warm_execute:
+            extra.extend(
+                [
+                    "--real-execute-trigger-topic",
+                    str(self.get_parameter("real_execute_trigger_topic").value),
+                    "--real-execute-trigger-service",
+                    str(self.get_parameter("real_execute_trigger_service").value),
+                ]
+            )
         command.extend(extra)
         env = os.environ.copy()
         env["ARACHNE_GRASP_START_MOVEIT"] = "false"
@@ -479,9 +535,32 @@ class GraspTaskServer(Node):
         env["ARACHNE_GRASP_WITH_RVIZ"] = "false"
         env["ARACHNE_GRASP_DISPLAY_FRAME_PREFIX"] = ""
         env["ARACHNE_GRASP_CAMERA_PARENT_FRAME"] = "ee_camera_link"
-        env["ARACHNE_GRASP_EXECUTE_REAL"] = "false"
+        env["ARACHNE_GRASP_EXECUTE_REAL"] = "true" if use_warm_execute else "false"
+        if use_warm_execute and bool(self.get_parameter("confirm_execute_real").value):
+            env["ARACHNE_CONFIRM_GRASP_EXECUTE_REAL"] = "YES"
+        env["ARACHNE_GRASP_REAL_EXECUTE_BACKEND"] = str(
+            self.get_parameter("real_execute_backend").value
+        )
         env["ARACHNE_GRASP_REAL_SEARCH_SCAN"] = "false"
         env["ARACHNE_GRASP_REAL_SDK_IP"] = str(self.get_parameter("real_sdk_ip").value)
+        env["ARACHNE_GRASP_REAL_RETURN_HOME"] = (
+            "true" if bool(self.get_parameter("real_return_home").value) else "false"
+        )
+        env["ARACHNE_GRASP_REAL_FIXED_POST_GRASP"] = (
+            "true" if bool(self.get_parameter("real_fixed_post_grasp").value) else "false"
+        )
+        env["ARACHNE_GRASP_REAL_FIXED_SEARCH_JOINTS"] = str(
+            self.get_parameter("real_fixed_search_joints").value
+        )
+        with self.lock:
+            latest_joints = self.latest.get("aubo_joints")
+        if latest_joints is not None:
+            joint_map = latest_joints[1]
+            names = [canonical for canonical, _aliases in AUBO_JOINT_ALIASES]
+            if isinstance(joint_map, dict) and all(name in joint_map for name in names):
+                env["ARACHNE_GRASP_ARM_JOINTS"] = ",".join(
+                    f"{float(joint_map[name]):.12g}" for name in names
+                )
         env["ARACHNE_GRASP_REAL_SDK_MOVE_SPEED"] = str(
             self.get_parameter("real_sdk_move_speed").value
         )
@@ -497,7 +576,20 @@ class GraspTaskServer(Node):
         env["ARACHNE_GRASP_AUBO_CONTROL_OWNER_NAME"] = str(
             self.get_parameter("aubo_control_owner_name").value
         )
-        env["ARACHNE_GRASP_REAL_RETURN_HOME"] = "false"
+        env["ARACHNE_GRASP_AUBO_MOVE_JOINT_ACTION_NAME"] = str(
+            self.get_parameter("aubo_move_joint_action_name").value
+        )
+        env["ARACHNE_GRASP_PREFER_AUBO_MOVE_JOINT_ACTION"] = (
+            "true" if bool(self.get_parameter("prefer_aubo_move_joint_action").value) else "false"
+        )
+        env["ARACHNE_GRASP_AUBO_MOVE_JOINT_FALLBACK_INTERNAL"] = (
+            "true"
+            if bool(self.get_parameter("aubo_move_joint_fallback_internal").value)
+            else "false"
+        )
+        env["ARACHNE_GRASP_AUBO_MOVE_JOINT_WAIT_SERVER_SEC"] = str(
+            self.get_parameter("aubo_move_joint_wait_server_sec").value
+        )
         env["ARACHNE_GRASP_CLASSES"] = str(self.get_parameter("classes").value)
         env["ARACHNE_GRASP_CONF"] = str(self.get_parameter("confidence").value)
         env["ARACHNE_GRASP_DEVICE_ID"] = str(self.get_parameter("device_id").value)
@@ -1117,11 +1209,19 @@ class GraspTaskServer(Node):
             self.grasp_preview_log_dir = ""
             self.preflight_checks = []
             self.runner_success_requested = False
-        self._set_state("preflight", "checking real-hardware readiness")
+        skip_preflight = bool(self.get_parameter("skip_preflight").value)
+        self._set_state(
+            "preflight",
+            "startup preflight trusted" if skip_preflight else "checking real-hardware readiness",
+        )
         self._write_json(run_dir / "task_request.json", self._task_request())
 
-        result = self._run_preflight(
-            set_autonomous=bool(self.get_parameter("set_safety_autonomous_on_start").value)
+        result = (
+            PreflightResult(ok=True)
+            if skip_preflight
+            else self._run_preflight(
+                set_autonomous=bool(self.get_parameter("set_safety_autonomous_on_start").value)
+            )
         )
         with self.lock:
             self.preflight_checks = result.checks
@@ -1134,6 +1234,15 @@ class GraspTaskServer(Node):
                 {"failures": self._failed_required_checks(result), "message": message},
             )
             self._finish_task("failed", f"preflight failed: {message}", returncode=None)
+            return
+
+        if (
+            bool(self.get_parameter("preview_on_start").value)
+            and bool(self.get_parameter("warm_execute_preview").value)
+            and bool(self.get_parameter("execute_real").value)
+        ):
+            ok, message = self._run_warm_execute_preview(run_dir)
+            self._finish_task("succeeded" if ok else "failed", message, returncode=0 if ok else None)
             return
 
         command, env = self._runner_command()
@@ -1265,6 +1374,75 @@ class GraspTaskServer(Node):
         if grasp_attempt == 0 and plan_attempt == 0:
             return run_dir / "process.log"
         return run_dir / f"process_attempt_{grasp_attempt + 1}_plan_{plan_attempt + 1}.log"
+
+    def _run_warm_execute_preview(self, run_dir: Path) -> tuple[bool, str]:
+        process_log = run_dir / "process.log"
+        with self.lock:
+            self.runner_success_requested = False
+            self.runner_planning_failed = False
+            self.runner_real_execution_started = False
+            self.runner_real_execution_blocked = False
+            self.runner_gripper_capture_failed = False
+            self.runner_waiting_for_execute_trigger = False
+        self._start_idle_preview()
+        deadline = time.monotonic() + 12.0
+        while time.monotonic() < deadline and rclpy.ok() and not self.cancel_event.is_set():
+            with self.lock:
+                process = self.idle_preview_process
+            if process is not None and process.poll() is None:
+                break
+            time.sleep(0.05)
+        else:
+            process_log.write_text("warm preview pipeline did not start\n", encoding="utf-8")
+            return False, "warm preview pipeline did not start"
+
+        with process_log.open("w", encoding="utf-8") as log_file:
+            log_file.write("Using warm grasp_preview pipeline.\n")
+            log_file.write("See idle_preview log for full pipeline output.\n")
+            log_file.flush()
+            timeout = max(float(self.get_parameter("warm_execute_timeout_sec").value), 1.0)
+            self.real_execute_trigger_pub.publish(Empty())
+            log_file.write("Execute trigger topic armed; repeating until motion starts.\n")
+            log_file.flush()
+            self._event(
+                "warm_execute_triggered",
+                {
+                    "pid": process.pid,
+                    "message": "topic trigger armed",
+                    "trigger_wait_sec": 0.0,
+                },
+            )
+            deadline = time.monotonic() + timeout
+            next_trigger = time.monotonic()
+            motion_deadline_extended = False
+            while time.monotonic() < deadline and rclpy.ok() and not self.cancel_event.is_set():
+                with self.lock:
+                    success = self.runner_success_requested
+                    planning_failed = self.runner_planning_failed
+                    real_blocked = self.runner_real_execution_blocked
+                    gripper_miss = self.runner_gripper_capture_failed
+                    real_started = self.runner_real_execution_started
+                if not real_started and time.monotonic() >= next_trigger:
+                    self.real_execute_trigger_pub.publish(Empty())
+                    next_trigger = time.monotonic() + 0.3
+                if real_started and not motion_deadline_extended:
+                    deadline = max(deadline, time.monotonic() + 45.0)
+                    motion_deadline_extended = True
+                if success:
+                    return True, "grasp task complete"
+                if gripper_miss:
+                    return False, "gripper did not capture object"
+                if real_blocked:
+                    return False, "real execution blocked"
+                if planning_failed:
+                    return False, "planning failed before real motion"
+                if process.poll() is not None:
+                    return False, f"warm preview pipeline exited: {process.returncode}"
+                time.sleep(0.05)
+            if self.cancel_event.is_set():
+                self._stop_idle_preview("warm execution canceled")
+                return False, "task canceled"
+            return False, "warm execute timeout"
 
     def _run_runner_process(
         self, command: list[str], env: dict[str, str], process_log: Path
@@ -1486,10 +1664,13 @@ class GraspTaskServer(Node):
 
         if set_autonomous:
             required = bool(self.get_parameter("require_safety_state_machine").value)
-            ok, message = self._call_trigger(self.set_autonomous_client, timeout)
+            ok, message = self._call_trigger(
+                self.set_autonomous_client,
+                timeout if required else 0.05,
+            )
             result.add("safety_set_autonomous", ok, message, required=required)
 
-        if execute_real:
+        if execute_real and bool(self.get_parameter("require_joint_states").value):
             self._refresh_aubo_joints_from_rpc()
 
         required_inputs: list[str] = []
@@ -1666,15 +1847,25 @@ class GraspTaskServer(Node):
         return bool(response.success), str(response.message)
 
     def _runner_command(self) -> tuple[list[str], dict[str, str]]:
-        command = [str(self._runner_path())]
-        if bool(self.get_parameter("execute_real").value):
+        runner_path = self._runner_path()
+        command = [str(runner_path)]
+        execute_real = bool(self.get_parameter("execute_real").value)
+        uses_sync_wrapper = runner_path.name == "grasp_preview_real_sync.sh"
+        if execute_real and uses_sync_wrapper:
             command.append("--execute-real")
         extra = shlex.split(str(self.get_parameter("extra_args").value))
         if extra:
-            command.append("--")
+            if uses_sync_wrapper:
+                command.append("--")
             command.extend(extra)
 
         env = os.environ.copy()
+        env["ARACHNE_GRASP_EXECUTE_REAL"] = "true" if execute_real else "false"
+        env["ARACHNE_GRASP_START_MOVEIT"] = "false"
+        env["ARACHNE_GRASP_START_MODEL"] = "false"
+        env["ARACHNE_GRASP_START_CAMERA"] = "false"
+        env["ARACHNE_GRASP_DISPLAY_FRAME_PREFIX"] = ""
+        env["ARACHNE_GRASP_CAMERA_PARENT_FRAME"] = "ee_camera_link"
         env["ARACHNE_GRASP_WITH_RVIZ"] = "true" if bool(self.get_parameter("with_rviz").value) else "false"
         env["ARACHNE_GRASP_CLASSES"] = str(self.get_parameter("classes").value)
         env["ARACHNE_GRASP_CONF"] = str(self.get_parameter("confidence").value)
@@ -1691,6 +1882,15 @@ class GraspTaskServer(Node):
         env["ARACHNE_GRASP_REAL_FIXED_SEARCH_JOINTS"] = str(
             self.get_parameter("real_fixed_search_joints").value
         )
+        with self.lock:
+            latest_joints = self.latest.get("aubo_joints")
+        if latest_joints is not None:
+            joint_map = latest_joints[1]
+            names = [canonical for canonical, _aliases in AUBO_JOINT_ALIASES]
+            if isinstance(joint_map, dict) and all(name in joint_map for name in names):
+                env["ARACHNE_GRASP_ARM_JOINTS"] = ",".join(
+                    f"{float(joint_map[name]):.12g}" for name in names
+                )
         env["ARACHNE_GRASP_REAL_SDK_MOVE_SPEED"] = str(
             self.get_parameter("real_sdk_move_speed").value
         )
@@ -1765,6 +1965,7 @@ class GraspTaskServer(Node):
             "planning_recovery_base_enabled",
             "planning_recovery_base_sequence",
             "planning_recovery_restore_on_failure",
+            "skip_preflight",
             "max_grasp_attempts",
             "retry_on_gripper_miss",
             "gripper_miss_retry_delay_sec",
@@ -1792,9 +1993,19 @@ class GraspTaskServer(Node):
         if "sending REAL arm motion" in stripped or "REAL moveJoint" in stripped:
             with self.lock:
                 self.runner_real_execution_started = True
+                self.runner_waiting_for_execute_trigger = False
         if "REAL gripper command" in stripped:
             with self.lock:
                 self.runner_real_execution_started = True
+                self.runner_waiting_for_execute_trigger = False
+        if "REAL trajectory ready; waiting for execute trigger" in stripped:
+            with self.lock:
+                self.runner_waiting_for_execute_trigger = True
+            self._event("real_execution_waiting_for_trigger", {"line": stripped})
+        if "REAL execution trigger received" in stripped:
+            with self.lock:
+                self.runner_waiting_for_execute_trigger = False
+            self._event("real_execution_trigger_received", {"line": stripped})
         if (
             "gripper_capture_failed" in lower
             or "gripper capture failed" in lower
@@ -1806,6 +2017,7 @@ class GraspTaskServer(Node):
         if (
             "REAL arm SDK moveJoint sequence complete" in stripped
             or "REAL arm trajectory complete" in stripped
+            or "REAL arm AuboMoveJoint action sequence complete" in stripped
         ):
             with self.lock:
                 self.runner_success_requested = True

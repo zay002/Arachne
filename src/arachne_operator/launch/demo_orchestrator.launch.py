@@ -29,12 +29,14 @@ def generate_launch_description():
                 "cleanup_task_preflight_service",
                 default_value="/arachne/road_cleanup/preflight",
             ),
+            DeclareLaunchArgument("skip_task_preflight", default_value="true"),
             DeclareLaunchArgument(
                 "camera_command",
                 default_value=(
                     "ros2 launch arachne_sensors gemini335.launch.py "
                     "publish_pointcloud:=false with_color_view:=false with_depth_view:=false "
                     "with_tf:=true camera_parent_frame:=ee_camera_link "
+                    "color_v4l2_controls:=brightness=20,exposure_auto=1,exposure_absolute=80,gain=0 "
                     "projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YVYU"
                 ),
             ),
@@ -42,7 +44,7 @@ def generate_launch_description():
                 "camera_view_command",
                 default_value=(
                     "${ARACHNE_SYSTEM_PYTHON:-python3} scripts/vision/raw_image_viewer.py "
-                    "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 15"
+                    "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30"
                 ),
             ),
             DeclareLaunchArgument(
@@ -52,18 +54,24 @@ def generate_launch_description():
                     "execute_real:=true confirm_execute_real:=true with_rviz:=false "
                     "confidence:=0.08 "
                     "real_fixed_post_grasp:=true "
-                    "real_fixed_search_joints:=-1.72,-0.44,1.66,0.92,1.68,-0.05 "
+                    "real_fixed_search_joints:=-1.629044,0.031622,1.684745,0.079056,1.575197,0.754000 "
                     "real_sdk_move_speed:=0.36 real_sdk_move_accel:=0.60 "
-                    "extra_args:='--planner-backend local --imgsz 768 --planning-key-waypoints approach,grasp "
+                    "aubo_move_joint_fallback_internal:=false "
+                    "extra_args:='--planner-backend local --imgsz 768 --min-detection-mask-area-px 0 "
+                    "--reject-label-keywords film,other,cap,lid --planning-key-waypoints approach,grasp "
+                    "--detection-min-center-y-ratio 0.38 "
+                    "--preferred-label-keywords bottle,carton,can,cup,container,jar,box "
                     "--arm-collision-samples-per-link 1 --arm-collision-radius 0.018 "
                     "--collision-margin 0.0 --rear-rack-collision-margin 0.0 "
                     "--trajectory-max-duration 8 --max-grasp-orientation-candidates 1 "
-                    "--local-planning-timeout-sec 1.8 --local-ik-max-iterations 80 "
+                    "--local-planning-timeout-sec 4.0 --local-ik-max-iterations 120 "
+                    "--lock-grasp-orientation --grasp-topdown-max-tilt-deg 20 "
                     "--grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0 "
-                    "--local-position-tolerance 0.050 --local-orientation-tolerance 0.55 "
+                    "--local-position-tolerance 0.050 --local-orientation-tolerance 0.35 "
+                    "--real-sdk-arrival-timeout-padding 10 "
                     "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "
-                    "preview_on_start:=true planning_recovery_base_enabled:=false "
-                    "require_odom:=false require_camera_topics:=true "
+                    "preview_on_start:=false warm_execute_preview:=false planning_recovery_base_enabled:=false skip_preflight:=true "
+                    "preflight_timeout_sec:=0.5 require_odom:=false require_joint_states:=false require_camera_topics:=false "
                     "require_aubo_status:=false require_gripper_status:=false "
                     "max_grasp_attempts:=2 retry_on_gripper_miss:=true"
                 ),
@@ -77,7 +85,10 @@ def generate_launch_description():
                     "patrol_base_speed_mps:=0.08 base_step_timeout_sec:=5.0 "
                     "grasp_timeout_sec:=25.0 "
                     "candidate_min_base_z_m:=-0.18 candidate_max_reach_m:=1.03 "
-                    "reach_recovery_enabled:=false initial_detection_wait_sec:=0.0 "
+                    "reach_recovery_enabled:=false initial_detection_wait_sec:=2.0 "
+                    "skip_preflight:=true require_search_pose_before_start:=false "
+                    "required_search_joints:=-1.629044,0.031622,1.684745,0.079056,1.575197,0.754000 "
+                    "required_search_tolerance_rad:=0.08 "
                     "detection_confidence:=0.08 detection_timeout_sec:=3.0"
                 ),
             ),
@@ -115,6 +126,9 @@ def generate_launch_description():
                         ),
                         "cleanup_task_preflight_service": LaunchConfiguration(
                             "cleanup_task_preflight_service"
+                        ),
+                        "skip_task_preflight": ParameterValue(
+                            LaunchConfiguration("skip_task_preflight"), value_type=bool
                         ),
                         "camera_command": LaunchConfiguration("camera_command"),
                         "camera_view_command": LaunchConfiguration("camera_view_command"),

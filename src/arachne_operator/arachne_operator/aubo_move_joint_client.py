@@ -97,5 +97,5 @@ class AuboMoveJointClient:
 
             rclpy.spin_once(self.node, timeout_sec=0.02)
             return True
-        except ValueError:
+        except Exception:
             return False

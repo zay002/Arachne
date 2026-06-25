@@ -473,7 +473,7 @@ def generate_launch_description():
                 default_value="/arachne/aubo/move_joint",
             ),
             DeclareLaunchArgument("aubo_move_joint_action_timeout_sec", default_value="0.5"),
-            DeclareLaunchArgument("aubo_move_joint_fallback_internal", default_value="true"),
+            DeclareLaunchArgument("aubo_move_joint_fallback_internal", default_value="false"),
             DeclareLaunchArgument("with_demo_orchestrator", default_value="true"),
             DeclareLaunchArgument("demo_orchestrator_enabled", default_value="true"),
             DeclareLaunchArgument("demo_orchestrator_fallback_internal", default_value="true"),
@@ -541,8 +541,9 @@ def generate_launch_description():
                     "ros2 launch arachne_sensors gemini335.launch.py "
                     "publish_pointcloud:=false with_color_view:=false with_depth_view:=false "
                     "with_tf:=true camera_parent_frame:=ee_camera_link "
-                    "color_width:=960 color_height:=540 color_fps:=15.0 "
+                    "color_width:=640 color_height:=480 color_fps:=30.0 "
                     "depth_width:=640 depth_height:=480 depth_fps:=15.0 "
+                    "color_v4l2_controls:=brightness=20,exposure_auto=1,exposure_absolute=80,gain=0 "
                     "camera_optical_x:=0.0 camera_optical_y:=0.0 "
                     "camera_optical_z:=0.0 camera_optical_roll:=0.0 "
                     "camera_optical_pitch:=0.0 camera_optical_yaw:=1.570796327 "
@@ -553,7 +554,7 @@ def generate_launch_description():
                 "camera_view_command",
                 default_value=(
                     "${ARACHNE_SYSTEM_PYTHON:-python3} scripts/vision/raw_image_viewer.py "
-                    "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 15"
+                    "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30"
                 ),
             ),
             DeclareLaunchArgument("slam_command", default_value="scripts/hardware/real_lidar_nav.sh"),
@@ -564,19 +565,25 @@ def generate_launch_description():
                     "execute_real:=true confirm_execute_real:=true with_rviz:=false "
                     "confidence:=0.08 "
                     "real_fixed_post_grasp:=true "
-                    "real_fixed_search_joints:=-1.72,-0.44,1.66,0.92,1.68,-0.05 "
+                    "real_fixed_search_joints:=-1.611779,-0.457910,1.071527,-0.044520,1.575231,0.771459 "
                     "real_sdk_move_speed:=0.36 "
                     "real_sdk_move_accel:=0.60 "
-                    "extra_args:='--planner-backend local --imgsz 768 --planning-key-waypoints approach,grasp "
+                    "aubo_move_joint_fallback_internal:=false "
+                    "extra_args:='--planner-backend local --imgsz 768 --min-detection-mask-area-px 0 "
+                    "--reject-label-keywords film,other,cap,lid --planning-key-waypoints approach,grasp "
+                    "--detection-min-center-y-ratio 0.38 "
+                    "--preferred-label-keywords bottle,carton,can,cup,container,jar,box "
                     "--arm-collision-samples-per-link 1 --arm-collision-radius 0.018 "
                     "--collision-margin 0.0 --rear-rack-collision-margin 0.0 "
                     "--trajectory-max-duration 8 --max-grasp-orientation-candidates 1 "
-                    "--local-planning-timeout-sec 1.8 --local-ik-max-iterations 80 "
+                    "--local-planning-timeout-sec 4.0 --local-ik-max-iterations 120 "
+                    "--lock-grasp-orientation --grasp-topdown-max-tilt-deg 20 "
                     "--grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0 "
-                    "--local-position-tolerance 0.050 --local-orientation-tolerance 0.55 "
+                    "--local-position-tolerance 0.050 --local-orientation-tolerance 0.35 "
+                    "--real-sdk-arrival-timeout-padding 10 "
                     "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "
-                    "preview_on_start:=true planning_recovery_base_enabled:=false "
-                    "require_odom:=false require_camera_topics:=true "
+                    "preview_on_start:=true warm_execute_preview:=false planning_recovery_base_enabled:=false skip_preflight:=true "
+                    "preflight_timeout_sec:=0.5 require_odom:=false require_joint_states:=false require_camera_topics:=false "
                     "require_aubo_status:=false require_gripper_status:=false "
                     "max_grasp_attempts:=2 retry_on_gripper_miss:=true"
                 ),
@@ -585,13 +592,16 @@ def generate_launch_description():
                 "cleanup_server_command",
                 default_value=(
                     "scripts/vision/road_cleanup_task_server.sh "
-                    "patrol_pattern:=line patrol_distance_m:=1.5 patrol_step_m:=0.20 "
+                    "patrol_pattern:=line patrol_distance_m:=1.0 patrol_step_m:=0.20 "
                     "max_round_trips:=1 loop:=false "
-                    "patrol_base_speed_mps:=0.08 base_step_timeout_sec:=5.0 "
-                    "grasp_timeout_sec:=25.0 "
+                    "patrol_base_speed_mps:=0.05 base_step_timeout_sec:=120.0 "
+                    "grasp_timeout_sec:=180.0 "
                     "candidate_min_base_z_m:=-0.18 candidate_max_reach_m:=1.03 "
                     "reach_recovery_enabled:=false "
-                    "initial_detection_wait_sec:=0.0 "
+                    "scan_warmup_sec:=4.0 initial_detection_wait_sec:=4.0 "
+                    "skip_preflight:=true move_to_search_pose_before_start:=true require_search_pose_before_start:=true "
+                    "required_search_joints:=-1.611779,-0.457910,1.071527,-0.044520,1.575231,0.771459 "
+                    "required_search_tolerance_rad:=0.08 "
                     "detection_confidence:=0.08 detection_timeout_sec:=3.0"
                 ),
             ),

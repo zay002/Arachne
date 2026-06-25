@@ -76,6 +76,7 @@ class Gemini335V4L2Node(Node):
         self.declare_parameter("color_fps", 30.0)
         self.declare_parameter("color_fourcc", "YUYV")
         self.declare_parameter("color_yuv_layout", "YUYV")
+        self.declare_parameter("color_v4l2_controls", "")
         self.declare_parameter("color_batch_frames", 30)
         self.declare_parameter("color_capture_timeout_sec", 4.0)
         self.declare_parameter("color_frame_id", "camera_color_optical_frame")
@@ -111,6 +112,7 @@ class Gemini335V4L2Node(Node):
         self.color_width = int(self.get_parameter("color_width").value)
         self.color_height = int(self.get_parameter("color_height").value)
         self.color_fps = float(self.get_parameter("color_fps").value)
+        self.color_v4l2_controls = str(self.get_parameter("color_v4l2_controls").value)
         self.color_batch_frames = max(int(self.get_parameter("color_batch_frames").value), 1)
         self.color_capture_timeout_sec = max(
             float(self.get_parameter("color_capture_timeout_sec").value), 0.5
@@ -244,7 +246,33 @@ class Gemini335V4L2Node(Node):
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.color_width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.color_height)
         cap.set(cv2.CAP_PROP_FPS, self.color_fps)
+        self._apply_color_v4l2_controls()
         self.color_capture = cap
+
+    def _apply_color_v4l2_controls(self) -> None:
+        controls = [
+            item.strip()
+            for item in self.color_v4l2_controls.replace(";", ",").split(",")
+            if item.strip()
+        ]
+        for control in controls:
+            result = subprocess.run(
+                [
+                    "v4l2-ctl",
+                    "--silent",
+                    "-d",
+                    self.color_device,
+                    f"--set-ctrl={control}",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                detail = result.stderr.strip()
+                suffix = f": {detail}" if detail else ""
+                self._warn_color(f"Gemini335 color control ignored {control!r}{suffix}")
 
     def _start_depth_stream(self) -> None:
         if not os.path.exists(self.depth_device):
@@ -307,6 +335,7 @@ class Gemini335V4L2Node(Node):
                     stderr=subprocess.DEVNULL,
                     check=True,
                 )
+                self._apply_color_v4l2_controls()
                 process = subprocess.Popen(
                     command,
                     stdout=subprocess.PIPE,

@@ -23,8 +23,8 @@ class MS42DCOfficialBridge(Node):
         self.declare_parameter("device_id", 1)
         self.declare_parameter("sub_divide", 32)
         self.declare_parameter("mode", 2)
-        self.declare_parameter("open_angle_tenths", 18720)
-        self.declare_parameter("close_angle_tenths", 18720)
+        self.declare_parameter("open_angle_tenths", 19656)
+        self.declare_parameter("close_angle_tenths", 19656)
         self.declare_parameter("speed_tenths", 150)
 
         motor_module = importlib.import_module("step_motor.msg")

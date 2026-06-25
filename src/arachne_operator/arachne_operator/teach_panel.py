@@ -414,8 +414,9 @@ class TeachPanelNode(Node):
                 "ros2 launch arachne_sensors gemini335.launch.py "
                 "publish_pointcloud:=false with_color_view:=false with_depth_view:=false "
                 "with_tf:=true camera_parent_frame:=ee_camera_link "
-                "color_width:=960 color_height:=540 color_fps:=15.0 "
+                "color_width:=640 color_height:=480 color_fps:=30.0 "
                 "depth_width:=640 depth_height:=480 depth_fps:=15.0 "
+                "color_v4l2_controls:=brightness=20,exposure_auto=1,exposure_absolute=80,gain=0 "
                 "camera_optical_x:=0.0 camera_optical_y:=0.0 "
                 "camera_optical_z:=0.0 camera_optical_roll:=0.0 "
                 "camera_optical_pitch:=0.0 camera_optical_yaw:=1.570796327 "
@@ -426,7 +427,7 @@ class TeachPanelNode(Node):
             "camera_view_command",
             (
                 "${ARACHNE_SYSTEM_PYTHON:-python3} scripts/vision/raw_image_viewer.py "
-                "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 15"
+                "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30"
             ),
         )
         self.declare_parameter("slam_command", "scripts/hardware/real_lidar_nav.sh")
@@ -437,19 +438,25 @@ class TeachPanelNode(Node):
                 "execute_real:=true confirm_execute_real:=true with_rviz:=false "
                 "confidence:=0.08 "
                 "real_fixed_post_grasp:=true "
-                "real_fixed_search_joints:=-1.72,-0.44,1.66,0.92,1.68,-0.05 "
+                "real_fixed_search_joints:=-1.611779,-0.457910,1.071527,-0.044520,1.575231,0.771459 "
                 "real_sdk_move_speed:=0.36 "
                 "real_sdk_move_accel:=0.60 "
-                "extra_args:='--planner-backend local --imgsz 768 --planning-key-waypoints approach,grasp "
+                "aubo_move_joint_fallback_internal:=false "
+                "extra_args:='--planner-backend local --imgsz 768 --min-detection-mask-area-px 0 "
+                "--reject-label-keywords film,other,cap,lid --planning-key-waypoints approach,grasp "
+                "--detection-min-center-y-ratio 0.38 "
+                "--preferred-label-keywords bottle,carton,can,cup,container,jar,box "
                 "--arm-collision-samples-per-link 1 --arm-collision-radius 0.018 "
                 "--collision-margin 0.0 --rear-rack-collision-margin 0.0 "
                 "--trajectory-max-duration 8 --max-grasp-orientation-candidates 1 "
-                "--local-planning-timeout-sec 1.8 --local-ik-max-iterations 80 "
+                "--local-planning-timeout-sec 4.0 --local-ik-max-iterations 120 "
+                "--lock-grasp-orientation --grasp-topdown-max-tilt-deg 20 "
                 "--grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0 "
-                "--local-position-tolerance 0.050 --local-orientation-tolerance 0.55 "
+                "--local-position-tolerance 0.050 --local-orientation-tolerance 0.35 "
+                "--real-sdk-arrival-timeout-padding 10 "
                 "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "
-                "preview_on_start:=true planning_recovery_base_enabled:=false "
-                "require_odom:=false require_camera_topics:=true "
+                "preview_on_start:=true warm_execute_preview:=false planning_recovery_base_enabled:=false skip_preflight:=true "
+                "preflight_timeout_sec:=0.5 require_odom:=false require_joint_states:=false require_camera_topics:=false "
                 "require_aubo_status:=false require_gripper_status:=false "
                 "max_grasp_attempts:=2 retry_on_gripper_miss:=true"
             ),
@@ -458,13 +465,16 @@ class TeachPanelNode(Node):
             "cleanup_server_command",
             (
                 "scripts/vision/road_cleanup_task_server.sh "
-                "patrol_pattern:=line patrol_distance_m:=1.5 patrol_step_m:=0.20 "
+                "patrol_pattern:=line patrol_distance_m:=1.0 patrol_step_m:=0.20 "
                 "max_round_trips:=1 loop:=false "
-                "patrol_base_speed_mps:=0.08 base_step_timeout_sec:=5.0 "
-                "grasp_timeout_sec:=25.0 "
+                "patrol_base_speed_mps:=0.05 base_step_timeout_sec:=120.0 "
+                "grasp_timeout_sec:=180.0 "
                 "candidate_min_base_z_m:=-0.18 candidate_max_reach_m:=1.03 "
                 "reach_recovery_enabled:=false "
-                "initial_detection_wait_sec:=0.0 "
+                "scan_warmup_sec:=4.0 initial_detection_wait_sec:=4.0 "
+                "skip_preflight:=true move_to_search_pose_before_start:=true require_search_pose_before_start:=true "
+                "required_search_joints:=-1.611779,-0.457910,1.071527,-0.044520,1.575231,0.771459 "
+                "required_search_tolerance_rad:=0.08 "
                 "detection_confidence:=0.08 detection_timeout_sec:=3.0"
             ),
         )
@@ -483,6 +493,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("cleanup_task_stop_service", "/arachne/road_cleanup/stop")
         self.declare_parameter("cleanup_task_status_service", "/arachne/road_cleanup/status")
         self.declare_parameter("cleanup_task_preflight_service", "/arachne/road_cleanup/preflight")
+        self.declare_parameter("skip_task_preflight", True)
 
         self.arm_state_joint_names = _parse_names(str(self.get_parameter("arm_state_joint_names").value))
         self.arm_command_joint_names = _parse_names(
@@ -1417,6 +1428,7 @@ class TeachPanelNode(Node):
         if command not in self.grasp_task_clients:
             self._status(f"grasp task ignored unknown command: {command}", warn=True)
             return
+        self._write_event("grasp_task_button", f"grasp task button requested: {command}", command=command)
         self._start_worker(lambda: self._call_grasp_task_worker(command))
 
     def call_cleanup_task(self, command: str) -> None:
@@ -1446,6 +1458,11 @@ class TeachPanelNode(Node):
         time.sleep(0.8)
         self._start_managed_process_worker("viewer")
         self._start_managed_process_worker("grasp_server")
+
+        if bool(self.get_parameter("skip_task_preflight").value):
+            self._status("visual grasp: startup preflight trusted, starting task")
+            self._call_grasp_task_worker("start")
+            return
 
         preflight = self.grasp_task_clients.get("preflight")
         if preflight is None:
@@ -1506,6 +1523,12 @@ class TeachPanelNode(Node):
             self.stop_arm_velocity_hold()
 
         service_name = getattr(client, "srv_name", command)
+        self._write_event(
+            "grasp_task_service_call",
+            f"calling grasp task service: {service_name}",
+            command=command,
+            service=service_name,
+        )
         self._status(f"grasp task {command} requested")
         if not client.wait_for_service(timeout_sec=1.5):
             self._status(f"grasp task {command} unavailable: {service_name}", warn=True)
@@ -3574,8 +3597,8 @@ class TeachPanelApp:
         )
         ttk.Button(
             top,
-            text="Visual Grasp",
-            command=self.node.visual_grasp_start,
+            text="Grasp Start",
+            command=lambda: self.node.call_grasp_task("start"),
             style="Primary.TButton",
         ).grid(
             row=0, column=8, rowspan=2, padx=4
@@ -3662,30 +3685,13 @@ class TeachPanelApp:
         for column in range(2):
             quick.columnconfigure(column, weight=1)
 
-        task_group = self._build_button_group(
-            quick,
-            "Task Flow",
-            (
-                ("Visual Grasp", self.node.visual_grasp_start, "Primary.TButton"),
-                ("Road Start", lambda: self.node.call_cleanup_task("start"), "Primary.TButton"),
-                ("Road Pause", lambda: self.node.call_cleanup_task("pause"), "Danger.TButton"),
-                ("Road Return", lambda: self.node.call_cleanup_task("return_home"), None),
-                ("Grasp Start", lambda: self.node.call_grasp_task("start"), None),
-                ("Road Preflight", lambda: self.node.call_cleanup_task("preflight"), None),
-                ("Restore", lambda: self.node.call_grasp_task("restore"), None),
-                ("Road Stop", lambda: self.node.call_cleanup_task("stop"), "Danger.TButton"),
-                ("Grasp Stop", lambda: self.node.call_grasp_task("stop"), "Danger.TButton"),
-                ("Stop All", self.node.stop_all, "Danger.TButton"),
-            ),
-            columns=2,
-        )
-        task_group.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-
         service_group = self._build_button_group(
             quick,
             "Runtime Services",
             (
                 ("Camera + View", self.node.start_camera_stack, "Service.TButton"),
+                ("Grasp Services", self.node.visual_grasp_start, "Service.TButton"),
+                ("Road Preflight", lambda: self.node.call_cleanup_task("preflight"), None),
                 ("2D View", lambda: self.node.toggle_managed_process("viewer"), None),
                 ("Localize / Nav", lambda: self.node.toggle_managed_process("slam"), None),
                 ("Grasp Server", lambda: self.node.toggle_managed_process("grasp_server"), None),

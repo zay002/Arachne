@@ -56,6 +56,7 @@ class DemoOrchestrator(Node):
         self.declare_parameter("cleanup_task_start_service", "/arachne/road_cleanup/start")
         self.declare_parameter("cleanup_task_stop_service", "/arachne/road_cleanup/stop")
         self.declare_parameter("cleanup_task_preflight_service", "/arachne/road_cleanup/preflight")
+        self.declare_parameter("skip_task_preflight", True)
         self.declare_parameter("camera_command", "")
         self.declare_parameter("camera_view_command", "")
         self.declare_parameter("grasp_server_command", "")
@@ -181,10 +182,11 @@ class DemoOrchestrator(Node):
         time.sleep(0.8)
         self._start_process("viewer")
         self._start_process("grasp_server")
-        ok, message = self._wait_task_preflight(self.grasp_preflight_client, timeout_sec=30.0)
-        if not ok:
-            self._set_error(message)
-            return self._response(response, False, f"visual grasp preflight failed: {message}")
+        if not bool(self.get_parameter("skip_task_preflight").value):
+            ok, message = self._wait_task_preflight(self.grasp_preflight_client, timeout_sec=30.0)
+            if not ok:
+                self._set_error(message)
+                return self._response(response, False, f"visual grasp preflight failed: {message}")
         ok, message = self._call_trigger(self.grasp_start_client, "grasp start", wait_timeout=8.0)
         self._set_state("visual_grasp_running" if ok else "ready")
         if not ok:
@@ -200,10 +202,11 @@ class DemoOrchestrator(Node):
         self._start_process("camera")
         self._start_process("grasp_server")
         self._start_process("cleanup_server")
-        ok, message = self._wait_task_preflight(self.cleanup_preflight_client, timeout_sec=75.0)
-        if not ok:
-            self._set_error(message)
-            return self._response(response, False, f"road cleanup preflight failed: {message}")
+        if not bool(self.get_parameter("skip_task_preflight").value):
+            ok, message = self._wait_task_preflight(self.cleanup_preflight_client, timeout_sec=75.0)
+            if not ok:
+                self._set_error(message)
+                return self._response(response, False, f"road cleanup preflight failed: {message}")
         ok, message = self._call_trigger(
             self.cleanup_start_client, "road cleanup start", wait_timeout=8.0
         )

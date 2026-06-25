@@ -11,6 +11,7 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "detection_topic", default_value="/arachne/perception/taco_instances"
             ),
+            DeclareLaunchArgument("joint_states_topic", default_value="/joint_states"),
             DeclareLaunchArgument(
                 "restart_search_topic", default_value="/arachne/grasp_preview/restart_search"
             ),
@@ -23,16 +24,29 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("base_state_topic", default_value="/arachne/grasp_task/base_state"),
             DeclareLaunchArgument("patrol_pattern", default_value="line"),
-            DeclareLaunchArgument("patrol_distance_m", default_value="1.5"),
+            DeclareLaunchArgument("patrol_distance_m", default_value="1.0"),
             DeclareLaunchArgument("patrol_step_m", default_value="0.20"),
             DeclareLaunchArgument("patrol_box_width_m", default_value="1.0"),
             DeclareLaunchArgument("patrol_box_height_m", default_value="1.2"),
             DeclareLaunchArgument("patrol_entry_m", default_value="0.3"),
-            DeclareLaunchArgument("patrol_base_speed_mps", default_value="0.08"),
+            DeclareLaunchArgument("patrol_base_speed_mps", default_value="0.05"),
             DeclareLaunchArgument("max_round_trips", default_value="1"),
             DeclareLaunchArgument("detection_confidence", default_value="0.08"),
             DeclareLaunchArgument("detection_timeout_sec", default_value="3.0"),
-            DeclareLaunchArgument("initial_detection_wait_sec", default_value="0.0"),
+            DeclareLaunchArgument("scan_warmup_sec", default_value="4.0"),
+            DeclareLaunchArgument("initial_detection_wait_sec", default_value="4.0"),
+            DeclareLaunchArgument("skip_preflight", default_value="false"),
+            DeclareLaunchArgument("move_to_search_pose_before_start", default_value="true"),
+            DeclareLaunchArgument("require_search_pose_before_start", default_value="true"),
+            DeclareLaunchArgument(
+                "required_search_joints",
+                default_value="-1.611779,-0.457910,1.071527,-0.044520,1.575231,0.771459",
+            ),
+            DeclareLaunchArgument("required_search_tolerance_rad", default_value="0.08"),
+            DeclareLaunchArgument("search_pose_move_speed_rad_sec", default_value="0.25"),
+            DeclareLaunchArgument("search_pose_move_accel_rad_sec2", default_value="0.45"),
+            DeclareLaunchArgument("search_pose_move_timeout_sec", default_value="20.0"),
+            DeclareLaunchArgument("aubo_move_joint_action_name", default_value="/arachne/aubo/move_joint"),
             DeclareLaunchArgument("require_3d_candidate", default_value="true"),
             DeclareLaunchArgument("candidate_min_base_x_m", default_value="0.25"),
             DeclareLaunchArgument("candidate_max_base_x_m", default_value="1.03"),
@@ -41,8 +55,8 @@ def generate_launch_description():
             DeclareLaunchArgument("candidate_max_reach_m", default_value="1.03"),
             DeclareLaunchArgument("candidate_max_depth_m", default_value="0.85"),
             DeclareLaunchArgument("patrol_turn_scale", default_value="1.0"),
-            DeclareLaunchArgument("base_step_timeout_sec", default_value="12.0"),
-            DeclareLaunchArgument("grasp_timeout_sec", default_value="90.0"),
+            DeclareLaunchArgument("base_step_timeout_sec", default_value="120.0"),
+            DeclareLaunchArgument("grasp_timeout_sec", default_value="180.0"),
             DeclareLaunchArgument("reach_recovery_enabled", default_value="true"),
             DeclareLaunchArgument("reach_recovery_max_attempts", default_value="3"),
             DeclareLaunchArgument("reach_recovery_step_m", default_value="0.10"),
@@ -58,6 +72,7 @@ def generate_launch_description():
                 parameters=[
                     {
                         "detection_topic": LaunchConfiguration("detection_topic"),
+                        "joint_states_topic": LaunchConfiguration("joint_states_topic"),
                         "restart_search_topic": LaunchConfiguration("restart_search_topic"),
                         "real_search_scan_control_topic": LaunchConfiguration(
                             "real_search_scan_control_topic"
@@ -92,9 +107,35 @@ def generate_launch_description():
                         "detection_timeout_sec": ParameterValue(
                             LaunchConfiguration("detection_timeout_sec"), value_type=float
                         ),
+                        "scan_warmup_sec": ParameterValue(
+                            LaunchConfiguration("scan_warmup_sec"), value_type=float
+                        ),
                         "initial_detection_wait_sec": ParameterValue(
                             LaunchConfiguration("initial_detection_wait_sec"), value_type=float
                         ),
+                        "skip_preflight": ParameterValue(
+                            LaunchConfiguration("skip_preflight"), value_type=bool
+                        ),
+                        "move_to_search_pose_before_start": ParameterValue(
+                            LaunchConfiguration("move_to_search_pose_before_start"), value_type=bool
+                        ),
+                        "require_search_pose_before_start": ParameterValue(
+                            LaunchConfiguration("require_search_pose_before_start"), value_type=bool
+                        ),
+                        "required_search_joints": LaunchConfiguration("required_search_joints"),
+                        "required_search_tolerance_rad": ParameterValue(
+                            LaunchConfiguration("required_search_tolerance_rad"), value_type=float
+                        ),
+                        "search_pose_move_speed_rad_sec": ParameterValue(
+                            LaunchConfiguration("search_pose_move_speed_rad_sec"), value_type=float
+                        ),
+                        "search_pose_move_accel_rad_sec2": ParameterValue(
+                            LaunchConfiguration("search_pose_move_accel_rad_sec2"), value_type=float
+                        ),
+                        "search_pose_move_timeout_sec": ParameterValue(
+                            LaunchConfiguration("search_pose_move_timeout_sec"), value_type=float
+                        ),
+                        "aubo_move_joint_action_name": LaunchConfiguration("aubo_move_joint_action_name"),
                         "require_3d_candidate": ParameterValue(
                             LaunchConfiguration("require_3d_candidate"), value_type=bool
                         ),

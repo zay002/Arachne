@@ -38,6 +38,28 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /arachne/model/direction_markers
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: GraspPreviewMarkers
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/grasp_preview/markers
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: true
+      Name: GraspRoiCloud
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/grasp_preview/roi_cloud
+      Style: Points
+      Size (Pixels): 4
+      Color Transformer: FlatColor
+      Color: 0; 255; 80
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -69,6 +91,18 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: GraspToBasketPath
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/grasp_preview/path
+      Line Style: Lines
+      Line Width: 0.035
+      Color: 0; 180; 255
   Enabled: true
   Fixed Frame: base_link
   Global Options:

@@ -33,6 +33,7 @@ from sensor_msgs.msg import JointState
 from sensor_msgs_py import point_cloud2
 from shape_msgs.msg import SolidPrimitive
 from std_msgs.msg import Bool, ColorRGBA, Empty, Header, String
+from std_srvs.srv import Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
@@ -334,16 +335,21 @@ def _parse_args() -> argparse.Namespace:
         description="Preview detect-depth-grasp path from Gemini335 RGB-D in RViz."
     )
     hidden = argparse.SUPPRESS
-    parser.add_argument("--model", default="yolo_workspace/weights/yolo26n_seg_taco_best.pt", help=hidden)
+    parser.add_argument("--model", default="yolo_workspace/weights/trash_yolo26n_seg_best.pt", help=hidden)
     parser.add_argument("--venv", default="yolo_workspace/.venv", help=hidden)
     parser.add_argument("--yolo-task", default="segment", help=hidden)
     parser.add_argument("--classes", default="")
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--min-detection-mask-area-px", type=float, default=1200.0, help=hidden)
     parser.add_argument("--detection-edge-margin-ratio", type=float, default=0.06, help=hidden)
-    parser.add_argument("--detection-min-center-y-ratio", type=float, default=0.30, help=hidden)
+    parser.add_argument("--detection-min-center-y-ratio", type=float, default=0.38, help=hidden)
     parser.add_argument("--detection-max-center-y-ratio", type=float, default=0.86, help=hidden)
-    parser.add_argument("--reject-label-keywords", default="cap,lid", help=hidden)
+    parser.add_argument("--reject-label-keywords", default="film,other,cap,lid", help=hidden)
+    parser.add_argument(
+        "--preferred-label-keywords",
+        default="bottle,carton,can,cup,container,jar,box",
+        help=hidden,
+    )
     parser.add_argument("--green-bottle-fallback", action=argparse.BooleanOptionalAction, default=False, help=hidden)
     parser.add_argument("--green-bottle-min-area-px", type=float, default=450.0, help=hidden)
     parser.add_argument("--green-bottle-bbox-pad-ratio", type=float, default=0.35, help=hidden)
@@ -438,8 +444,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--collision-margin", type=float, default=0.015, help=hidden)
     parser.add_argument("--rear-rack-collision-margin", type=float, default=0.005, help=hidden)
     parser.add_argument("--ground-min-z-base", type=float, default=-0.22, help=hidden)
-    parser.add_argument("--grasp-min-z-base", type=float, default=-0.30, help=hidden)
-    parser.add_argument("--grasp-max-z-base", type=float, default=-0.10, help=hidden)
+    parser.add_argument("--grasp-min-z-base", type=float, default=-0.20, help=hidden)
+    parser.add_argument("--grasp-max-z-base", type=float, default=999.0, help=hidden)
+    parser.add_argument("--grasp-final-z-offset-m", type=float, default=-0.055, help=hidden)
     parser.add_argument("--ground-clearance", type=float, default=0.02, help=hidden)
     parser.add_argument("--tool-ground-clearance", type=float, default=0.015, help=hidden)
     parser.add_argument("--allow-colliding-best-effort", action="store_true", help=hidden)
@@ -529,7 +536,7 @@ def _parse_args() -> argparse.Namespace:
         default="/joint_trajectory_controller/follow_joint_trajectory",
         help=hidden,
     )
-    parser.add_argument("--real-joint-states-topic", default="/joint_states", help=hidden)
+    parser.add_argument("--real-joint-states-topic", default="/arachne/teach_visualization/joint_states", help=hidden)
     parser.add_argument(
         "--real-arm-joint-names",
         default=",".join(REAL_ARM_JOINT_NAMES),
@@ -575,8 +582,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--real-search-scan-period-sec", type=float, default=5.0, help=hidden)
     parser.add_argument("--real-search-scan-shoulder-deg", type=float, default=4.0, help=hidden)
     parser.add_argument("--real-search-scan-wrist3-deg", type=float, default=8.0, help=hidden)
-    parser.add_argument("--real-search-scan-left-delta", default="-0.24,-0.04,-0.04,0.06,0.02,-0.21", help=hidden)
-    parser.add_argument("--real-search-scan-right-delta", default="0.24,0.02,0.04,-0.08,-0.02,0.23", help=hidden)
+    parser.add_argument("--real-search-scan-left-delta", default="0.42,0.04,0.04,-0.06,-0.02,0.34", help=hidden)
+    parser.add_argument("--real-search-scan-right-delta", default="-0.08,-0.02,-0.04,0.08,0.02,-0.10", help=hidden)
     parser.add_argument("--real-search-scan-speed", type=float, default=0.08, help=hidden)
     parser.add_argument("--real-search-scan-accel", type=float, default=0.20, help=hidden)
     parser.add_argument("--perception-only-restart-sec", type=float, default=1.0, help=hidden)
@@ -634,7 +641,9 @@ def _parse_args() -> argparse.Namespace:
         help=hidden,
     )
     parser.add_argument("--real-gripper-command-topic", default="/arachne/gripper/command", help=hidden)
-    parser.add_argument("--real-gripper-settle-sec", type=float, default=0.35, help=hidden)
+    parser.add_argument("--real-execute-trigger-topic", default="", help=hidden)
+    parser.add_argument("--real-execute-trigger-service", default="/arachne/grasp_preview/execute_real_now", help=hidden)
+    parser.add_argument("--real-gripper-settle-sec", type=float, default=2.0, help=hidden)
     parser.add_argument("--real-gripper-status-topic", default="/arachne/hardware/gripper_status", help=hidden)
     parser.add_argument(
         "--real-gripper-require-capture",
@@ -653,6 +662,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--tool-orientation-limit-deg", type=float, default=35.0, help=hidden)
     parser.add_argument("--grasp-topdown-max-tilt-deg", type=float, default=65.0, help=hidden)
+    parser.add_argument("--topdown-flange-rpy-rad", default="3.14,0.03,-1.063", help=hidden)
     parser.add_argument("--max-grasp-orientation-candidates", type=int, default=8, help=hidden)
     parser.add_argument("--grasp-orientation-yaw-offsets-deg", default="0,20,-20,35,-35", help=hidden)
     parser.add_argument("--transit-orientation-yaw-offsets-deg", default="0,25,-25,35,-35", help=hidden)
@@ -838,7 +848,9 @@ class GraspPreviewNode(Node):
         self.real_joint_positions: dict[str, float] = {}
         self.real_joint_state_time = 0.0
         self.real_execution_started = False
+        self.real_execution_requested = not str(args.real_execute_trigger_topic).strip()
         self.real_execution_lock = threading.Lock()
+        self.real_execution_thread: threading.Thread | None = None
         self.real_scan_thread: threading.Thread | None = None
         self._last_real_scan_warning = ""
         self._last_real_scan_warning_time = 0.0
@@ -889,6 +901,14 @@ class GraspPreviewNode(Node):
         )
         self.create_subscription(JointState, args.joint_states_topic, self._joint_state_cb, 10)
         if bool(args.execute_real):
+            self.create_service(Trigger, str(args.real_execute_trigger_service), self._real_execute_trigger_srv)
+            if str(args.real_execute_trigger_topic).strip():
+                self.create_subscription(
+                    Empty,
+                    str(args.real_execute_trigger_topic),
+                    self._real_execute_trigger_cb,
+                    10,
+                )
             self.create_subscription(
                 JointState,
                 args.real_joint_states_topic,
@@ -1094,8 +1114,39 @@ class GraspPreviewNode(Node):
     def _restart_search_cb(self, _msg: Empty) -> None:
         self._restart_search("restart-topic")
 
+    def _real_execute_trigger_cb(self, _msg: Empty) -> None:
+        self._request_real_execution()
+
+    def _real_execute_trigger_srv(self, _request, response):
+        self._request_real_execution()
+        response.success = True
+        response.message = "real execution requested"
+        return response
+
+    def _request_real_execution(self) -> None:
+        with self.real_execution_lock:
+            if self.real_execution_requested or self.real_execution_started:
+                return
+            self.real_execution_requested = True
+        self.get_logger().info("REAL execution trigger received")
+        preview = self.last_preview
+        if preview is not None and preview.arm_trajectory_frames:
+            with self.real_execution_lock:
+                thread = self.real_execution_thread
+                if thread is not None and thread.is_alive():
+                    return
+                self.real_execution_thread = threading.Thread(
+                    target=self._maybe_execute_real_trajectory,
+                    args=(preview,),
+                    daemon=True,
+                )
+                self.real_execution_thread.start()
+
     def _real_search_scan_control_cb(self, msg: Bool) -> None:
-        self.real_search_scan_enabled = bool(msg.data)
+        enabled = bool(msg.data)
+        if enabled == self.real_search_scan_enabled:
+            return
+        self.real_search_scan_enabled = enabled
         self.get_logger().info(f"REAL search scan control: enabled={self.real_search_scan_enabled}")
 
     def _reset_preview_stream(self, message: str) -> None:
@@ -1117,7 +1168,11 @@ class GraspPreviewNode(Node):
         self.depth_wait_last_publish = 0.0
         self.planning_generation += 1
         with self.real_execution_lock:
+            pending_execute = self.real_execution_requested and not self.real_execution_started
             self.real_execution_started = False
+            self.real_execution_requested = pending_execute or not str(
+                self.args.real_execute_trigger_topic
+            ).strip()
         self._reset_preview_stream("waiting for plan")
         self.snapshot_detection = None
         self.snapshot_header = None
@@ -1443,9 +1498,13 @@ class GraspPreviewNode(Node):
         if not bool(self.args.execute_real):
             return
         with self.real_execution_lock:
+            if not self.real_execution_requested:
+                self.get_logger().info("REAL trajectory ready; waiting for execute trigger")
+                return
             if self.real_execution_started:
                 return
             self.real_execution_started = True
+        self.get_logger().info("REAL trajectory ready; executing requested grasp now")
 
         try:
             self._execute_real_trajectory(preview)
@@ -1461,7 +1520,15 @@ class GraspPreviewNode(Node):
             raise RuntimeError(
                 "set ARACHNE_CONFIRM_GRASP_EXECUTE_REAL=YES or pass --execute-real-confirm YES"
             )
-        if not self._real_start_state_matches(preview.arm_trajectory_frames[0]):
+        actual_start, actual_source = self._real_start_values()
+        if actual_start is None:
+            return
+        preview = self._rebase_preview_start_to_real(preview, actual_start, actual_source)
+        if not self._real_start_state_matches(
+            preview.arm_trajectory_frames[0],
+            actual_values=actual_start,
+            source=actual_source,
+        ):
             return
         backend = str(self.args.real_execute_backend)
         if backend == "sdk_move_joint":
@@ -1619,6 +1686,14 @@ class GraspPreviewNode(Node):
                     if rpc is not None:
                         if gate_owned:
                             self._real_sdk_stop_joint(rpc, "search scan pause", warn_only=True)
+                            if center is not None:
+                                result = rpc.robot_call(
+                                    "MotionControl.moveJoint",
+                                    [[float(value) for value in center], accel, speed, 0.0, 0.0],
+                                )
+                                self.get_logger().info(
+                                    f"REAL search scan return center result={result} error=None"
+                                )
                     self._real_sdk_exit_gate(gate_owned)
                     self._real_sdk_exit_control_owner(owner_owned)
                     gate_owned = False
@@ -1751,6 +1826,10 @@ class GraspPreviewNode(Node):
         previous_time = 0.0
         closed = False
         opened = False
+        if preview.arm_trajectory_frames:
+            previous_target = np.asarray(preview.arm_trajectory_frames[0].positions, dtype=float)
+        else:
+            previous_target = np.asarray(targets[0][1].positions, dtype=float)
         (
             _close_start,
             _close_end,
@@ -1770,7 +1849,10 @@ class GraspPreviewNode(Node):
                     segment_dt * duration_scale,
                     max(float(self.args.real_sdk_min_segment_duration), 0.0),
                 )
-            timeout_sec = max(segment_dt, duration, 0.5) + timeout_padding
+            max_delta = float(
+                np.max(np.abs(self._joint_delta(np.asarray(target, dtype=float), previous_target)))
+            )
+            timeout_sec = max(segment_dt, duration, max_delta / speed, 0.5) + timeout_padding
             success, message, final_error = client.move_joint(
                 target,
                 label=label,
@@ -1781,6 +1863,7 @@ class GraspPreviewNode(Node):
                 goal_tolerance_rad=tolerance,
                 timeout_sec=timeout_sec,
             )
+            previous_target = np.asarray(target, dtype=float)
             if not success:
                 raise RuntimeError(
                     f"AuboMoveJoint action failed at {label}: {message} "
@@ -1964,7 +2047,7 @@ class GraspPreviewNode(Node):
         selected[open_index] = open_label
 
         if bool(self.args.real_fixed_post_grasp):
-            return self._real_fixed_post_grasp_targets(frames[close_index], close_label, open_label)
+            return self._real_fixed_post_grasp_targets(frames[0], frames[close_index], close_label, open_label)
 
         max_delta = max(float(self.args.real_sdk_max_segment_joint_delta), 0.05)
         max_targets = max(int(self.args.real_sdk_max_targets), 2)
@@ -2003,11 +2086,12 @@ class GraspPreviewNode(Node):
             ordered = [(index, selected[index]) for index in sorted(keep)]
         targets = [(label, frames[index]) for index, label in ordered if index > 0]
         if bool(self.args.real_return_home):
-            targets.append(("home", self._real_home_frame(frames[-1])))
+            targets.append(("home", self._real_home_frame(frames[-1], frames[0].positions)))
         return targets
 
     def _real_fixed_post_grasp_targets(
         self,
+        start_frame: JointTrajectoryFrame,
         grasp_frame: JointTrajectoryFrame,
         close_label: str,
         open_label: str,
@@ -2040,7 +2124,7 @@ class GraspPreviewNode(Node):
             previous = self._joint_target_after(previous, joints, duration)
             targets.append((label, previous))
         if bool(self.args.real_return_home):
-            targets.append(("home", self._real_home_frame(previous)))
+            targets.append(("home", self._real_home_frame(previous, start_frame.positions)))
         return targets
 
     def _optional_real_fixed_joints(self, raw: str, label: str) -> tuple[float, ...] | None:
@@ -2115,8 +2199,13 @@ class GraspPreviewNode(Node):
             previous_index = min(max(index + 1, previous_index), len(frames) - 1)
         return result
 
-    def _real_home_frame(self, previous_frame: JointTrajectoryFrame) -> JointTrajectoryFrame:
-        positions = tuple(_float_values(str(self.args.real_home_joints), 6, "--real-home-joints"))
+    def _real_home_frame(
+        self,
+        previous_frame: JointTrajectoryFrame,
+        positions: tuple[float, float, float, float, float, float] | None = None,
+    ) -> JointTrajectoryFrame:
+        if positions is None:
+            positions = tuple(_float_values(str(self.args.real_home_joints), 6, "--real-home-joints"))  # type: ignore[assignment]
         duration = max(float(self.args.real_home_duration), 0.0)
         zeros = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         return JointTrajectoryFrame(
@@ -2350,25 +2439,74 @@ class GraspPreviewNode(Node):
         if values and all(value is not None for value in values):
             return [float(value) for value in values], str(self.args.real_joint_states_topic)
 
+        missing = [name for name, value in zip(names, values) if value is None] if values else names
         synced = self._real_synced_start_values()
         if synced is not None:
-            missing = [name for name, value in zip(names, values) if value is None] if values else names
             self.get_logger().warn(
                 "real joint states incomplete; using synchronized start pose from "
                 f"ARACHNE_GRASP_ARM_JOINTS. missing_on_{self.args.real_joint_states_topic}={missing}"
             )
             return synced, "ARACHNE_GRASP_ARM_JOINTS"
-        missing = [name for name, value in zip(names, values) if value is None] if values else names
+        try:
+            with AuboDirectJsonRpc(
+                str(self.args.real_sdk_ip),
+                int(self.args.real_sdk_rpc_port),
+                max(float(self.args.real_sdk_rpc_timeout), 0.1),
+            ) as rpc:
+                sdk_values = self._real_sdk_joint_positions(rpc)
+            self.get_logger().warn(
+                "real joint states incomplete; using Aubo SDK read-only current joints "
+                f"for start check. missing_on_{self.args.real_joint_states_topic}={missing}"
+            )
+            return [float(value) for value in sdk_values[:6]], "Aubo SDK RobotState.getJointPositions"
+        except Exception as exc:
+            self.get_logger().warn(f"Aubo SDK read-only joint fallback failed: {exc}")
         self.get_logger().error(
             "real execution blocked: missing real joint states "
             f"on {self.args.real_joint_states_topic}: {missing}"
         )
         return None, str(self.args.real_joint_states_topic)
 
-    def _real_start_state_matches(self, frame: JointTrajectoryFrame) -> bool:
-        actual_values, source = self._real_start_values()
+    def _rebase_preview_start_to_real(
+        self,
+        preview: GraspPreview,
+        actual_values: list[float],
+        source: str,
+    ) -> GraspPreview:
+        frames = list(preview.arm_trajectory_frames)
+        if not frames:
+            return preview
+        planned = np.asarray(frames[0].positions, dtype=float)
+        actual = np.asarray(actual_values, dtype=float)
+        deltas = np.abs([self._wrap_angle(float(p - a)) for p, a in zip(planned, actual)])
+        max_delta = float(np.max(deltas))
+        if max_delta <= max(float(self.args.real_start_tolerance_rad), 0.0):
+            return preview
+        self.get_logger().warn(
+            "real trajectory start rebased to current arm state "
+            f"source={source} planned_start_delta={max_delta:.3f}rad"
+        )
+        zero = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        frames[0] = JointTrajectoryFrame(
+            0.0,
+            tuple(float(value) for value in actual_values),  # type: ignore[arg-type]
+            zero,
+            zero,
+        )
+        return replace(preview, arm_trajectory_frames=frames)
+
+    def _real_start_state_matches(
+        self,
+        frame: JointTrajectoryFrame,
+        *,
+        actual_values: list[float] | None = None,
+        source: str | None = None,
+    ) -> bool:
+        if actual_values is None:
+            actual_values, source = self._real_start_values()
         if actual_values is None:
             return False
+        source = source or str(self.args.real_joint_states_topic)
         planned = np.asarray(frame.positions, dtype=float)
         actual = np.asarray(actual_values, dtype=float)
         deltas = np.abs([self._wrap_angle(float(p - a)) for p, a in zip(planned, actual)])
@@ -2530,6 +2668,8 @@ class GraspPreviewNode(Node):
         )
 
     def _publish_locked_annotation(self, color: np.ndarray, header: Header) -> None:
+        if self.last_preview is None:
+            return
         now = time.monotonic()
         self.locked_visual_last_publish = now
         annotated = color.copy()
@@ -2576,6 +2716,11 @@ class GraspPreviewNode(Node):
             for token in str(self.args.reject_label_keywords).split(",")
             if token.strip()
         ]
+        preferred_words = [
+            token.strip().lower()
+            for token in str(self.args.preferred_label_keywords).split(",")
+            if token.strip()
+        ]
 
         best: tuple[float, int, tuple[tuple[float, float], ...] | None, float] | None = None
         for index in range(len(boxes)):
@@ -2614,7 +2759,13 @@ class GraspPreviewNode(Node):
                     abs(cx - image_w * 0.5) / max(float(image_w), 1.0)
                     + abs(cy - image_h * 0.5) / max(float(image_h), 1.0)
                 )
-            score = confidence + min(area_px / 12000.0, 0.25) - 0.25 * center_penalty
+            if "bottle" in label_l and "cap" not in label_l:
+                label_bonus = 0.55
+            elif "carton" in label_l:
+                label_bonus = 0.20
+            else:
+                label_bonus = 0.15 if any(word in label_l for word in preferred_words) else 0.0
+            score = confidence + label_bonus + min(area_px / 12000.0, 0.25) - 0.25 * center_penalty
             if best is None or score > best[0]:
                 best = (score, index, mask_xy, mask_area_px)
         if best is None:
@@ -2913,12 +3064,12 @@ class GraspPreviewNode(Node):
         )
         if base_grasp is not None:
             min_z = float(self.args.grasp_min_z_base)
-            max_z = float(self.args.grasp_max_z_base)
-            if base_grasp[2] < min_z or base_grasp[2] > max_z:
+            z_epsilon = 0.005
+            if base_grasp[2] < min_z - z_epsilon:
                 self._throttled_log(
-                    f"reject detection outside road grasp z window: "
+                    f"reject detection below ground threshold: "
                     f"label={detection.label} base_z={base_grasp[2]:.3f} "
-                    f"window=[{min_z:.3f},{max_z:.3f}]"
+                    f"min_z={min_z:.3f}"
                 )
                 return None
         return GraspPreview(
@@ -4588,8 +4739,30 @@ class GraspPreviewNode(Node):
         shape_hints = self._pointcloud_shape_orientation_hints(pointcloud_shape)
 
         phase = self._target_orientation_phase(target_name, progress)
-        if bool(self.args.lock_grasp_orientation) and phase in {"grasp", "carry", "release"}:
-            return [self._orthonormalize_rotation(np.asarray(current_rotation_base, dtype=float))]
+        if bool(self.args.lock_grasp_orientation) and phase == "grasp":
+            roll, pitch, yaw = _float_values(
+                str(self.args.topdown_flange_rpy_rad),
+                3,
+                "--topdown-flange-rpy-rad",
+            )
+            axis_yaw = self._pointcloud_major_axis_yaw(pointcloud_shape)
+            candidates: list[np.ndarray] = []
+            for yaw_offset in self._angle_offsets_rad(
+                str(self.args.grasp_orientation_yaw_offsets_deg),
+                "--grasp-orientation-yaw-offsets-deg",
+            ):
+                candidates.append(
+                    self._orthonormalize_rotation(
+                        self._rpy_matrix(
+                            float(roll),
+                            float(pitch),
+                            float(yaw) + axis_yaw + float(yaw_offset),
+                        )
+                    )
+                )
+                if len(candidates) >= self._max_grasp_orientation_candidates():
+                    break
+            return candidates
         if phase == "current":
             nominal = current_rotation_base
         elif phase == "grasp":
@@ -4719,6 +4892,27 @@ class GraspPreviewNode(Node):
             if not any(float(np.linalg.norm(axis - existing)) < 1e-3 for existing in hints):
                 hints.append(axis)
         return hints
+
+    def _pointcloud_major_axis_yaw(self, pointcloud_shape: PointCloudGraspShape | None) -> float:
+        if pointcloud_shape is None:
+            return 0.0
+        axis = None
+        if (
+            pointcloud_shape.visual_axis_base is not None
+            and pointcloud_shape.visual_axis_confidence
+            >= max(float(self.args.visual_axis_confidence_threshold), 0.0)
+        ):
+            axis = np.asarray(pointcloud_shape.visual_axis_base, dtype=float)
+        elif pointcloud_shape.axis_confidence >= max(
+            float(self.args.pointcloud_axis_confidence_threshold), 0.0
+        ):
+            axis = np.asarray(pointcloud_shape.major_axis_base, dtype=float)
+        if axis is None:
+            return 0.0
+        axis[2] = 0.0
+        if float(np.linalg.norm(axis)) < 1e-6:
+            return 0.0
+        return float(math.atan2(float(axis[1]), float(axis[0])))
 
     def _is_topdown_grasp_orientation(self, rotation_base: np.ndarray) -> bool:
         tool_z_base = np.asarray(rotation_base, dtype=float)[:3, 2]
@@ -5015,6 +5209,11 @@ class GraspPreviewNode(Node):
         raw_pregrasp_base = base_grasp_path[0]
         grasp_base = base_grasp_path[1]
         raw_lift_base = base_grasp_path[2]
+        grasp_base = (
+            grasp_base[0],
+            grasp_base[1],
+            grasp_base[2] + float(self.args.grasp_final_z_offset_m),
+        )
         if bool(self.args.vertical_approach):
             min_grasp_z = (
                 float(self.args.ground_min_z_base)

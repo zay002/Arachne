@@ -19,7 +19,7 @@ def generate_launch_description():
             DeclareLaunchArgument("real_fixed_post_grasp", default_value="true"),
             DeclareLaunchArgument(
                 "real_fixed_search_joints",
-                default_value="-1.72,-0.44,1.66,0.92,1.68,-0.05",
+                default_value="-1.629044,0.031622,1.684745,0.079056,1.575197,0.754000",
             ),
             DeclareLaunchArgument("real_sdk_move_speed", default_value="0.36"),
             DeclareLaunchArgument("real_sdk_move_accel", default_value="0.45"),
@@ -34,7 +34,7 @@ def generate_launch_description():
             DeclareLaunchArgument("aubo_control_owner_name", default_value="grasp_task_server"),
             DeclareLaunchArgument("aubo_move_joint_action_name", default_value="/arachne/aubo/move_joint"),
             DeclareLaunchArgument("prefer_aubo_move_joint_action", default_value="true"),
-            DeclareLaunchArgument("aubo_move_joint_fallback_internal", default_value="true"),
+            DeclareLaunchArgument("aubo_move_joint_fallback_internal", default_value="false"),
             DeclareLaunchArgument("aubo_move_joint_wait_server_sec", default_value="0.5"),
             DeclareLaunchArgument("grasp_base_offset", default_value="0,0,0"),
             DeclareLaunchArgument(
@@ -60,6 +60,7 @@ def generate_launch_description():
                 default_value="forward:0.04,back:0.08,turn_left:5deg,turn_right:10deg",
             ),
             DeclareLaunchArgument("planning_recovery_restore_on_failure", default_value="true"),
+            DeclareLaunchArgument("skip_preflight", default_value="false"),
             DeclareLaunchArgument("log_root", default_value="log/grasp_tasks"),
             DeclareLaunchArgument("require_safety_state_machine", default_value="false"),
             DeclareLaunchArgument("require_aubo_status", default_value="false"),
@@ -158,6 +159,9 @@ def generate_launch_description():
                         "planning_recovery_restore_on_failure": ParameterValue(
                             LaunchConfiguration("planning_recovery_restore_on_failure"),
                             value_type=bool,
+                        ),
+                        "skip_preflight": ParameterValue(
+                            LaunchConfiguration("skip_preflight"), value_type=bool
                         ),
                         "log_root": LaunchConfiguration("log_root"),
                         "require_safety_state_machine": ParameterValue(

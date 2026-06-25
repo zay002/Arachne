@@ -2,21 +2,36 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import threading
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import rclpy
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
+from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Empty, String
 from std_srvs.srv import Trigger
+
+from arachne_operator.aubo_move_joint_client import AuboMoveJointClient
 
 
 TERMINAL_STATES = {"succeeded", "failed", "canceled"}
 STARTABLE_STATES = ("idle", "paused", *TERMINAL_STATES)
+DEFAULT_SEARCH_JOINTS = "-1.611779,-0.457910,1.071527,-0.044520,1.575231,0.771459"
+AUBO_JOINT_ALIASES = (
+    ("shoulder_joint", ("shoulder_joint", "aubo_shoulder_joint")),
+    ("upperArm_joint", ("upperArm_joint", "aubo_upperArm_joint", "upper_arm_joint")),
+    ("foreArm_joint", ("foreArm_joint", "aubo_foreArm_joint", "fore_arm_joint")),
+    ("wrist1_joint", ("wrist1_joint", "aubo_wrist1_joint")),
+    ("wrist2_joint", ("wrist2_joint", "aubo_wrist2_joint")),
+    ("wrist3_joint", ("wrist3_joint", "aubo_wrist3_joint")),
+)
 
 
 @dataclass
@@ -57,12 +72,18 @@ class RoadCleanupTaskServer(Node):
     def __init__(self) -> None:
         super().__init__("arachne_road_cleanup_task_server")
         self.declare_parameter("detection_topic", "/arachne/perception/taco_instances")
+        self.declare_parameter("joint_states_topic", "/joint_states")
+        self.declare_parameter(
+            "teach_visualization_joint_states_topic",
+            "/arachne/teach_visualization/joint_states",
+        )
         self.declare_parameter("base_command_topic", "/arachne/grasp_task/base_command")
         self.declare_parameter("base_state_topic", "/arachne/grasp_task/base_state")
         self.declare_parameter("grasp_start_service", "/arachne/grasp_task/start")
         self.declare_parameter("grasp_stop_service", "/arachne/grasp_task/stop")
         self.declare_parameter("grasp_status_service", "/arachne/grasp_task/status")
         self.declare_parameter("grasp_preflight_service", "/arachne/grasp_task/preflight")
+        self.declare_parameter("log_root", "log/road_cleanup_tasks")
         self.declare_parameter("base_stop_service", "/arachne/grasp_task/base_stop")
         self.declare_parameter("base_status_service", "/arachne/grasp_task/base_status")
         self.declare_parameter("restart_search_topic", "/arachne/grasp_preview/restart_search")
@@ -70,16 +91,27 @@ class RoadCleanupTaskServer(Node):
             "real_search_scan_control_topic", "/arachne/grasp_preview/real_search_scan"
         )
         self.declare_parameter("patrol_pattern", "line")
-        self.declare_parameter("patrol_distance_m", 1.5)
+        self.declare_parameter("patrol_distance_m", 1.0)
         self.declare_parameter("patrol_step_m", 0.20)
+        self.declare_parameter("patrol_min_step_m", 0.05)
         self.declare_parameter("patrol_box_width_m", 1.0)
         self.declare_parameter("patrol_box_height_m", 1.2)
         self.declare_parameter("patrol_entry_m", 0.3)
-        self.declare_parameter("patrol_base_speed_mps", 0.08)
+        self.declare_parameter("patrol_base_speed_mps", 0.05)
         self.declare_parameter("max_round_trips", 1)
         self.declare_parameter("detection_confidence", 0.08)
         self.declare_parameter("detection_timeout_sec", 3.0)
-        self.declare_parameter("initial_detection_wait_sec", 0.0)
+        self.declare_parameter("scan_warmup_sec", 4.0)
+        self.declare_parameter("initial_detection_wait_sec", 4.0)
+        self.declare_parameter("skip_preflight", False)
+        self.declare_parameter("move_to_search_pose_before_start", True)
+        self.declare_parameter("require_search_pose_before_start", True)
+        self.declare_parameter("required_search_joints", DEFAULT_SEARCH_JOINTS)
+        self.declare_parameter("required_search_tolerance_rad", 0.08)
+        self.declare_parameter("search_pose_move_speed_rad_sec", 0.25)
+        self.declare_parameter("search_pose_move_accel_rad_sec2", 0.45)
+        self.declare_parameter("search_pose_move_timeout_sec", 20.0)
+        self.declare_parameter("aubo_move_joint_action_name", "/arachne/aubo/move_joint")
         self.declare_parameter("require_3d_candidate", True)
         self.declare_parameter("candidate_min_base_x_m", 0.25)
         self.declare_parameter("candidate_max_base_x_m", 1.03)
@@ -88,9 +120,9 @@ class RoadCleanupTaskServer(Node):
         self.declare_parameter("candidate_max_reach_m", 1.03)
         self.declare_parameter("candidate_max_depth_m", 0.85)
         self.declare_parameter("patrol_turn_scale", 1.0)
-        self.declare_parameter("base_step_timeout_sec", 12.0)
+        self.declare_parameter("base_step_timeout_sec", 120.0)
         self.declare_parameter("base_stop_wait_sec", 3.0)
-        self.declare_parameter("grasp_timeout_sec", 90.0)
+        self.declare_parameter("grasp_timeout_sec", 180.0)
         self.declare_parameter("reach_recovery_enabled", True)
         self.declare_parameter("reach_recovery_max_attempts", 3)
         self.declare_parameter("reach_recovery_step_m", 0.10)
@@ -125,6 +157,10 @@ class RoadCleanupTaskServer(Node):
         self.successful_grasps = 0
         self.base_segment_interrupted_by_grasp = False
         self.real_search_scan_enabled = False
+        self.task_id = ""
+        self.run_dir: Path | None = None
+        self.latest_aubo_joints: dict[str, float] = {}
+        self.latest_aubo_joints_at = 0.0
 
         self.state_pub = self.create_publisher(String, "/arachne/road_cleanup/state", 10)
         self.event_pub = self.create_publisher(String, "/arachne/road_cleanup/event", 10)
@@ -141,6 +177,18 @@ class RoadCleanupTaskServer(Node):
             String,
             str(self.get_parameter("detection_topic").value),
             self._detection_cb,
+            10,
+        )
+        self.create_subscription(
+            JointState,
+            str(self.get_parameter("joint_states_topic").value),
+            self._joint_state_cb,
+            10,
+        )
+        self.create_subscription(
+            JointState,
+            str(self.get_parameter("teach_visualization_joint_states_topic").value),
+            self._joint_state_cb,
             10,
         )
         self.create_subscription(
@@ -180,6 +228,9 @@ class RoadCleanupTaskServer(Node):
         self.base_status_client = self.create_client(
             Trigger, str(self.get_parameter("base_status_service").value)
         )
+        self.aubo_move_joint = AuboMoveJointClient(
+            self, str(self.get_parameter("aubo_move_joint_action_name").value)
+        )
 
         self.create_timer(0.5, self._publish_state)
         self.create_timer(0.5, self._publish_real_search_scan)
@@ -199,6 +250,7 @@ class RoadCleanupTaskServer(Node):
                 response.success = False
                 response.message = self._snapshot_json()
                 return response
+            self._prepare_run_log_locked()
             self.cancel_event.clear()
             self.worker = threading.Thread(target=self._run_task, daemon=True)
             self.worker.start()
@@ -224,8 +276,9 @@ class RoadCleanupTaskServer(Node):
                 self._set_real_search_scan(False)
                 self._call_trigger_background(self.base_stop_client, 1.0, "base_stop")
                 self._call_trigger_background(self.grasp_stop_client, 1.0, "grasp_stop")
-                response.success = False
-                response.message = "road cleanup is busy; pause first, then return home"
+                self._set_state("paused", "return requested while busy; stopped first")
+                response.success = True
+                response.message = self._snapshot_json()
                 return response
             self.cancel_event.clear()
             self.worker = threading.Thread(target=self._run_return_home, daemon=True)
@@ -250,6 +303,10 @@ class RoadCleanupTaskServer(Node):
         return response
 
     def _preflight_cb(self, _request, response):
+        if bool(self.get_parameter("skip_preflight").value):
+            response.success = True
+            response.message = "startup preflight trusted"
+            return response
         ok, message = self._call_trigger(self.grasp_preflight_client, 30.0)
         response.success = ok
         response.message = message
@@ -257,7 +314,17 @@ class RoadCleanupTaskServer(Node):
 
     def _detection_cb(self, msg: String) -> None:
         threshold = float(self.get_parameter("detection_confidence").value)
-        candidates = [item for item in self._parse_candidates(msg.data) if item.confidence >= threshold]
+        parsed = self._parse_candidates(msg.data)
+        if parsed:
+            self._event(
+                "detection_msg",
+                {
+                    "count": len(parsed),
+                    "best_confidence": max(item.confidence for item in parsed),
+                    "state": self.state,
+                },
+            )
+        candidates = [item for item in parsed if item.confidence >= threshold]
         if not candidates:
             return
         reachable: list[Candidate] = []
@@ -273,6 +340,7 @@ class RoadCleanupTaskServer(Node):
         with self.lock:
             self.latest_candidate = candidate
         self._event("candidate", asdict(candidate))
+        self._call_trigger_background(self.base_stop_client, 1.0, "base_stop_on_candidate")
 
     def _base_state_cb(self, msg: String) -> None:
         with self.lock:
@@ -281,6 +349,20 @@ class RoadCleanupTaskServer(Node):
     def _grasp_state_cb(self, msg: String) -> None:
         with self.lock:
             self.grasp_state = self._parse_json_object(msg.data)
+
+    def _joint_state_cb(self, msg: JointState) -> None:
+        positions = dict(zip(msg.name, msg.position))
+        joints: dict[str, float] = {}
+        for canonical, aliases in AUBO_JOINT_ALIASES:
+            for alias in aliases:
+                if alias in positions:
+                    joints[canonical] = float(positions[alias])
+                    break
+        if len(joints) != len(AUBO_JOINT_ALIASES):
+            return
+        with self.lock:
+            self.latest_aubo_joints = joints
+            self.latest_aubo_joints_at = time.monotonic()
 
     def _run_task(self) -> None:
         with self.lock:
@@ -298,14 +380,29 @@ class RoadCleanupTaskServer(Node):
             self.recovery_attempts = 0
             self.last_grasp_failure = ""
             self.successful_grasps = 0
-        self._set_state("preflight", "checking camera, base and grasp primitive")
-        ok, message = self._call_trigger(self.grasp_preflight_client, 30.0)
+        ok, message = self._move_to_search_pose_if_needed()
         if not ok:
-            self._finish("failed", f"preflight failed: {message}")
+            self._finish("failed", message)
             return
+        ok, message = self._check_search_pose_gate()
+        if not ok:
+            self._finish("failed", message)
+            return
+        if not bool(self.get_parameter("skip_preflight").value):
+            self._set_state("preflight", "checking camera, base and grasp primitive")
+            ok, message = self._call_trigger(self.grasp_preflight_client, 30.0)
+            if not ok:
+                self._finish("failed", f"preflight failed: {message}")
+                return
 
         self._set_real_search_scan(True)
         self._restart_visual_search("road cleanup start")
+        self._set_state("searching", "warming arm scan before patrol")
+        warmup_deadline = time.monotonic() + max(
+            float(self.get_parameter("scan_warmup_sec").value), 0.0
+        )
+        while rclpy.ok() and not self.cancel_event.is_set() and time.monotonic() < warmup_deadline:
+            time.sleep(0.05)
         self._set_state("searching", "initial visual search before patrol")
         deadline = time.monotonic() + max(
             float(self.get_parameter("initial_detection_wait_sec").value), 0.0
@@ -320,23 +417,22 @@ class RoadCleanupTaskServer(Node):
                 self._restart_visual_search("resume patrol after initial grasp")
                 break
             time.sleep(0.05)
-        if self._is_terminal() or self.cancel_event.is_set():
-            return
-        self._set_state("patrol", "patrol route while grasp_server YOLO-SEG watches")
-        while rclpy.ok() and not self.cancel_event.is_set():
-            candidate = self._fresh_candidate()
-            if candidate is not None:
-                self._handle_candidate(candidate)
-                if self._is_terminal():
-                    break
-                if self.cancel_event.is_set():
-                    break
-                self._set_state("patrol", "resume patrol after grasp")
-                self._restart_visual_search("resume patrol after grasp")
-                continue
+        if not self._is_terminal() and not self.cancel_event.is_set():
+            self._set_state("patrol", "patrol route while grasp_server YOLO-SEG watches")
+            while rclpy.ok() and not self.cancel_event.is_set():
+                candidate = self._fresh_candidate()
+                if candidate is not None:
+                    self._handle_candidate(candidate)
+                    if self._is_terminal():
+                        break
+                    if self.cancel_event.is_set():
+                        break
+                    self._set_state("patrol", "resume patrol after grasp")
+                    self._restart_visual_search("resume patrol after grasp")
+                    continue
 
-            if not self._patrol_step():
-                break
+                if not self._patrol_step():
+                    break
 
         if self.cancel_event.is_set() and self.state != "paused":
             self._finish("canceled", "road cleanup canceled")
@@ -350,6 +446,32 @@ class RoadCleanupTaskServer(Node):
     def _run_return_home(self) -> None:
         self._set_real_search_scan(False)
         self._set_state("returning", "returning to road cleanup start")
+        pattern = str(self.get_parameter("patrol_pattern").value).strip().lower()
+        if pattern == "line":
+            with self.lock:
+                distance = abs(float(self.progress_m))
+            if distance <= 1e-3:
+                self._finish("succeeded", "return home complete: no completed base distance")
+                return
+            payload = {
+                "command": "drive_relative",
+                "distance_m": -distance,
+                "speed_m_s": max(float(self.get_parameter("patrol_base_speed_mps").value), 0.0),
+                "request_id": self._new_base_request_id("return"),
+            }
+            ok = self._execute_base_payload(
+                payload,
+                -distance,
+                "return_home_done",
+                monitor_candidates=False,
+                record_completed=False,
+            )
+            if ok and not self.cancel_event.is_set():
+                with self.lock:
+                    self.completed_base_segments = []
+                    self.progress_m = 0.0
+                self._finish("succeeded", "return home complete")
+            return
         with self.lock:
             completed = [dict(item) for item in self.completed_base_segments]
         inverse_segments = self._inverse_base_segments(completed)
@@ -388,7 +510,8 @@ class RoadCleanupTaskServer(Node):
         distance_limit = abs(float(self.get_parameter("patrol_distance_m").value))
         step = abs(float(self.get_parameter("patrol_step_m").value))
         remaining = distance_limit - abs(self.progress_m)
-        if remaining <= 1e-3:
+        min_step = max(float(self.get_parameter("patrol_min_step_m").value), 1e-3)
+        if remaining <= min_step:
             with self.lock:
                 self.cycle_count += 1
             return False
@@ -894,6 +1017,87 @@ class RoadCleanupTaskServer(Node):
         self.restart_search_pub.publish(Empty())
         self._event("visual_search_restart", {"reason": reason})
 
+    def _check_search_pose_gate(self) -> tuple[bool, str]:
+        if not bool(self.get_parameter("require_search_pose_before_start").value):
+            return True, "search pose gate disabled"
+        target = self._parse_float_list(str(self.get_parameter("required_search_joints").value), 6)
+        if target is None:
+            return False, "search pose gate failed: required_search_joints must contain 6 floats"
+        with self.lock:
+            current_map = dict(self.latest_aubo_joints)
+            age = time.monotonic() - self.latest_aubo_joints_at if self.latest_aubo_joints_at else 999.0
+        if len(current_map) != len(AUBO_JOINT_ALIASES):
+            return False, "search pose gate failed: missing Aubo /joint_states"
+        current = [current_map[name] for name, _aliases in AUBO_JOINT_ALIASES]
+        deltas = [
+            abs(self._angle_diff(target_value, current_value))
+            for target_value, current_value in zip(target, current)
+        ]
+        max_delta = max(deltas) if deltas else 0.0
+        tolerance = max(float(self.get_parameter("required_search_tolerance_rad").value), 0.0)
+        ok = max_delta <= tolerance
+        self._event(
+            "search_pose_gate",
+            {
+                "ok": ok,
+                "max_delta_rad": max_delta,
+                "tolerance_rad": tolerance,
+                "joint_state_age_sec": age,
+                "target_joints": target,
+                "current_joints": current,
+                "deltas_rad": deltas,
+            },
+        )
+        if not ok:
+            return (
+                False,
+                f"search pose gate failed: max_delta={max_delta:.4f}rad > tolerance={tolerance:.4f}rad",
+            )
+        return True, "search pose gate passed"
+
+    def _move_to_search_pose_if_needed(self) -> tuple[bool, str]:
+        if not bool(self.get_parameter("move_to_search_pose_before_start").value):
+            return True, "search pose move disabled"
+        target = self._parse_float_list(str(self.get_parameter("required_search_joints").value), 6)
+        if target is None:
+            return False, "search pose move failed: required_search_joints must contain 6 floats"
+        with self.lock:
+            current_map = dict(self.latest_aubo_joints)
+        if len(current_map) == len(AUBO_JOINT_ALIASES):
+            current = [current_map[name] for name, _aliases in AUBO_JOINT_ALIASES]
+            max_delta = max(
+                abs(self._angle_diff(target_value, current_value))
+                for target_value, current_value in zip(target, current)
+            )
+            tolerance = max(float(self.get_parameter("required_search_tolerance_rad").value), 0.0)
+            if max_delta <= tolerance:
+                self._event(
+                    "search_pose_move_skipped",
+                    {"reason": "already_at_search_pose", "max_delta_rad": max_delta},
+                )
+                return True, "already at search pose"
+        else:
+            self._event("search_pose_cache_missing", {"cached_joints": sorted(current_map)})
+        self._set_state("preparing", "moving arm to road cleanup search pose")
+        ok, message, final_error = self.aubo_move_joint.move_joint(
+            target,
+            label="road_cleanup_search_pose",
+            speed_rad_sec=float(self.get_parameter("search_pose_move_speed_rad_sec").value),
+            accel_rad_sec2=float(self.get_parameter("search_pose_move_accel_rad_sec2").value),
+            goal_tolerance_rad=float(self.get_parameter("required_search_tolerance_rad").value),
+            timeout_sec=float(self.get_parameter("search_pose_move_timeout_sec").value),
+        )
+        self._event(
+            "search_pose_move",
+            {
+                "ok": ok,
+                "message": message,
+                "final_error_rad": final_error,
+                "target_joints": target,
+            },
+        )
+        return ok, message
+
     def _set_real_search_scan(self, enabled: bool) -> None:
         self.real_search_scan_enabled = bool(enabled)
         self._publish_real_search_scan()
@@ -1013,12 +1217,13 @@ class RoadCleanupTaskServer(Node):
     def _candidate_reachable(self, candidate: Candidate) -> tuple[bool, str]:
         raw = candidate.raw
         has_3d = bool(raw.get("has_3d", False))
+        reasons: list[str] = []
         if bool(self.get_parameter("require_3d_candidate").value) and not has_3d:
             return False, "waiting for 3D candidate"
         depth = self._optional_float(raw.get("depth_m"))
         max_depth = float(self.get_parameter("candidate_max_depth_m").value)
         if depth is not None and depth > max_depth:
-            return False, f"depth {depth:.2f}m > {max_depth:.2f}m"
+            reasons.append(f"depth {depth:.2f}m > {max_depth:.2f}m")
         base_xyz = raw.get("base_grasp_xyz")
         if not isinstance(base_xyz, list) or len(base_xyz) < 2:
             base_xyz = self._planning_waypoint_xyz(raw, "grasp")
@@ -1030,23 +1235,25 @@ class RoadCleanupTaskServer(Node):
                 min_x = float(self.get_parameter("candidate_min_base_x_m").value)
                 max_x = float(self.get_parameter("candidate_max_base_x_m").value)
                 if x < min_x:
-                    return False, f"base_x {x:.2f}m < {min_x:.2f}m"
+                    reasons.append(f"base_x {x:.2f}m < {min_x:.2f}m")
                 if x > max_x:
-                    return False, f"base_x {x:.2f}m > {max_x:.2f}m"
+                    reasons.append(f"base_x {x:.2f}m > {max_x:.2f}m")
                 reach = math.hypot(x, y or 0.0)
                 max_reach = float(self.get_parameter("candidate_max_reach_m").value)
                 if reach > max_reach:
-                    return False, f"reach {reach:.2f}m > {max_reach:.2f}m"
+                    reasons.append(f"reach {reach:.2f}m > {max_reach:.2f}m")
             if y is not None:
                 max_abs_y = float(self.get_parameter("candidate_max_abs_base_y_m").value)
                 if abs(y) > max_abs_y:
-                    return False, f"base_y {y:.2f}m outside ±{max_abs_y:.2f}m"
+                    reasons.append(f"base_y {y:.2f}m outside ±{max_abs_y:.2f}m")
             if z is not None:
                 min_z = float(self.get_parameter("candidate_min_base_z_m").value)
                 if z < min_z:
-                    return False, f"base_z {z:.2f}m < {min_z:.2f}m"
+                    reasons.append(f"base_z {z:.2f}m < {min_z:.2f}m")
         elif bool(self.get_parameter("require_3d_candidate").value):
             return False, "3D candidate missing base grasp"
+        if reasons:
+            return False, "; ".join(reasons)
         return True, "reachable"
 
     def _planning_waypoint_xyz(self, raw: dict[str, Any], name: str) -> list[float]:
@@ -1066,6 +1273,17 @@ class RoadCleanupTaskServer(Node):
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    def _parse_float_list(self, text: str, expected: int) -> list[float] | None:
+        try:
+            values = [
+                float(item.strip())
+                for item in text.replace(";", ",").split(",")
+                if item.strip()
+            ]
+        except ValueError:
+            return None
+        return values if len(values) == expected else None
 
     def _parse_json_object(self, text: str) -> dict[str, Any]:
         try:
@@ -1110,20 +1328,78 @@ class RoadCleanupTaskServer(Node):
             self.finished_at = datetime.now().isoformat(timespec="seconds")
             self.state = state
             self.message = message
+            run_dir = self.run_dir
         self._event("state", {"state": state, "message": message})
         self._publish_state()
+        if run_dir is not None:
+            with (run_dir / "summary.json").open("w", encoding="utf-8") as handle:
+                json.dump(asdict(self._snapshot()), handle, ensure_ascii=False, indent=2, sort_keys=True)
 
     def _event(self, kind: str, data: dict[str, Any]) -> None:
         event = {
             "stamp": datetime.now().isoformat(timespec="milliseconds"),
             "kind": kind,
+            "task_id": self.task_id,
             **data,
         }
+        text = json.dumps(event, ensure_ascii=False, sort_keys=True)
         msg = String()
-        msg.data = json.dumps(event, ensure_ascii=False, sort_keys=True)
+        msg.data = text
         self.event_pub.publish(msg)
+        run_dir = self.run_dir
+        if run_dir is not None:
+            try:
+                with (run_dir / "events.jsonl").open("a", encoding="utf-8") as handle:
+                    handle.write(text + "\n")
+            except Exception as exc:
+                self.get_logger().warning(f"road cleanup event log write failed: {exc}")
         if kind == "state":
             self.get_logger().info(f"{data.get('state')}: {data.get('message')}")
+
+    def _prepare_run_log_locked(self) -> None:
+        self.task_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+        root = Path(str(self.get_parameter("log_root").value)).expanduser()
+        if not root.is_absolute():
+            root = Path.cwd() / root
+        self.run_dir = root / self.task_id
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        latest = root / "latest"
+        try:
+            if latest.exists() or latest.is_symlink():
+                latest.unlink()
+            os.symlink(self.run_dir, latest)
+        except OSError:
+            pass
+        names = (
+            "detection_topic",
+            "joint_states_topic",
+            "base_command_topic",
+            "grasp_start_service",
+            "patrol_pattern",
+            "patrol_distance_m",
+            "patrol_step_m",
+            "patrol_min_step_m",
+            "patrol_base_speed_mps",
+            "base_step_timeout_sec",
+            "detection_confidence",
+            "scan_warmup_sec",
+            "initial_detection_wait_sec",
+            "skip_preflight",
+            "require_search_pose_before_start",
+            "required_search_joints",
+            "required_search_tolerance_rad",
+            "require_3d_candidate",
+            "candidate_min_base_x_m",
+            "candidate_max_base_x_m",
+            "candidate_max_abs_base_y_m",
+            "candidate_min_base_z_m",
+            "candidate_max_reach_m",
+            "candidate_max_depth_m",
+            "grasp_timeout_sec",
+        )
+        data = {"task_id": self.task_id, "parameters": {name: self.get_parameter(name).value for name in names}}
+        with (self.run_dir / "task_request.json").open("w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False, indent=2, sort_keys=True)
 
     def _snapshot(self) -> CleanupSnapshot:
         with self.lock:

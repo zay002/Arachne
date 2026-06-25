@@ -43,19 +43,19 @@
 ## 运行逻辑
 
 1. 示教器启动 `camera`、`grasp_server` 和 `cleanup_server`。
-   - 示教器默认以 `preview_on_start:=true` 启动 `grasp_server`，因此空闲时 YOLO-SEG 会持续监视相机画面并发布检测事件。
+   - 示教器启动 `grasp_server` 后会保留轻量 `idle_preview`，供 road cleanup 行进中持续 YOLO 检测。
 2. `Road Start` 调用 `/arachne/road_cleanup/start`。
 3. 任务服务器调用 `/arachne/grasp_task/preflight` 做安全预检。
-4. 底盘以小步 `drive_relative` 前进/后退，默认总行程 2 m。
+4. 任务先把机械臂移动到固定扫描姿态；成功后底盘以小步 `drive_relative` 前进，默认前进 1.0 m。
 5. 行进中持续监听 `grasp_server` 发布的 YOLO-SEG 检测结果；发现置信度足够的垃圾后立刻调用 base stop。
 6. 调用 `/arachne/grasp_task/start` 执行“视觉定位 -> 点云/ROI -> MoveIt/SDK -> 抓取 -> 投篮”。
 7. 如果 YOLO 和点云正常但抓取规划失败或目标不可达，任务服务器会让底盘继续小步移动，清掉旧候选，并持续触发 grasp preview 重新搜索，等待新的 YOLO 检测事件，然后重新计算点云和抓取规划。
-8. 抓取完成后恢复巡检。
+8. 抓取完成后恢复巡检；返程阶段直接倒车返回起点，不再扫描/抓取。
 
 ## 当前边界
 
 - TACO 不需要单独任务节点；当前默认抓取权重是 `yolo_workspace/weights/yolo26n_seg_taco_best.pt`，也可以用 `ARACHNE_GRASP_YOLO_MODEL` 覆盖。
-- 扫描姿态仍需要接入真实机械臂的安全扫描预置位。
+- Road Start 前会先通过 `/arachne/aubo/move_joint` 移动到扫描预置位，未到位不发车。
 - `road_cleanup_task_server` 现在只做任务编排，不替代 `grasp_task_server` 的抓取策略。
 - reach recovery 默认开启：规划失败/不可达时沿当前巡检方向小步补偿，默认最多 3 次，每次 0.10 m。
 

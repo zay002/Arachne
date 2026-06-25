@@ -24,6 +24,7 @@ def generate_launch_description():
                 "color_fps": ParameterValue(LaunchConfiguration("color_fps"), value_type=float),
                 "color_fourcc": LaunchConfiguration("color_fourcc"),
                 "color_yuv_layout": LaunchConfiguration("color_yuv_layout"),
+                "color_v4l2_controls": LaunchConfiguration("color_v4l2_controls"),
                 "color_frame_id": LaunchConfiguration("color_frame_id"),
                 "publish_color": ParameterValue(
                     LaunchConfiguration("publish_color"), value_type=bool
@@ -158,6 +159,7 @@ def generate_launch_description():
             DeclareLaunchArgument("color_fps", default_value="30.0"),
             DeclareLaunchArgument("color_fourcc", default_value="YUYV"),
             DeclareLaunchArgument("color_yuv_layout", default_value="YUYV"),
+            DeclareLaunchArgument("color_v4l2_controls", default_value=""),
             DeclareLaunchArgument("color_frame_id", default_value="camera_color_optical_frame"),
             DeclareLaunchArgument("publish_color", default_value="true"),
             DeclareLaunchArgument("depth_device", default_value="/dev/video0"),
