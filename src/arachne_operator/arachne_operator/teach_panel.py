@@ -65,6 +65,7 @@ DEFAULT_TEACH_CONFIG_PATH = "recordings/teach/teach_panel_config.json"
 DEFAULT_AUBO_TEACH_FLAG_PATH = "/tmp/arachne_aubo_teach_mode"
 MANAGED_SERVICE_COMMAND_PARAMS = {
     "camera": "camera_command",
+    "depth_pointcloud": "depth_pointcloud_command",
     "viewer": "camera_view_command",
     "slam": "slam_command",
     "grasp_server": "grasp_server_command",
@@ -333,7 +334,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("runtime_log_root", "log/teach_panel")
         self.declare_parameter(
             "autostart_managed_processes",
-            "camera,viewer,grasp_server,cleanup_server",
+            "camera,depth_pointcloud,viewer,grasp_server,cleanup_server",
         )
         self.declare_parameter("service_stop_timeout_sec", 4.0)
         self.declare_parameter(
@@ -344,10 +345,10 @@ class TeachPanelNode(Node):
                 "with_tf:=true camera_parent_frame:=ee_camera_link "
                 "color_width:=640 color_height:=480 color_fps:=30.0 "
                 "depth_width:=640 depth_height:=480 depth_fps:=15.0 "
-                "color_v4l2_controls:=brightness=20,exposure_auto=1,exposure_absolute=80,gain=0 "
-                "camera_optical_x:=0.0 camera_optical_y:=0.0 "
-                "camera_optical_z:=0.0 camera_optical_roll:=0.0 "
-                "camera_optical_pitch:=0.0 camera_optical_yaw:=1.570796327 "
+                "color_v4l2_controls:=brightness=20,exposure_auto=0,exposure_absolute=45,gain=0 "
+                "camera_optical_x:=0.0201 camera_optical_y:=0.0 "
+                "camera_optical_z:=0.2196 camera_optical_roll:=0.196 "
+                "camera_optical_pitch:=-0.024 camera_optical_yaw:=-1.570796327 "
                 "projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YUYV"
             ),
         )
@@ -356,6 +357,15 @@ class TeachPanelNode(Node):
             (
                 "ros2 run arachne_operator raw_image_viewer "
                 "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30"
+            ),
+        )
+        self.declare_parameter(
+            "depth_pointcloud_command",
+            (
+                "ros2 run arachne_sensors depth_to_pointcloud --ros-args "
+                "-p frames:=1 -p stride:=4 -p max_depth_m:=3.0 "
+                "-p exit_after_publish:=false "
+                "-p pointcloud_topic:=/arachne/debug/depth_points"
             ),
         )
         self.declare_parameter(
@@ -377,7 +387,7 @@ class TeachPanelNode(Node):
                 "real_sdk_move_speed:=0.36 "
                 "real_sdk_move_accel:=0.60 "
                 "aubo_move_joint_fallback_internal:=false "
-                "extra_args:='--planner-backend local --imgsz 768 --min-detection-mask-area-px 0 "
+                "extra_args:='--planner-backend local --imgsz 640 --min-detection-mask-area-px 0 "
                 "--reject-label-keywords film,other,cap,lid --planning-key-waypoints approach,grasp "
                 "--detection-min-center-y-ratio 0.38 "
                 "--preferred-label-keywords bottle,carton,can,cup,container,jar,box "
@@ -390,7 +400,7 @@ class TeachPanelNode(Node):
                 "--local-position-tolerance 0.050 --local-orientation-tolerance 0.35 "
                 "--real-sdk-arrival-timeout-padding 10 "
                 "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "
-                "preview_on_start:=true warm_execute_preview:=false planning_recovery_base_enabled:=false skip_preflight:=true "
+                "preview_on_start:=false warm_execute_preview:=false planning_recovery_base_enabled:=false skip_preflight:=true "
                 "preflight_timeout_sec:=0.5 require_odom:=false require_joint_states:=false require_camera_topics:=false "
                 "require_aubo_status:=false require_gripper_status:=false "
                 "max_grasp_attempts:=2 retry_on_gripper_miss:=true"
@@ -871,6 +881,7 @@ class TeachPanelNode(Node):
                 "step_cleanup": self.hardware_status.get("Step", "waiting"),
                 "status": self.last_status,
                 "camera": managed["camera"],
+                "depth_pointcloud": managed["depth_pointcloud"],
                 "viewer": managed["viewer"],
                 "slam": managed["slam"],
                 "grasp_server": managed["grasp_server"],
@@ -1444,6 +1455,8 @@ class TeachPanelNode(Node):
         self._status("visual grasp: starting camera, raw view, and grasp server")
         self._start_managed_process_worker("camera")
         time.sleep(0.8)
+        self._stop_managed_process_worker("depth_pointcloud", quiet=True)
+        self._start_managed_process_worker("depth_pointcloud")
         self._start_managed_process_worker("viewer")
         self._start_managed_process_worker("grasp_server")
 
@@ -1506,6 +1519,8 @@ class TeachPanelNode(Node):
                 if not ready or self._aubo_teach_gate_may_be_active():
                     self._status("grasp task start blocked: Aubo teach mode still active", warn=True)
                     return
+            self._stop_managed_process_worker("depth_pointcloud", quiet=True)
+            self._start_managed_process_worker("depth_pointcloud")
         if command in {"stop", "restore"}:
             self.drive_base_manual("stop")
             self.stop_arm_velocity_hold()
@@ -3118,6 +3133,7 @@ class TeachPanelNode(Node):
 
         def delayed_viewer() -> None:
             time.sleep(0.8)
+            self.start_managed_process("depth_pointcloud")
             self.start_managed_process("viewer")
 
         self._start_worker(delayed_viewer)
@@ -3463,8 +3479,8 @@ class TeachPanelApp:
         self.waypoints: list[TeachWaypoint] = []
         self.root = tk.Tk()
         self.root.title("Arachne Scope")
-        self.root.geometry("1320x900")
-        self.root.minsize(980, 700)
+        self.root.geometry("1180x760")
+        self.root.minsize(760, 520)
         self.status_vars: dict[str, tk.StringVar] = {}
         self.label_var = tk.StringVar(value="wp_1")
         self.wait_var = tk.StringVar(value="2.0")
@@ -3618,65 +3634,18 @@ class TeachPanelApp:
     def _build_top_bar(self) -> None:
         top = ttk.Frame(self.root, style="Top.TFrame", padding=(12, 8))
         top.grid(row=0, column=0, sticky="ew")
-        top.columnconfigure(5, weight=1)
+        top.columnconfigure(1, weight=1)
         ttk.Label(top, text="Arachne Scope", style="TopTitle.TLabel").grid(
-            row=0, column=0, rowspan=2, sticky="w", padx=(0, 18)
+            row=0, column=0, sticky="w", padx=(0, 14)
         )
-        for column, key in enumerate(("Aubo", "Base", "Gripper", "Grasp"), start=1):
-            var = tk.StringVar(value="waiting")
-            self.status_vars[key] = var
-            ttk.Label(top, text=key, style="Top.TLabel").grid(row=0, column=column, sticky="w", padx=8)
-            ttk.Label(top, textvariable=var, style="Top.TLabel", width=16).grid(
-                row=1, column=column, sticky="w", padx=8
-            )
         status_var = tk.StringVar(value="ready")
         self.status_vars["status"] = status_var
         ttk.Label(top, textvariable=status_var, style="Top.TLabel").grid(
-            row=0, column=5, rowspan=2, sticky="ew", padx=(16, 8)
+            row=0, column=1, sticky="ew", padx=(0, 8)
         )
-        self._make_preset_hold_button(top, "Home", "home").grid(row=0, column=6, rowspan=2, padx=4)
-        ttk.Button(top, text="Stop", command=self.node.stop_all, style="Danger.TButton").grid(
-            row=0, column=7, rowspan=2, padx=4
+        ttk.Button(top, text="E-Stop", command=self.node.stop_all, style="Danger.TButton").grid(
+            row=0, column=2, padx=4
         )
-        ttk.Button(
-            top,
-            text="Grasp Start",
-            command=lambda: self.node.call_grasp_task("start"),
-            style="Primary.TButton",
-        ).grid(
-            row=0, column=8, rowspan=2, padx=4
-        )
-        ttk.Button(top, text="Road", command=lambda: self.node.call_cleanup_task("start")).grid(
-            row=0, column=9, rowspan=2, padx=4
-        )
-        ttk.Button(
-            top,
-            text="Step Demo",
-            command=lambda: self.node.call_step_cleanup("start"),
-        ).grid(row=0, column=10, rowspan=2, padx=4)
-        ttk.Button(
-            top,
-            text="Task Stop",
-            command=lambda: self.node.call_grasp_task("stop"),
-            style="Danger.TButton",
-        ).grid(row=0, column=11, rowspan=2, padx=4)
-        ttk.Button(
-            top,
-            text="Road Stop",
-            command=lambda: self.node.call_cleanup_task("stop"),
-            style="Danger.TButton",
-        ).grid(row=0, column=12, rowspan=2, padx=4)
-        ttk.Button(
-            top,
-            text="Road Pause",
-            command=lambda: self.node.call_cleanup_task("pause"),
-            style="Danger.TButton",
-        ).grid(row=0, column=13, rowspan=2, padx=4)
-        ttk.Button(
-            top,
-            text="Return",
-            command=lambda: self.node.call_cleanup_task("return_home"),
-        ).grid(row=0, column=14, rowspan=2, padx=4)
 
     def _confirm_aubo_power_off(self) -> None:
         if not messagebox.askyesno(
@@ -3687,21 +3656,15 @@ class TeachPanelApp:
         self.node.command_aubo_lifecycle("power_off")
 
     def _build_home_tab(self) -> None:
-        tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="Home")
+        tab = self._add_scrollable_tab("Home")
         tab.columnconfigure(0, weight=1)
-        tab.rowconfigure(0, weight=0)
-        tab.rowconfigure(1, weight=1)
-        tab.rowconfigure(2, weight=0)
 
         header = ttk.Frame(tab)
-        header.grid(row=0, column=0, sticky="nsew")
-        header.columnconfigure(0, weight=2)
-        header.columnconfigure(1, weight=1)
-        header.rowconfigure(0, weight=1)
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(0, weight=1)
 
         overview = ttk.LabelFrame(header, text="Robot Status")
-        overview.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(0, 8))
+        overview.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         overview.columnconfigure(1, weight=1)
         for row, key in enumerate(
             (
@@ -3714,6 +3677,7 @@ class TeachPanelApp:
                 "road_cleanup",
                 "step_cleanup",
                 "camera",
+                "depth_pointcloud",
                 "viewer",
                 "slam",
                 "grasp_server",
@@ -3731,7 +3695,7 @@ class TeachPanelApp:
             ttk.Label(overview, textvariable=var).grid(row=row, column=1, sticky="ew", padx=6, pady=4)
 
         quick = ttk.Frame(header)
-        quick.grid(row=0, column=1, sticky="nsew", pady=(0, 8))
+        quick.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         for column in range(2):
             quick.columnconfigure(column, weight=1)
 
@@ -3742,6 +3706,7 @@ class TeachPanelApp:
                 ("Camera + View", self.node.start_camera_stack, "Service.TButton"),
                 ("Grasp Services", self.node.visual_grasp_start, "Service.TButton"),
                 ("Road Preflight", lambda: self.node.call_cleanup_task("preflight"), None),
+                ("Depth Cloud", lambda: self.node.toggle_managed_process("depth_pointcloud"), None),
                 ("2D View", lambda: self.node.toggle_managed_process("viewer"), None),
                 ("Localize / Nav", lambda: self.node.toggle_managed_process("slam"), None),
                 ("Grasp Server", lambda: self.node.toggle_managed_process("grasp_server"), None),
@@ -3796,6 +3761,22 @@ class TeachPanelApp:
         )
         program_group.grid(row=2, column=1, sticky="new", padx=(5, 0), pady=(0, 8))
 
+        task_group = self._build_button_group(
+            quick,
+            "Task Actions",
+            (
+                ("Grasp Start", lambda: self.node.call_grasp_task("start"), "Primary.TButton"),
+                ("Step Demo", lambda: self.node.call_step_cleanup("start"), None),
+                ("Road Start", lambda: self.node.call_cleanup_task("start"), None),
+                ("Return", lambda: self.node.call_cleanup_task("return_home"), None),
+                ("Task Stop", lambda: self.node.call_grasp_task("stop"), "Danger.TButton"),
+                ("Road Stop", lambda: self.node.call_cleanup_task("stop"), "Danger.TButton"),
+                ("Road Pause", lambda: self.node.call_cleanup_task("pause"), "Danger.TButton"),
+            ),
+            columns=2,
+        )
+        task_group.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+
         gripper_group = self._build_button_group(
             quick,
             "Gripper",
@@ -3805,10 +3786,10 @@ class TeachPanelApp:
             ),
             columns=2,
         )
-        gripper_group.grid(row=3, column=0, columnspan=2, sticky="ew")
+        gripper_group.grid(row=4, column=0, columnspan=2, sticky="ew")
 
         details = ttk.Notebook(tab)
-        details.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        details.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         details.rowconfigure(0, weight=1)
         details.columnconfigure(0, weight=1)
 
@@ -3821,6 +3802,7 @@ class TeachPanelApp:
         for row, (key, label) in enumerate(
             (
                 ("camera", "Gemini Camera"),
+                ("depth_pointcloud", "Depth Debug Cloud"),
                 ("viewer", "2D Raw View"),
                 ("slam", "Localize / Nav"),
                 ("grasp_server", "Grasp Server"),
@@ -3878,13 +3860,13 @@ class TeachPanelApp:
     def _build_move_tab(self) -> None:
         tab = self._add_scrollable_tab("Move")
         tab.columnconfigure(0, weight=1)
-        tab.columnconfigure(1, weight=1)
         tab.rowconfigure(1, weight=1)
         self._build_move_monitor(tab)
         left = ttk.Frame(tab)
-        left.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+        left.grid(row=1, column=0, sticky="ew")
+        left.columnconfigure(0, weight=1)
         right = ttk.Frame(tab)
-        right.grid(row=1, column=1, sticky="nsew")
+        right.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         right.columnconfigure(0, weight=1)
         self._build_arm_controls(left)
         self._build_joint_target_controls(left)
@@ -3932,6 +3914,8 @@ class TeachPanelApp:
 
         toolbar = ttk.Frame(tab)
         toolbar.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        for column in range(5):
+            toolbar.columnconfigure(column, weight=1)
         for index, (text, command) in enumerate(
             (
                 ("Update", self._update_selected),
@@ -3945,7 +3929,13 @@ class TeachPanelApp:
                 ("Stop", self.node.stop_all),
             )
         ):
-            ttk.Button(toolbar, text=text, command=command).grid(row=0, column=index, padx=3)
+            ttk.Button(toolbar, text=text, command=command).grid(
+                row=index // 5,
+                column=index % 5,
+                sticky="ew",
+                padx=3,
+                pady=3,
+            )
 
         program = ttk.LabelFrame(tab, text="Program Tree")
         program.grid(row=2, column=0, sticky="nsew")

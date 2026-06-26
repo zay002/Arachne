@@ -8,6 +8,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def launch_setup(context, *args, **kwargs):
@@ -43,6 +44,16 @@ def launch_setup(context, *args, **kwargs):
                 {
                     "input_topic": LaunchConfiguration("input_joint_states_topic"),
                     "output_topic": visualization_joint_states,
+                    "aubo_sdk_fallback_enabled": ParameterValue(
+                        LaunchConfiguration("aubo_sdk_fallback_enabled"), value_type=bool
+                    ),
+                    "aubo_sdk_ip": LaunchConfiguration("aubo_sdk_ip"),
+                    "aubo_sdk_port": ParameterValue(
+                        LaunchConfiguration("aubo_sdk_port"), value_type=int
+                    ),
+                    "aubo_sdk_timeout_sec": ParameterValue(
+                        LaunchConfiguration("aubo_sdk_timeout_sec"), value_type=float
+                    ),
                 }
             ],
             output="screen",
@@ -117,6 +128,10 @@ def generate_launch_description():
             DeclareLaunchArgument("with_lidar", default_value="true"),
             DeclareLaunchArgument("with_lslidar_driver", default_value="false"),
             DeclareLaunchArgument("with_ee_camera", default_value="true"),
+            DeclareLaunchArgument("aubo_sdk_fallback_enabled", default_value="true"),
+            DeclareLaunchArgument("aubo_sdk_ip", default_value="192.168.127.128"),
+            DeclareLaunchArgument("aubo_sdk_port", default_value="30004"),
+            DeclareLaunchArgument("aubo_sdk_timeout_sec", default_value="0.5"),
             OpaqueFunction(function=launch_setup),
         ]
     )

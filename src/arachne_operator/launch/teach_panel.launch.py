@@ -117,6 +117,7 @@ def generate_launch_description():
                 "cleanup_task_preflight_service"
             ),
             "camera_command": LaunchConfiguration("camera_command"),
+            "depth_pointcloud_command": LaunchConfiguration("depth_pointcloud_command"),
             "camera_view_command": LaunchConfiguration("camera_view_command"),
             "grasp_server_command": LaunchConfiguration("grasp_server_command"),
             "cleanup_server_command": LaunchConfiguration("cleanup_server_command"),
@@ -361,6 +362,7 @@ def generate_launch_description():
                     LaunchConfiguration("service_stop_timeout_sec"), value_type=float
                 ),
                 "camera_command": LaunchConfiguration("camera_command"),
+                "depth_pointcloud_command": LaunchConfiguration("depth_pointcloud_command"),
                 "camera_view_command": LaunchConfiguration("camera_view_command"),
                 "slam_command": LaunchConfiguration("slam_command"),
                 "grasp_server_command": LaunchConfiguration("grasp_server_command"),
@@ -578,7 +580,7 @@ def generate_launch_description():
             DeclareLaunchArgument("runtime_log_root", default_value="log/teach_panel"),
             DeclareLaunchArgument(
                 "autostart_managed_processes",
-                default_value="camera,viewer,grasp_server,cleanup_server",
+                default_value="camera,depth_pointcloud,viewer,grasp_server,cleanup_server",
             ),
             DeclareLaunchArgument("service_stop_timeout_sec", default_value="4.0"),
             DeclareLaunchArgument(
@@ -589,10 +591,10 @@ def generate_launch_description():
                     "with_tf:=true camera_parent_frame:=ee_camera_link "
                     "color_width:=640 color_height:=480 color_fps:=30.0 "
                     "depth_width:=640 depth_height:=480 depth_fps:=15.0 "
-                    "color_v4l2_controls:=brightness=20,exposure_auto=1,exposure_absolute=80,gain=0 "
-                    "camera_optical_x:=0.0 camera_optical_y:=0.0 "
-                    "camera_optical_z:=0.0 camera_optical_roll:=0.0 "
-                    "camera_optical_pitch:=0.0 camera_optical_yaw:=1.570796327 "
+                    "color_v4l2_controls:=brightness=20,exposure_auto=0,exposure_absolute=45,gain=0 "
+                    "camera_optical_x:=0.0201 camera_optical_y:=0.0 "
+                    "camera_optical_z:=0.2196 camera_optical_roll:=0.196 "
+                    "camera_optical_pitch:=-0.024 camera_optical_yaw:=-1.570796327 "
                     "projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YUYV"
                 ),
             ),
@@ -601,6 +603,15 @@ def generate_launch_description():
                 default_value=(
                     "ros2 run arachne_operator raw_image_viewer "
                     "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "depth_pointcloud_command",
+                default_value=(
+                    "ros2 run arachne_sensors depth_to_pointcloud --ros-args "
+                    "-p frames:=1 -p stride:=4 -p max_depth_m:=3.0 "
+                    "-p exit_after_publish:=false "
+                    "-p pointcloud_topic:=/arachne/debug/depth_points"
                 ),
             ),
             DeclareLaunchArgument(
@@ -622,7 +633,7 @@ def generate_launch_description():
                     "real_sdk_move_speed:=0.36 "
                     "real_sdk_move_accel:=0.60 "
                     "aubo_move_joint_fallback_internal:=false "
-                    "extra_args:='--planner-backend local --imgsz 768 --min-detection-mask-area-px 0 "
+                    "extra_args:='--planner-backend local --imgsz 640 --min-detection-mask-area-px 0 "
                     "--reject-label-keywords film,other,cap,lid --planning-key-waypoints approach,grasp "
                     "--detection-min-center-y-ratio 0.38 "
                     "--preferred-label-keywords bottle,carton,can,cup,container,jar,box "
@@ -635,7 +646,7 @@ def generate_launch_description():
                     "--local-position-tolerance 0.050 --local-orientation-tolerance 0.35 "
                     "--real-sdk-arrival-timeout-padding 10 "
                     "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "
-                    "preview_on_start:=true warm_execute_preview:=false planning_recovery_base_enabled:=false skip_preflight:=true "
+                    "preview_on_start:=false warm_execute_preview:=false planning_recovery_base_enabled:=false skip_preflight:=true "
                     "preflight_timeout_sec:=0.5 require_odom:=false require_joint_states:=false require_camera_topics:=false "
                     "require_aubo_status:=false require_gripper_status:=false "
                     "max_grasp_attempts:=2 retry_on_gripper_miss:=true"

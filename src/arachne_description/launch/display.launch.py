@@ -54,7 +54,7 @@ def _prefix_robot_links(robot_description: str, prefix: str) -> str:
 def launch_setup(context, *args, **kwargs):
     pkg_share = Path(get_package_share_directory("arachne_description"))
     model_path = pkg_share / "urdf" / "arachne.urdf.xacro"
-    rviz_config = pkg_share / "rviz" / "arachne_model.rviz"
+    rviz_config = Path(LaunchConfiguration("rviz_config").perform(context))
     generated_urdf = Path("/tmp/arachne_display.urdf")
 
     mappings = {
@@ -310,6 +310,14 @@ def generate_launch_description():
             DeclareLaunchArgument("gripper_max_velocity", default_value="-1.0"),
             DeclareLaunchArgument("use_gui", default_value="false"),
             DeclareLaunchArgument("with_rviz", default_value="true"),
+            DeclareLaunchArgument(
+                "rviz_config",
+                default_value=str(
+                    Path(get_package_share_directory("arachne_description"))
+                    / "rviz"
+                    / "arachne_model.rviz"
+                ),
+            ),
             DeclareLaunchArgument("with_lidar", default_value="true"),
             DeclareLaunchArgument("with_ee_camera", default_value="true"),
             DeclareLaunchArgument("with_rear_rack", default_value="true"),
@@ -326,10 +334,10 @@ def generate_launch_description():
             DeclareLaunchArgument("camera_depth_frame", default_value="camera_depth_optical_frame"),
             DeclareLaunchArgument("camera_optical_x", default_value="0.0201"),
             DeclareLaunchArgument("camera_optical_y", default_value="0.0"),
-            DeclareLaunchArgument("camera_optical_z", default_value="0.0125"),
-            DeclareLaunchArgument("camera_optical_roll", default_value="0.0"),
-            DeclareLaunchArgument("camera_optical_pitch", default_value="0.0"),
-            DeclareLaunchArgument("camera_optical_yaw", default_value="0.0"),
+            DeclareLaunchArgument("camera_optical_z", default_value="0.2196"),
+            DeclareLaunchArgument("camera_optical_roll", default_value="0.196"),
+            DeclareLaunchArgument("camera_optical_pitch", default_value="-0.024"),
+            DeclareLaunchArgument("camera_optical_yaw", default_value="-1.570796327"),
             DeclareLaunchArgument("joint_state_publish_rate", default_value="80.0"),
             DeclareLaunchArgument(
                 "display_joint_states_topic", default_value="/arachne/display/joint_states"

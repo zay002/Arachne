@@ -335,7 +335,7 @@ def _parse_args() -> argparse.Namespace:
         description="Preview detect-depth-grasp path from Gemini335 RGB-D in RViz."
     )
     hidden = argparse.SUPPRESS
-    parser.add_argument("--model", default="yolo_workspace/weights/trash_yolo26n_seg_best.pt", help=hidden)
+    parser.add_argument("--model", default="yolo_workspace/weights/trash_yolo26n_seg_best.onnx", help=hidden)
     parser.add_argument("--venv", default="yolo_workspace/.venv", help=hidden)
     parser.add_argument("--yolo-task", default="segment", help=hidden)
     parser.add_argument("--classes", default="")
@@ -383,13 +383,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max-depth", type=float, default=2.5, help=hidden)
     parser.add_argument("--depth-percentile", type=float, default=35.0, help=hidden)
     parser.add_argument("--depth-band", type=float, default=0.08, help=hidden)
+    parser.add_argument("--yolo-depth-filter", action=argparse.BooleanOptionalAction, default=True, help=hidden)
+    parser.add_argument("--yolo-depth-min-base-z", type=float, default=-0.20, help=hidden)
     parser.add_argument("--roi-shrink", type=float, default=0.65, help=hidden)
     parser.add_argument("--roi-decimation", type=int, default=3, help=hidden)
     parser.add_argument(
         "--depth-projection-flip-x",
         dest="depth_projection_flip_x",
         action="store_true",
-        default=True,
+        default=False,
         help=hidden,
     )
     parser.add_argument(
@@ -402,7 +404,7 @@ def _parse_args() -> argparse.Namespace:
         "--depth-projection-flip-y",
         dest="depth_projection_flip_y",
         action="store_true",
-        default=True,
+        default=False,
         help=hidden,
     )
     parser.add_argument(
@@ -444,7 +446,6 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--collision-margin", type=float, default=0.015, help=hidden)
     parser.add_argument("--rear-rack-collision-margin", type=float, default=0.005, help=hidden)
     parser.add_argument("--ground-min-z-base", type=float, default=-0.22, help=hidden)
-    parser.add_argument("--grasp-min-z-base", type=float, default=-0.20, help=hidden)
     parser.add_argument("--grasp-max-z-base", type=float, default=999.0, help=hidden)
     parser.add_argument("--grasp-final-z-offset-m", type=float, default=-0.055, help=hidden)
     parser.add_argument("--ground-clearance", type=float, default=0.02, help=hidden)
@@ -871,6 +872,8 @@ class GraspPreviewNode(Node):
         self.snapshot_header: Header | None = None
         self.snapshot_time = 0.0
         self.snapshot_count = 0
+        self.last_saved_detection_key: tuple[int, str] | None = None
+        self.yolo_cuda_disabled = False
         self.inference_count = 0
         self.inference_paused = False
         self.planning_thread: threading.Thread | None = None
@@ -1207,14 +1210,31 @@ class GraspPreviewNode(Node):
             self._throttled_log(str(exc))
             return
 
-        result = self._predict(color)
+        model_input = self._yolo_depth_filtered_input(color)
+        if model_input is None:
+            annotated = color.copy()
+            cv2.putText(
+                annotated,
+                "waiting for depth height mask",
+                (16, 32),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 190, 255),
+                2,
+                cv2.LINE_AA,
+            )
+            self.image_pub.publish(_image_from_bgr(annotated, self.latest_color.header))
+            self._throttled_log("waiting for depth height mask before YOLO")
+            return
+
+        result = self._predict(model_input)
         detection = self._best_detection(result)
-        annotated = result.plot()
+        annotated = color.copy()
         header = self.latest_color.header
         if detection is None:
-            detection = self._green_bottle_fallback_detection(color)
-            if detection is not None:
-                self._draw_detection_overlay(annotated, detection, "GREEN_FALLBACK")
+            detection = self._green_bottle_fallback_detection(model_input)
+        if detection is not None:
+            self._draw_detection_overlay(annotated, detection, "Grasp_ROI")
         if detection is None:
             self.missing_frames += 1
             cv2.putText(
@@ -1295,6 +1315,62 @@ class GraspPreviewNode(Node):
         if needs_snapshot:
             self._start_arm_planning(preview, preview_header)
 
+    def _yolo_depth_filtered_input(self, color: np.ndarray) -> np.ndarray | None:
+        if not bool(self.args.yolo_depth_filter):
+            return color
+        if self.latest_depth is None or self.depth_info is None:
+            return None
+        try:
+            depth = _image_to_depth(self.latest_depth)
+        except ValueError as exc:
+            self._throttled_log(str(exc))
+            return None
+        source_frame = self.latest_depth.header.frame_id
+        if not source_frame:
+            return None
+        base_from_depth = self._base_from_depth_matrix(source_frame)
+        if base_from_depth is None:
+            return None
+
+        depth_m = depth.astype(np.float32) * float(self.args.depth_scale)
+        valid = (
+            np.isfinite(depth_m)
+            & (depth_m >= float(self.args.min_depth))
+            & (depth_m <= float(self.args.max_depth))
+        )
+        keep = np.zeros(depth.shape[:2], dtype=np.uint8)
+        if np.any(valid):
+            height, width = depth.shape[:2]
+            uu, vv = np.meshgrid(
+                np.arange(width, dtype=np.float32),
+                np.arange(height, dtype=np.float32),
+            )
+            points = self._pixels_to_xyz(uu[valid], vv[valid], depth_m[valid])
+            if points.size:
+                base_z = points @ base_from_depth[2, :3] + base_from_depth[2, 3]
+                keep[valid] = (base_z >= float(self.args.yolo_depth_min_base_z)).astype(np.uint8)
+        keep = cv2.dilate(keep, np.ones((3, 3), dtype=np.uint8), iterations=1)
+        if keep.shape[:2] != color.shape[:2]:
+            keep = cv2.resize(keep, (color.shape[1], color.shape[0]), interpolation=cv2.INTER_NEAREST)
+        filtered = color.copy()
+        filtered[keep == 0] = 0
+        return filtered
+
+    def _base_from_depth_matrix(self, source_frame: str) -> np.ndarray | None:
+        if source_frame == self.base_frame:
+            return np.eye(4, dtype=np.float64)
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                self.base_frame,
+                source_frame,
+                rclpy.time.Time(),
+                timeout=Duration(seconds=0.02),
+            )
+        except TransformException as exc:
+            self._throttled_log(f"waiting for depth TF {self.base_frame} <- {source_frame}: {exc}")
+            return None
+        return self._matrix_from_transform(transform)
+
     def _missing_depth_text(self) -> str:
         missing = []
         if self.latest_depth is None:
@@ -1359,17 +1435,21 @@ class GraspPreviewNode(Node):
         self, image: np.ndarray, detection: Detection, prefix: str, footer: str | None = None
     ) -> None:
         x1, y1, x2, y2 = (int(round(v)) for v in detection.xyxy)
-        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 190, 255), 2)
+        green = (0, 255, 80)
         if detection.mask_xy:
             polygon = np.asarray(detection.mask_xy, dtype=np.int32).reshape((-1, 1, 2))
-            cv2.polylines(image, [polygon], isClosed=True, color=(0, 255, 80), thickness=2)
+            overlay = image.copy()
+            cv2.fillPoly(overlay, [polygon], green)
+            cv2.addWeighted(overlay, 0.22, image, 0.78, 0, image)
+            cv2.polylines(image, [polygon], isClosed=True, color=green, thickness=2)
+        cv2.rectangle(image, (x1, y1), (x2, y2), green, 2)
         cv2.putText(
             image,
-            f"{prefix} {detection.label} {detection.confidence:.2f}",
+            f"Grasp_ROI {detection.label} {detection.confidence:.2f}",
             (max(x1, 8), max(y1 - 8, 24)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.62,
-            (0, 190, 255),
+            green,
             2,
             cv2.LINE_AA,
         )
@@ -2678,22 +2758,63 @@ class GraspPreviewNode(Node):
 
     def _predict(self, frame: np.ndarray):
         self.inference_count += 1
+        device = self._yolo_device()
         kwargs = {
             "imgsz": int(self.args.imgsz),
             "conf": float(self.args.conf),
-            "device": self._yolo_device(),
+            "device": device,
             "verbose": False,
         }
         if self.class_ids is not None:
             kwargs["classes"] = self.class_ids
-        return self.model.predict(frame, **kwargs)[0]
+        try:
+            return self.model.predict(frame, **kwargs)[0]
+        except RuntimeError as exc:
+            if device == "cpu" or not self._is_cuda_failure(exc):
+                raise
+            self.yolo_cuda_disabled = True
+            self.args.device_id = "cpu"
+            self.args.imgsz = min(int(self.args.imgsz), 640)
+            try:
+                import torch
+
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+            try:
+                self.model.to("cpu")
+            except Exception:
+                pass
+            self.get_logger().warning(
+                f"YOLO CUDA failure; falling back to CPU imgsz={int(self.args.imgsz)}: {exc}"
+            )
+            kwargs["device"] = "cpu"
+            kwargs["imgsz"] = int(self.args.imgsz)
+            return self.model.predict(frame, **kwargs)[0]
 
     def _yolo_device(self) -> str:
+        if self.yolo_cuda_disabled:
+            return "cpu"
         if self.model_path.suffix.lower() == ".onnx":
             device = str(self.args.onnx_device).strip()
             if device:
                 return device
         return str(self.args.device_id)
+
+    @staticmethod
+    def _is_cuda_failure(exc: BaseException) -> bool:
+        text = str(exc).lower()
+        return any(
+            token in text
+            for token in (
+                "cuda",
+                "cudnn",
+                "nvml",
+                "nvmap",
+                "cudacachingallocator",
+                "out of memory",
+            )
+        )
 
     def _best_detection(self, result) -> Detection | None:
         boxes = result.boxes
@@ -3027,14 +3148,14 @@ class GraspPreviewNode(Node):
         roi_points = self._roi_points(
             depth, ix1, iy1, ix2, iy2, depth_m, mask_depth if mask_roi is not None else None
         )
+        roi_points = self._filter_roi_points_by_base_z(roi_points)
+        if not roi_points:
+            return None
         visual_axis_camera, visual_axis_confidence = self._detection_visual_axis_camera(
             detection, depth_m, dw, dh, cw, ch
         )
-        if roi_points:
-            arr = np.asarray(roi_points, dtype=np.float32)
-            grasp_x, grasp_y, grasp_z = np.median(arr, axis=0).astype(float)
-        else:
-            grasp_x, grasp_y, grasp_z = self._pixel_to_xyz(cx, cy, depth_m)
+        arr = np.asarray(roi_points, dtype=np.float32)
+        grasp_x, grasp_y, grasp_z = np.median(arr, axis=0).astype(float)
 
         grasp_z = max(grasp_z - float(self.args.grasp_standoff), self.args.min_depth)
         grasp = (grasp_x, grasp_y, grasp_z)
@@ -3064,11 +3185,11 @@ class GraspPreviewNode(Node):
             visual_axis_confidence,
         )
         if base_grasp is not None:
-            min_z = float(self.args.grasp_min_z_base)
+            min_z = float(self.args.yolo_depth_min_base_z)
             z_epsilon = 0.005
             if base_grasp[2] < min_z - z_epsilon:
                 self._throttled_log(
-                    f"reject detection below ground threshold: "
+                    f"reject detection below YOLO depth threshold: "
                     f"label={detection.label} base_z={base_grasp[2]:.3f} "
                     f"min_z={min_z:.3f}"
                 )
@@ -3122,19 +3243,40 @@ class GraspPreviewNode(Node):
         mask: np.ndarray | None = None,
     ) -> list[tuple[float, float, float]]:
         step = max(int(self.args.roi_decimation), 1)
-        points: list[tuple[float, float, float]] = []
         band = max(float(self.args.depth_band), 0.01)
-        for y in range(y1, y2, step):
-            for x in range(x1, x2, step):
-                if mask is not None and not bool(mask[y, x]):
-                    continue
-                z = float(depth[y, x]) * float(self.args.depth_scale)
-                if z < self.args.min_depth or z > self.args.max_depth:
-                    continue
-                if abs(z - depth_m) > band:
-                    continue
-                points.append(self._pixel_to_xyz(float(x), float(y), z))
-        return points
+        xs = np.arange(x1, x2, step, dtype=np.float32)
+        ys = np.arange(y1, y2, step, dtype=np.float32)
+        if xs.size == 0 or ys.size == 0:
+            return []
+        uu, vv = np.meshgrid(xs, ys)
+        xi = uu.astype(np.int32, copy=False)
+        yi = vv.astype(np.int32, copy=False)
+        z = depth[yi, xi].astype(np.float32) * float(self.args.depth_scale)
+        valid = (
+            np.isfinite(z)
+            & (z >= float(self.args.min_depth))
+            & (z <= float(self.args.max_depth))
+            & (np.abs(z - float(depth_m)) <= band)
+        )
+        if mask is not None:
+            valid &= mask[yi, xi]
+        if not np.any(valid):
+            return []
+        points = self._pixels_to_xyz(uu[valid], vv[valid], z[valid])
+        return [tuple(float(value) for value in point) for point in points]
+
+    def _filter_roi_points_by_base_z(
+        self, points: list[tuple[float, float, float]]
+    ) -> list[tuple[float, float, float]]:
+        if not bool(self.args.yolo_depth_filter) or not points or self.latest_depth is None:
+            return points
+        base_from_depth = self._base_from_depth_matrix(self.latest_depth.header.frame_id)
+        if base_from_depth is None:
+            return points
+        arr = np.asarray(points, dtype=np.float32)
+        base_z = arr @ base_from_depth[2, :3] + base_from_depth[2, 3]
+        keep = base_z >= float(self.args.yolo_depth_min_base_z)
+        return [tuple(float(value) for value in point) for point in arr[keep]]
 
     def _detection_visual_axis_camera(
         self,
@@ -3193,18 +3335,28 @@ class GraspPreviewNode(Node):
         return axis_camera / norm, float(np.clip(anisotropy, 0.0, 1.0))
 
     def _pixel_to_xyz(self, u: float, v: float, z: float) -> tuple[float, float, float]:
+        points = self._pixels_to_xyz(
+            np.asarray([u], dtype=np.float32),
+            np.asarray([v], dtype=np.float32),
+            np.asarray([z], dtype=np.float32),
+        )
+        if points.size == 0:
+            return (0.0, 0.0, 0.0)
+        return tuple(float(value) for value in points[0])
+
+    def _pixels_to_xyz(self, u: np.ndarray, v: np.ndarray, z: np.ndarray) -> np.ndarray:
         info = self.depth_info
         if info is None:
-            return (0.0, 0.0, 0.0)
+            return np.empty((0, 3), dtype=np.float32)
         fx = float(info.k[0]) if info.k[0] else float(info.width) * 0.9
         fy = float(info.k[4]) if info.k[4] else fx
         cx = float(info.k[2]) if info.k[2] else (float(info.width) - 1.0) * 0.5
         cy = float(info.k[5]) if info.k[5] else (float(info.height) - 1.0) * 0.5
-        pixel_x = cx - float(u) if bool(self.args.depth_projection_flip_x) else float(u) - cx
-        pixel_y = cy - float(v) if bool(self.args.depth_projection_flip_y) else float(v) - cy
-        x = pixel_x * float(z) / fx
-        y = pixel_y * float(z) / fy
-        return (float(x), float(y), float(z))
+        pixel_x = cx - u if bool(self.args.depth_projection_flip_x) else u - cx
+        pixel_y = cy - v if bool(self.args.depth_projection_flip_y) else v - cy
+        x = pixel_x.astype(np.float32, copy=False) * z / fx
+        y = pixel_y.astype(np.float32, copy=False) * z / fy
+        return np.column_stack((x, y, z)).astype(np.float32, copy=False)
 
     def _publish_preview(self, preview: GraspPreview, source_header: Header) -> None:
         # ponytail: preview markers/clouds need current TF; keep coordinates in the camera frame.
@@ -4592,6 +4744,14 @@ class GraspPreviewNode(Node):
                     _matrix, message = self._tool_to_grasp_matrix()
                     return [], f"local ik: {message}"
                 target_tool0_base, target_tool0_rotation_base = tool_target
+                unreachable_note = self._moveit_unreachable_note(target_tool0_base)
+                if unreachable_note:
+                    x, y, z = point
+                    return (
+                        [],
+                        f"target_out_of_reach at {target_name} xyz=({x:.3f},{y:.3f},{z:.3f}); "
+                        f"{unreachable_note}",
+                    )
                 target_position = np.asarray(
                     self._transform_point(transform, target_tool0_base), dtype=float
                 )
@@ -5985,6 +6145,17 @@ class GraspPreviewNode(Node):
     ) -> None:
         cv2.imwrite(str(self.save_dir / "latest_raw.jpg"), raw)
         cv2.imwrite(str(self.save_dir / "latest_annotated.jpg"), annotated)
+        if preview.snapshot_reason != "cached":
+            key = (int(self.snapshot_count), str(preview.snapshot_reason))
+            if key != self.last_saved_detection_key:
+                self.last_saved_detection_key = key
+                label = re.sub(r"[^A-Za-z0-9_.-]+", "_", preview.detection.label)[:40] or "target"
+                reason = re.sub(r"[^A-Za-z0-9_.-]+", "_", preview.snapshot_reason)[:40] or "snapshot"
+                stem = f"{self.snapshot_count:04d}_{reason}_{label}_{preview.detection.confidence:.2f}"
+                out_dir = self.save_dir / "detections"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(out_dir / f"{stem}_raw.jpg"), raw)
+                cv2.imwrite(str(out_dir / f"{stem}_annotated.jpg"), annotated)
         payload = {
             "label": preview.detection.label,
             "class_id": preview.detection.class_id,

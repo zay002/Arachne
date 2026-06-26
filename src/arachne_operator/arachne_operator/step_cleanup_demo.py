@@ -17,11 +17,13 @@ from rclpy.node import Node
 from std_msgs.msg import Bool, Empty, String
 from std_srvs.srv import Trigger
 
+from arachne_operator.aubo_move_joint_client import AuboMoveJointClient
 from arachne_operator.repo_paths import root_dir
 
 
 TERMINAL_STATES = {"succeeded", "failed", "canceled"}
 STARTABLE_STATES = ("idle", *TERMINAL_STATES)
+DEFAULT_SEARCH_JOINTS = "-1.611779,-0.457910,1.071527,-0.044520,1.575231,0.771459"
 
 
 @dataclass
@@ -77,6 +79,15 @@ class StepCleanupDemo(Node):
         self.declare_parameter("max_grasps", 1)
         self.declare_parameter("grasp_timeout_sec", 180.0)
         self.declare_parameter("base_step_timeout_sec", 20.0)
+        self.declare_parameter("return_home_on_finish", True)
+        self.declare_parameter("move_to_search_pose_before_start", True)
+        self.declare_parameter("required_search_joints", DEFAULT_SEARCH_JOINTS)
+        self.declare_parameter("search_pose_move_speed_rad_sec", 0.25)
+        self.declare_parameter("search_pose_move_accel_rad_sec2", 0.45)
+        self.declare_parameter("search_pose_move_timeout_sec", 20.0)
+        self.declare_parameter("search_pose_goal_tolerance_rad", 0.08)
+        self.declare_parameter("aubo_move_joint_action_name", "/arachne/aubo/move_joint")
+        self.declare_parameter("recover_lost_target", True)
         self.declare_parameter("log_root", "log/step_cleanup_demo")
 
         self.workspace_root = root_dir()
@@ -90,6 +101,7 @@ class StepCleanupDemo(Node):
         self.attempts = 0
         self.grasps = 0
         self.progress_m = 0.0
+        self.last_approach_step_m = 0.0
         self.latest_candidate: Candidate | None = None
         self.base_state: dict[str, Any] = {}
         self.grasp_state: dict[str, Any] = {}
@@ -135,6 +147,9 @@ class StepCleanupDemo(Node):
         )
         self.base_stop_client = self.create_client(
             Trigger, str(self.get_parameter("base_stop_service").value)
+        )
+        self.aubo_move_joint = AuboMoveJointClient(
+            self, str(self.get_parameter("aubo_move_joint_action_name").value)
         )
 
         self.create_service(Trigger, "/arachne/step_cleanup/start", self._start_cb)
@@ -186,6 +201,7 @@ class StepCleanupDemo(Node):
             self.attempts = 0
             self.grasps = 0
             self.progress_m = 0.0
+            self.last_approach_step_m = 0.0
             self.latest_candidate = None
         max_steps = max(int(self.get_parameter("max_approach_steps").value), 0)
         max_grasps = max(int(self.get_parameter("max_grasps").value), 1)
@@ -193,12 +209,19 @@ class StepCleanupDemo(Node):
         if not ok:
             self._finish("failed", f"preflight failed: {message}")
             return
+        ok, message = self._move_to_search_pose_if_needed()
+        if not ok:
+            self._finish("failed", message)
+            return
 
         while rclpy.ok() and not self.cancel_event.is_set():
             if self.grasps >= max_grasps:
                 self._finish("succeeded", f"step cleanup complete: grasps={self.grasps}")
                 return
             candidate = self._observe_once()
+            if candidate is None:
+                if self._recover_lost_target_once():
+                    candidate = self._observe_once()
             if candidate is None:
                 self._finish("failed", "no trash candidate")
                 return
@@ -209,13 +232,31 @@ class StepCleanupDemo(Node):
             min_x = float(self.get_parameter("grasp_min_base_x_m").value)
             max_x = float(self.get_parameter("grasp_max_base_x_m").value)
             if min_x <= x <= max_x:
+                self._event(
+                    "candidate_decision",
+                    {"base_x_m": x, "min_x_m": min_x, "max_x_m": max_x, "decision": "grasp"},
+                )
                 if not self._run_grasp(candidate):
                     return
                 continue
             if x < min_x:
+                self._event(
+                    "candidate_decision",
+                    {"base_x_m": x, "min_x_m": min_x, "max_x_m": max_x, "decision": "too_close"},
+                )
                 self._finish("failed", f"trash too close: base_x={x:.2f}m")
                 return
             if self.attempts >= max_steps:
+                self._event(
+                    "candidate_decision",
+                    {
+                        "base_x_m": x,
+                        "min_x_m": min_x,
+                        "max_x_m": max_x,
+                        "decision": "too_far_exhausted",
+                        "attempts": self.attempts,
+                    },
+                )
                 self._finish("failed", f"trash still too far after {self.attempts} steps")
                 return
             target = float(self.get_parameter("target_base_x_m").value)
@@ -223,8 +264,20 @@ class StepCleanupDemo(Node):
                 float(self.get_parameter("approach_step_m").value),
                 max(0.02, x - target),
             )
+            self._event(
+                "candidate_decision",
+                {
+                    "base_x_m": x,
+                    "min_x_m": min_x,
+                    "max_x_m": max_x,
+                    "target_x_m": target,
+                    "step_m": step,
+                    "decision": "approach",
+                },
+            )
             if not self._drive_forward(step):
                 return
+            self.last_approach_step_m = step
 
         if self.cancel_event.is_set():
             self._finish("canceled", "step cleanup canceled")
@@ -246,9 +299,13 @@ class StepCleanupDemo(Node):
         self._set_scan(False)
         return None
 
-    def _drive_forward(self, distance: float) -> bool:
-        self.attempts += 1
-        self._set_state("approaching", f"move base forward {distance:.2f}m")
+    def _drive_forward(
+        self, distance: float, *, finish_on_error: bool = True, count_attempt: bool = True
+    ) -> bool:
+        if count_attempt and distance > 0.0:
+            self.attempts += 1
+        direction = "forward" if distance >= 0.0 else "back"
+        self._set_state("approaching", f"move base {direction} {abs(distance):.2f}m")
         self._set_scan(False)
         payload = {
             "command": "drive_relative",
@@ -269,7 +326,10 @@ class StepCleanupDemo(Node):
             if command_seen and self._base_done(snapshot, payload):
                 state = str(snapshot.get("state", "")).lower()
                 if state == "failed":
-                    self._finish("failed", str(snapshot.get("message", "base failed")))
+                    if finish_on_error:
+                        self._finish("failed", str(snapshot.get("message", "base failed")))
+                    else:
+                        self._event("base_step_failed", {"message": str(snapshot.get("message", "base failed"))})
                     return False
                 self.progress_m += distance
                 self._event("base_step_done", {"distance_m": distance})
@@ -278,8 +338,46 @@ class StepCleanupDemo(Node):
         self._call_trigger(self.base_stop_client, 1.0)
         if self.cancel_event.is_set():
             return False
-        self._finish("failed", "base approach timeout")
+        if finish_on_error:
+            self._finish("failed", "base approach timeout")
+        else:
+            self._event("base_step_failed", {"message": "base approach timeout"})
         return False
+
+    def _recover_lost_target_once(self) -> bool:
+        if not bool(self.get_parameter("recover_lost_target").value):
+            return False
+        with self.lock:
+            back = min(abs(self.last_approach_step_m), abs(self.progress_m))
+        if back <= 1e-3:
+            return False
+        self._event("lost_target_recovery", {"backtrack_m": back})
+        ok = self._drive_forward(-back, finish_on_error=False, count_attempt=False)
+        if ok:
+            with self.lock:
+                self.last_approach_step_m = 0.0
+        return ok
+
+    def _move_to_search_pose_if_needed(self) -> tuple[bool, str]:
+        if not bool(self.get_parameter("move_to_search_pose_before_start").value):
+            return True, "search pose move disabled"
+        target = self._parse_float_list(str(self.get_parameter("required_search_joints").value), 6)
+        if target is None:
+            return False, "required_search_joints must contain 6 floats"
+        self._set_state("preparing", "move arm to step cleanup search pose")
+        ok, message, final_error = self.aubo_move_joint.move_joint(
+            target,
+            label="step_cleanup_search_pose",
+            speed_rad_sec=float(self.get_parameter("search_pose_move_speed_rad_sec").value),
+            accel_rad_sec2=float(self.get_parameter("search_pose_move_accel_rad_sec2").value),
+            goal_tolerance_rad=float(self.get_parameter("search_pose_goal_tolerance_rad").value),
+            timeout_sec=float(self.get_parameter("search_pose_move_timeout_sec").value),
+        )
+        self._event(
+            "search_pose_move",
+            {"ok": ok, "message": message, "final_error_rad": final_error, "target_joints": target},
+        )
+        return ok, message
 
     def _run_grasp(self, candidate: Candidate) -> bool:
         self._set_scan(False)
@@ -425,6 +523,7 @@ class StepCleanupDemo(Node):
 
     def _finish(self, state: str, message: str) -> None:
         self._set_scan(False)
+        self._return_home_if_needed()
         with self.lock:
             self.state = state
             self.message = message
@@ -435,6 +534,19 @@ class StepCleanupDemo(Node):
         if run_dir is not None:
             with (run_dir / "summary.json").open("w", encoding="utf-8") as handle:
                 json.dump(asdict(self._snapshot()), handle, ensure_ascii=False, indent=2)
+
+    def _return_home_if_needed(self) -> None:
+        if not bool(self.get_parameter("return_home_on_finish").value):
+            return
+        with self.lock:
+            progress = float(self.progress_m)
+        if abs(progress) <= 1e-3 or self.cancel_event.is_set():
+            return
+        self._set_state("returning", f"return to start {-progress:.2f}m")
+        if self._drive_forward(-progress, finish_on_error=False):
+            with self.lock:
+                self.progress_m = 0.0
+            self._event("return_home_done", {"distance_m": -progress})
 
     def _event(self, kind: str, data: dict[str, Any]) -> None:
         event = {
@@ -499,6 +611,17 @@ class StepCleanupDemo(Node):
         except json.JSONDecodeError:
             return {}
         return payload if isinstance(payload, dict) else {}
+
+    def _parse_float_list(self, text: str, expected: int) -> list[float] | None:
+        try:
+            values = [
+                float(item.strip())
+                for item in text.replace(";", ",").split(",")
+                if item.strip()
+            ]
+        except ValueError:
+            return None
+        return values if len(values) == expected else None
 
 
 def main(args: list[str] | None = None) -> None:

@@ -1,0 +1,77 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+      Offset:
+        X: 0
+        Y: 0
+        Z: -0.22
+      Plane: XY
+      Reference Frame: base_link
+    - Class: rviz_default_plugins/RobotModel
+      Alpha: 0.65
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/display/robot_description
+      Enabled: true
+      Name: Arachne Model
+      Visual Enabled: true
+      Collision Enabled: false
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: UsefulDirectionMarkers
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/model/direction_markers
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: true
+      Name: Depth Snapshot
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /arachne/debug/depth_points
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: AxisColor
+      Axis: Z
+  Enabled: true
+  Fixed Frame: base_link
+  Global Options:
+    Background Color: 248; 248; 245
+    Fixed Frame: base_link
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+Views:
+  Current:
+    Class: rviz_default_plugins/Orbit
+    Distance: 1.8
+    Focal Point:
+      X: 0
+      Y: 0
+      Z: 1
+    Pitch: 0.5
+    Yaw: 3.14
+Window Geometry:
+  Height: 900
+  Width: 1200

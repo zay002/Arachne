@@ -26,6 +26,7 @@ from arachne_hardware.action import AuboMoveJoint
 
 MANAGED_PROCESS_COMMAND_PARAMS = {
     "camera": "camera_command",
+    "depth_pointcloud": "depth_pointcloud_command",
     "viewer": "camera_view_command",
     "grasp_server": "grasp_server_command",
     "cleanup_server": "cleanup_server_command",
@@ -66,6 +67,7 @@ class DemoOrchestrator(Node):
         self.declare_parameter("cleanup_task_preflight_service", "/arachne/road_cleanup/preflight")
         self.declare_parameter("skip_task_preflight", True)
         self.declare_parameter("camera_command", "")
+        self.declare_parameter("depth_pointcloud_command", "")
         self.declare_parameter("camera_view_command", "")
         self.declare_parameter("grasp_server_command", "")
         self.declare_parameter("cleanup_server_command", "")
@@ -171,14 +173,16 @@ class DemoOrchestrator(Node):
         self._set_state("starting_camera")
         self._start_process("camera")
         time.sleep(0.8)
+        self._start_process("depth_pointcloud")
         self._start_process("viewer")
         self._set_state("ready")
-        return self._response(response, True, "camera/viewer start requested")
+        return self._response(response, True, "camera/depth debug/viewer start requested")
 
     def _srv_stop_camera(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         self._stop_process("viewer")
+        self._stop_process("depth_pointcloud")
         self._stop_process("camera")
-        return self._response(response, True, "camera/viewer stop requested")
+        return self._response(response, True, "camera/depth debug/viewer stop requested")
 
     def _srv_start_visual_grasp(
         self, request: Trigger.Request, response: Trigger.Response
@@ -188,6 +192,7 @@ class DemoOrchestrator(Node):
         self._teach_off()
         self._start_process("camera")
         time.sleep(0.8)
+        self._start_process("depth_pointcloud")
         self._start_process("viewer")
         self._start_process("grasp_server")
         if not bool(self.get_parameter("skip_task_preflight").value):
@@ -208,6 +213,7 @@ class DemoOrchestrator(Node):
         self._stop_base()
         self._teach_off()
         self._start_process("camera")
+        self._start_process("depth_pointcloud")
         self._start_process("grasp_server")
         self._start_process("cleanup_server")
         if not bool(self.get_parameter("skip_task_preflight").value):
@@ -518,6 +524,7 @@ class DemoOrchestrator(Node):
             return {
                 "state": self.state,
                 "camera": self._managed_process_status_locked("camera"),
+                "depth_pointcloud": self._managed_process_status_locked("depth_pointcloud"),
                 "viewer": self._managed_process_status_locked("viewer"),
                 "grasp_server": self._managed_process_status_locked("grasp_server"),
                 "cleanup_server": self._managed_process_status_locked("cleanup_server"),

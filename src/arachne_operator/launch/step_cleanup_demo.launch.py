@@ -13,6 +13,13 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("grasp_min_base_x_m", default_value="0.30"),
         DeclareLaunchArgument("grasp_max_base_x_m", default_value="0.90"),
         DeclareLaunchArgument("target_base_x_m", default_value="0.72"),
+        DeclareLaunchArgument("return_home_on_finish", default_value="true"),
+        DeclareLaunchArgument("move_to_search_pose_before_start", default_value="true"),
+        DeclareLaunchArgument(
+            "required_search_joints",
+            default_value="-1.611779,-0.457910,1.071527,-0.044520,1.575231,0.771459",
+        ),
+        DeclareLaunchArgument("recover_lost_target", default_value="true"),
     ]
     node = Node(
         package="arachne_operator",
@@ -36,6 +43,16 @@ def generate_launch_description() -> LaunchDescription:
                 ),
                 "target_base_x_m": ParameterValue(
                     LaunchConfiguration("target_base_x_m"), value_type=float
+                ),
+                "return_home_on_finish": ParameterValue(
+                    LaunchConfiguration("return_home_on_finish"), value_type=bool
+                ),
+                "move_to_search_pose_before_start": ParameterValue(
+                    LaunchConfiguration("move_to_search_pose_before_start"), value_type=bool
+                ),
+                "required_search_joints": LaunchConfiguration("required_search_joints"),
+                "recover_lost_target": ParameterValue(
+                    LaunchConfiguration("recover_lost_target"), value_type=bool
                 ),
             }
         ],

@@ -140,17 +140,17 @@ class GraspTaskServer(Node):
         )
         self.declare_parameter("preview_on_start", False)
         self.declare_parameter("preview_runner_script", "")
-        self.declare_parameter("preview_extra_args", "--planner-backend none --imgsz 768")
+        self.declare_parameter("preview_extra_args", "--planner-backend none --imgsz 640")
         self.declare_parameter("warm_execute_preview", False)
         self.declare_parameter("real_execute_trigger_topic", "/arachne/grasp_preview/execute_real")
         self.declare_parameter("real_execute_trigger_service", "/arachne/grasp_preview/execute_real_now")
         self.declare_parameter("restart_search_topic", "/arachne/grasp_preview/restart_search")
         self.declare_parameter("warm_execute_timeout_sec", 25.0)
         self.declare_parameter("warm_execute_trigger_wait_sec", 20.0)
-        self.declare_parameter("planning_recovery_base_enabled", False)
+        self.declare_parameter("planning_recovery_base_enabled", True)
         self.declare_parameter(
             "planning_recovery_base_sequence",
-            "forward:0.04,back:0.08,turn_left:5deg,turn_right:10deg",
+            "forward:0.10,forward:0.10,forward:0.10",
         )
         self.declare_parameter("planning_recovery_restore_on_failure", True)
         self.declare_parameter("preflight_timeout_sec", 2.0)
@@ -1240,11 +1240,12 @@ class GraspTaskServer(Node):
         final_failure_message = ""
         with self.lock:
             self.last_planning_recovery_steps.clear()
-        max_planning_attempts = 1 + (
-            len(recovery_steps)
-            if bool(self.get_parameter("planning_recovery_base_enabled").value)
-            else 0
+        recovery_enabled = (
+            bool(self.get_parameter("planning_recovery_base_enabled").value)
+            and bool(self.get_parameter("execute_real").value)
+            and bool(self.get_parameter("confirm_execute_real").value)
         )
+        max_planning_attempts = 1 + (len(recovery_steps) if recovery_enabled else 0)
         max_grasp_attempts = max(int(self.get_parameter("max_grasp_attempts").value), 1)
         retry_on_miss = bool(self.get_parameter("retry_on_gripper_miss").value)
         retry_delay = max(float(self.get_parameter("gripper_miss_retry_delay_sec").value), 0.0)
@@ -1291,7 +1292,7 @@ class GraspTaskServer(Node):
                 if (
                     planning_failed
                     and not real_started
-                    and bool(self.get_parameter("planning_recovery_base_enabled").value)
+                    and recovery_enabled
                     and attempt < len(recovery_steps)
                 ):
                     step = recovery_steps[attempt]
@@ -1822,6 +1823,13 @@ class GraspTaskServer(Node):
         execute_real = bool(self.get_parameter("execute_real").value)
         configured_runner = str(self.get_parameter("runner_script").value).strip()
         extra = shlex.split(str(self.get_parameter("extra_args").value))
+        if not configured_runner and not any(
+            token == "--save-dir" or token.startswith("--save-dir=") for token in extra
+        ):
+            with self.lock:
+                run_dir = self.run_dir
+            if run_dir is not None:
+                extra.extend(["--save-dir", str(run_dir / "preview")])
 
         env = os.environ.copy()
         env["ARACHNE_GRASP_EXECUTE_REAL"] = "true" if execute_real else "false"
@@ -2011,9 +2019,8 @@ class GraspTaskServer(Node):
         if configured:
             return configured
         for rel in (
-            "yolo_workspace/weights/trash_yolo26n_seg_best.pt",
-            "yolo_workspace/engines/trash_yolo26n_seg_best_fp16_640.engine",
             "yolo_workspace/weights/trash_yolo26n_seg_best.onnx",
+            "yolo_workspace/weights/trash_yolo26n_seg_best.pt",
         ):
             path = self.root / rel
             if path.exists():

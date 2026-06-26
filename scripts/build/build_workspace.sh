@@ -21,6 +21,8 @@ unset ARACHNE_ENV_NO_WORKSPACE
 set -u
 
 cd "${ROOT_DIR}"
+BUILD_LOG_DIR="${ROOT_DIR}/log/build"
+mkdir -p "${BUILD_LOG_DIR}"
 
 arachne_remove_workspace_underlay "${ROOT_DIR}"
 
@@ -79,6 +81,6 @@ else
   echo "Skipping Gazebo demo packages. Set ARACHNE_BUILD_WITH_GAZEBO=true after installing Gazebo deps."
 fi
 
-colcon build "${COLCON_ARGS[@]}" --base-paths src --packages-select \
+colcon --log-base "${BUILD_LOG_DIR}" build "${COLCON_ARGS[@]}" --base-paths src --packages-select \
   "${PACKAGES[@]}" \
   --cmake-args -DPython3_EXECUTABLE="${ARACHNE_SYSTEM_PYTHON}"

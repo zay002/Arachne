@@ -14,9 +14,11 @@ MS42DC gripper, Gemini335 RGB-D camera, and C16 lidar.
 
 ```bash
 source scripts/env/arachne_env.sh
-colcon build --base-paths src --packages-up-to arachne_operator
+./scripts/build/build_workspace.sh
 source install/setup.bash
 ```
+
+Build logs are written under `log/build/`.
 
 ## Run The Full Operator
 

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Arachne Teach Panel
+Comment=Start the Arachne teach panel
+Exec=/home/jetson/zhaoyang/Arachne/scripts/operator/start_teach_panel.sh
+Path=/home/jetson/zhaoyang/Arachne
+Terminal=true
+Categories=Development;Robotics;

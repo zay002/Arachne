@@ -36,8 +36,22 @@ def generate_launch_description():
                     "ros2 launch arachne_sensors gemini335.launch.py "
                     "publish_pointcloud:=false with_color_view:=false with_depth_view:=false "
                     "with_tf:=true camera_parent_frame:=ee_camera_link "
-                    "color_v4l2_controls:=brightness=20,exposure_auto=1,exposure_absolute=80,gain=0 "
-                    "projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YVYU"
+                    "color_width:=640 color_height:=480 color_fps:=30.0 "
+                    "depth_width:=640 depth_height:=480 depth_fps:=15.0 "
+                    "color_v4l2_controls:=brightness=20,exposure_auto=0,exposure_absolute=45,gain=0 "
+                    "camera_optical_x:=0.0201 camera_optical_y:=0.0 "
+                    "camera_optical_z:=0.2196 camera_optical_roll:=0.196 "
+                    "camera_optical_pitch:=-0.024 camera_optical_yaw:=-1.570796327 "
+                    "projection_flip_x:=true projection_flip_y:=true color_yuv_layout:=YUYV"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "depth_pointcloud_command",
+                default_value=(
+                    "ros2 run arachne_sensors depth_to_pointcloud --ros-args "
+                    "-p frames:=1 -p stride:=4 -p max_depth_m:=3.0 "
+                    "-p exit_after_publish:=false "
+                    "-p pointcloud_topic:=/arachne/debug/depth_points"
                 ),
             ),
             DeclareLaunchArgument(
@@ -57,7 +71,7 @@ def generate_launch_description():
                     "real_fixed_search_joints:=-1.629044,0.031622,1.684745,0.079056,1.575197,0.754000 "
                     "real_sdk_move_speed:=0.36 real_sdk_move_accel:=0.60 "
                     "aubo_move_joint_fallback_internal:=false "
-                    "extra_args:='--planner-backend local --imgsz 768 --min-detection-mask-area-px 0 "
+                    "extra_args:='--planner-backend local --imgsz 640 --min-detection-mask-area-px 0 "
                     "--reject-label-keywords film,other,cap,lid --planning-key-waypoints approach,grasp "
                     "--detection-min-center-y-ratio 0.38 "
                     "--preferred-label-keywords bottle,carton,can,cup,container,jar,box "
@@ -131,6 +145,7 @@ def generate_launch_description():
                             LaunchConfiguration("skip_task_preflight"), value_type=bool
                         ),
                         "camera_command": LaunchConfiguration("camera_command"),
+                        "depth_pointcloud_command": LaunchConfiguration("depth_pointcloud_command"),
                         "camera_view_command": LaunchConfiguration("camera_view_command"),
                         "grasp_server_command": LaunchConfiguration("grasp_server_command"),
                         "cleanup_server_command": LaunchConfiguration("cleanup_server_command"),

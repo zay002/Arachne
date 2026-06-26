@@ -155,7 +155,11 @@ class Gemini335V4L2Node(Node):
         self.depth_pub = self.create_publisher(Image, "/camera/depth/image_raw", 10)
         self.depth_color_pub = self.create_publisher(Image, "/camera/depth/image_color", 10)
         self.depth_info_pub = self.create_publisher(CameraInfo, "/camera/depth/camera_info", 10)
-        self.points_pub = self.create_publisher(PointCloud2, "/camera/points", 10)
+        self.points_pub = (
+            self.create_publisher(PointCloud2, "/camera/points", 10)
+            if self.publish_pointcloud
+            else None
+        )
 
         self.color_capture: cv2.VideoCapture | None = None
         self.color_process: subprocess.Popen[bytes] | None = None
@@ -584,6 +588,8 @@ class Gemini335V4L2Node(Node):
         self._publish_safe(self.depth_color_pub, _image_from_array(color, header, "bgr8"))
 
     def _publish_pointcloud(self, depth: np.ndarray, stamp: rclpy.time.Time) -> None:
+        if self.points_pub is None:
+            return
         points = self._depth_to_points(depth)
         header = self._header(stamp, self.depth_frame_id)
         cloud = point_cloud2.create_cloud_xyz32(header, points)
