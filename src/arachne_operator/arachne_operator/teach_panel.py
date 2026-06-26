@@ -69,14 +69,17 @@ MANAGED_SERVICE_COMMAND_PARAMS = {
     "slam": "slam_command",
     "grasp_server": "grasp_server_command",
     "cleanup_server": "cleanup_server_command",
+    "step_cleanup_server": "step_cleanup_server_command",
 }
 MANAGED_SERVICE_READY_SERVICES = {
     "grasp_server": ("/arachne/grasp_task/status", "/arachne/grasp_task/start"),
     "cleanup_server": ("/arachne/road_cleanup/status", "/arachne/road_cleanup/start"),
+    "step_cleanup_server": ("/arachne/step_cleanup/status", "/arachne/step_cleanup/start"),
 }
 MANAGED_SERVICE_READY_TOPICS = {
     "grasp_server": "/arachne/grasp_task/state",
     "cleanup_server": "/arachne/road_cleanup/state",
+    "step_cleanup_server": "/arachne/step_cleanup/state",
 }
 
 
@@ -410,6 +413,10 @@ class TeachPanelNode(Node):
                 "detection_confidence:=0.08 detection_timeout_sec:=3.0"
             ),
         )
+        self.declare_parameter(
+            "step_cleanup_server_command",
+            "ros2 launch arachne_operator step_cleanup_demo.launch.py",
+        )
         self.declare_parameter("grasp_task_state_topic", "/arachne/grasp_task/state")
         self.declare_parameter("grasp_task_start_service", "/arachne/grasp_task/start")
         self.declare_parameter("grasp_task_stop_service", "/arachne/grasp_task/stop")
@@ -425,6 +432,11 @@ class TeachPanelNode(Node):
         self.declare_parameter("cleanup_task_stop_service", "/arachne/road_cleanup/stop")
         self.declare_parameter("cleanup_task_status_service", "/arachne/road_cleanup/status")
         self.declare_parameter("cleanup_task_preflight_service", "/arachne/road_cleanup/preflight")
+        self.declare_parameter("step_cleanup_state_topic", "/arachne/step_cleanup/state")
+        self.declare_parameter("step_cleanup_start_service", "/arachne/step_cleanup/start")
+        self.declare_parameter("step_cleanup_stop_service", "/arachne/step_cleanup/stop")
+        self.declare_parameter("step_cleanup_status_service", "/arachne/step_cleanup/status")
+        self.declare_parameter("step_cleanup_preflight_service", "/arachne/step_cleanup/preflight")
         self.declare_parameter("skip_task_preflight", True)
 
         self.arm_state_joint_names = _parse_names(str(self.get_parameter("arm_state_joint_names").value))
@@ -500,6 +512,20 @@ class TeachPanelNode(Node):
                 Trigger, str(self.get_parameter("cleanup_task_preflight_service").value)
             ),
         }
+        self.step_cleanup_clients = {
+            "start": self.create_client(
+                Trigger, str(self.get_parameter("step_cleanup_start_service").value)
+            ),
+            "stop": self.create_client(
+                Trigger, str(self.get_parameter("step_cleanup_stop_service").value)
+            ),
+            "status": self.create_client(
+                Trigger, str(self.get_parameter("step_cleanup_status_service").value)
+            ),
+            "preflight": self.create_client(
+                Trigger, str(self.get_parameter("step_cleanup_preflight_service").value)
+            ),
+        }
 
         self.create_subscription(Odometry, odom_topic, self._odom_callback, 10)
         self.create_subscription(JointState, joint_states_topic, self._joint_state_callback, 10)
@@ -518,6 +544,12 @@ class TeachPanelNode(Node):
             String,
             str(self.get_parameter("cleanup_task_state_topic").value),
             self._cleanup_task_state_callback,
+            10,
+        )
+        self.create_subscription(
+            String,
+            str(self.get_parameter("step_cleanup_state_topic").value),
+            self._step_cleanup_state_callback,
             10,
         )
 
@@ -791,6 +823,24 @@ class TeachPanelNode(Node):
             self.hardware_status["Road"] = label
         self._log_hardware_status_change("Road", label)
 
+    def _step_cleanup_state_callback(self, msg: String) -> None:
+        data = msg.data.strip()
+        label = data
+        try:
+            payload = json.loads(data)
+            state = str(payload.get("state", "unknown"))
+            message = str(payload.get("message", "")).strip()
+            progress = payload.get("progress_m")
+            prefix = f"{state}: {message}" if message else state
+            if isinstance(progress, (int, float)):
+                prefix = f"{prefix} ({float(progress):.2f}m)"
+            label = prefix
+        except json.JSONDecodeError:
+            pass
+        with self.lock:
+            self.hardware_status["Step"] = label
+        self._log_hardware_status_change("Step", label)
+
     def snapshot(self) -> dict[str, str]:
         with self.lock:
             base = self.base_pose
@@ -818,12 +868,14 @@ class TeachPanelNode(Node):
                 "teach": "on" if self.aubo_teach_gate_active else "off",
                 "grasp_task": self.hardware_status.get("Grasp", "waiting"),
                 "road_cleanup": self.hardware_status.get("Road", "waiting"),
+                "step_cleanup": self.hardware_status.get("Step", "waiting"),
                 "status": self.last_status,
                 "camera": managed["camera"],
                 "viewer": managed["viewer"],
                 "slam": managed["slam"],
                 "grasp_server": managed["grasp_server"],
                 "cleanup_server": managed["cleanup_server"],
+                "step_cleanup_server": managed["step_cleanup_server"],
                 "log_dir": str(self.runtime_log_dir),
                 **self.hardware_status,
             }
@@ -1367,6 +1419,13 @@ class TeachPanelNode(Node):
             return
         self._start_worker(lambda: self._call_cleanup_task_worker(command))
 
+    def call_step_cleanup(self, command: str) -> None:
+        command = str(command).strip().lower()
+        if command not in self.step_cleanup_clients:
+            self._status(f"step cleanup ignored unknown command: {command}", warn=True)
+            return
+        self._start_worker(lambda: self._call_step_cleanup_worker(command))
+
     def visual_grasp_start(self) -> None:
         self._start_worker(self._visual_grasp_start_worker)
 
@@ -1515,6 +1574,49 @@ class TeachPanelNode(Node):
         message = response.message if response is not None else "empty response"
         self._status(
             f"road cleanup {command} {'ok' if success else 'failed'}: "
+            f"{self._short_grasp_task_message(message)}",
+            warn=not success,
+        )
+
+    def _call_step_cleanup_worker(self, command: str) -> None:
+        client = self.step_cleanup_clients.get(command)
+        if client is None:
+            self._status(f"step cleanup service missing: {command}", warn=True)
+            return
+        if command == "start":
+            self.drive_base_manual("stop")
+            self.stop_arm_velocity_hold()
+            if self._aubo_teach_gate_may_be_active():
+                self._publish_aubo_teach_command("teach_off")
+                ready = self.aubo_teach_ready_event.wait(
+                    max(float(self.get_parameter("aubo_teach_exit_wait_sec").value), 0.0)
+                )
+                if not ready or self._aubo_teach_gate_may_be_active():
+                    self._status("step cleanup blocked: Aubo teach mode still active", warn=True)
+                    return
+            self.start_camera_stack()
+            self._start_managed_process_worker("grasp_server")
+            self._start_managed_process_worker("step_cleanup_server")
+            self._status("step cleanup: waiting for server startup")
+        elif command == "stop":
+            self.drive_base_manual("stop")
+            self.stop_arm_velocity_hold()
+
+        service_name = getattr(client, "srv_name", command)
+        self._status(f"step cleanup {command} requested")
+        wait_timeout = 30.0 if command == "start" else 4.0
+        if not client.wait_for_service(timeout_sec=wait_timeout):
+            self._status(f"step cleanup {command} unavailable: {service_name}", warn=True)
+            return
+        future = client.call_async(Trigger.Request())
+        if not self._wait_service_future(future, 8.0):
+            self._status(f"step cleanup {command} timeout: {service_name}", warn=True)
+            return
+        response = future.result()
+        success = bool(response.success) if response is not None else False
+        message = response.message if response is not None else "empty response"
+        self._status(
+            f"step cleanup {command} {'ok' if success else 'failed'}: "
             f"{self._short_grasp_task_message(message)}",
             warn=not success,
         )
@@ -3549,27 +3651,32 @@ class TeachPanelApp:
         )
         ttk.Button(
             top,
+            text="Step Demo",
+            command=lambda: self.node.call_step_cleanup("start"),
+        ).grid(row=0, column=10, rowspan=2, padx=4)
+        ttk.Button(
+            top,
             text="Task Stop",
             command=lambda: self.node.call_grasp_task("stop"),
             style="Danger.TButton",
-        ).grid(row=0, column=10, rowspan=2, padx=4)
+        ).grid(row=0, column=11, rowspan=2, padx=4)
         ttk.Button(
             top,
             text="Road Stop",
             command=lambda: self.node.call_cleanup_task("stop"),
             style="Danger.TButton",
-        ).grid(row=0, column=11, rowspan=2, padx=4)
+        ).grid(row=0, column=12, rowspan=2, padx=4)
         ttk.Button(
             top,
             text="Road Pause",
             command=lambda: self.node.call_cleanup_task("pause"),
             style="Danger.TButton",
-        ).grid(row=0, column=12, rowspan=2, padx=4)
+        ).grid(row=0, column=13, rowspan=2, padx=4)
         ttk.Button(
             top,
             text="Return",
             command=lambda: self.node.call_cleanup_task("return_home"),
-        ).grid(row=0, column=13, rowspan=2, padx=4)
+        ).grid(row=0, column=14, rowspan=2, padx=4)
 
     def _confirm_aubo_power_off(self) -> None:
         if not messagebox.askyesno(
@@ -3605,11 +3712,13 @@ class TeachPanelApp:
                 "teach",
                 "grasp_task",
                 "road_cleanup",
+                "step_cleanup",
                 "camera",
                 "viewer",
                 "slam",
                 "grasp_server",
                 "cleanup_server",
+                "step_cleanup_server",
                 "program",
                 "log_dir",
             )
@@ -3637,6 +3746,7 @@ class TeachPanelApp:
                 ("Localize / Nav", lambda: self.node.toggle_managed_process("slam"), None),
                 ("Grasp Server", lambda: self.node.toggle_managed_process("grasp_server"), None),
                 ("Road Server", lambda: self.node.toggle_managed_process("cleanup_server"), None),
+                ("Step Server", lambda: self.node.toggle_managed_process("step_cleanup_server"), None),
             ),
             columns=2,
         )
@@ -3715,6 +3825,7 @@ class TeachPanelApp:
                 ("slam", "Localize / Nav"),
                 ("grasp_server", "Grasp Server"),
                 ("cleanup_server", "Road Cleanup Server"),
+                ("step_cleanup_server", "Step Cleanup Server"),
             )
         ):
             ttk.Label(services, text=label, style="State.TLabel", width=16).grid(

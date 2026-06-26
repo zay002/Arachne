@@ -1,6 +1,6 @@
-![Arachne](docs/demo/arachne.png)
-
 # Arachne
+
+![Arachne](docs/demo/arachne.png)
 
 [![ROS 2](https://img.shields.io/badge/ROS%202-Humble-blue)](https://docs.ros.org/en/humble/)
 [![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04-orange)](https://releases.ubuntu.com/22.04/)
@@ -18,9 +18,9 @@ colcon build --base-paths src --packages-up-to arachne_operator
 source install/setup.bash
 ```
 
-## Run
+## Run The Full Operator
 
-Use the teach panel launch as the only normal operator entrypoint:
+Use this as the normal entrypoint:
 
 ```bash
 source scripts/env/arachne_env.sh
@@ -32,11 +32,9 @@ This starts the operator panel, RViz/model view, camera controls, task servers,
 and real hardware bringup. Start/stop camera, SLAM, grasp, road cleanup, gripper,
 base, and arm actions from the panel.
 
-For UI-only checks without real drivers:
-
-```bash
-ros2 launch arachne_operator teach_panel.launch.py with_real_bringup:=false
-```
+The new `Step Demo` button runs a simplified road-cleanup flow: observe once,
+stop detection, move the base forward by small steps, re-detect, then trigger
+one or more normal grasp attempts when the trash is close enough.
 
 ## Maintenance Checks
 

@@ -11,6 +11,7 @@ ENTRYPOINTS = (
     ("teach_panel", "teach_panel"),
     ("grasp_task_server", "grasp_task_server"),
     ("road_cleanup_task_server", "road_cleanup_task_server"),
+    ("step_cleanup_demo", "step_cleanup_demo"),
     ("cli", "arachne"),
 )
 
@@ -48,4 +49,3 @@ def smoke_grasp_task() -> None:
 
 def smoke_road_cleanup() -> None:
     entrypoint_main("road_cleanup_task_server")(["--dry-run-check"])
-

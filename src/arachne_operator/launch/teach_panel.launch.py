@@ -364,8 +364,9 @@ def generate_launch_description():
                 "camera_view_command": LaunchConfiguration("camera_view_command"),
                 "slam_command": LaunchConfiguration("slam_command"),
                 "grasp_server_command": LaunchConfiguration("grasp_server_command"),
-                "cleanup_server_command": LaunchConfiguration("cleanup_server_command"),
-                "grasp_task_state_topic": LaunchConfiguration("grasp_task_state_topic"),
+            "cleanup_server_command": LaunchConfiguration("cleanup_server_command"),
+            "step_cleanup_server_command": LaunchConfiguration("step_cleanup_server_command"),
+            "grasp_task_state_topic": LaunchConfiguration("grasp_task_state_topic"),
                 "grasp_task_start_service": LaunchConfiguration("grasp_task_start_service"),
                 "grasp_task_stop_service": LaunchConfiguration("grasp_task_stop_service"),
                 "grasp_task_restore_service": LaunchConfiguration("grasp_task_restore_service"),
@@ -377,11 +378,16 @@ def generate_launch_description():
                     "cleanup_task_return_home_service"
                 ),
                 "cleanup_task_stop_service": LaunchConfiguration("cleanup_task_stop_service"),
-                "cleanup_task_status_service": LaunchConfiguration("cleanup_task_status_service"),
-                "cleanup_task_preflight_service": LaunchConfiguration("cleanup_task_preflight_service"),
-            }
-        ],
-    )
+            "cleanup_task_status_service": LaunchConfiguration("cleanup_task_status_service"),
+            "cleanup_task_preflight_service": LaunchConfiguration("cleanup_task_preflight_service"),
+            "step_cleanup_state_topic": LaunchConfiguration("step_cleanup_state_topic"),
+            "step_cleanup_start_service": LaunchConfiguration("step_cleanup_start_service"),
+            "step_cleanup_stop_service": LaunchConfiguration("step_cleanup_stop_service"),
+            "step_cleanup_status_service": LaunchConfiguration("step_cleanup_status_service"),
+            "step_cleanup_preflight_service": LaunchConfiguration("step_cleanup_preflight_service"),
+        }
+    ],
+)
 
     return LaunchDescription(
         [
@@ -652,6 +658,10 @@ def generate_launch_description():
                     "detection_confidence:=0.08 detection_timeout_sec:=3.0"
                 ),
             ),
+            DeclareLaunchArgument(
+                "step_cleanup_server_command",
+                default_value="ros2 launch arachne_operator step_cleanup_demo.launch.py",
+            ),
             DeclareLaunchArgument("grasp_task_state_topic", default_value="/arachne/grasp_task/state"),
             DeclareLaunchArgument("grasp_task_start_service", default_value="/arachne/grasp_task/start"),
             DeclareLaunchArgument("grasp_task_stop_service", default_value="/arachne/grasp_task/stop"),
@@ -669,6 +679,11 @@ def generate_launch_description():
             DeclareLaunchArgument("cleanup_task_stop_service", default_value="/arachne/road_cleanup/stop"),
             DeclareLaunchArgument("cleanup_task_status_service", default_value="/arachne/road_cleanup/status"),
             DeclareLaunchArgument("cleanup_task_preflight_service", default_value="/arachne/road_cleanup/preflight"),
+            DeclareLaunchArgument("step_cleanup_state_topic", default_value="/arachne/step_cleanup/state"),
+            DeclareLaunchArgument("step_cleanup_start_service", default_value="/arachne/step_cleanup/start"),
+            DeclareLaunchArgument("step_cleanup_stop_service", default_value="/arachne/step_cleanup/stop"),
+            DeclareLaunchArgument("step_cleanup_status_service", default_value="/arachne/step_cleanup/status"),
+            DeclareLaunchArgument("step_cleanup_preflight_service", default_value="/arachne/step_cleanup/preflight"),
             visualization,
             camera,
             real_bringup,
