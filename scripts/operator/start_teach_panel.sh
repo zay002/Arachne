@@ -13,6 +13,15 @@ exec > >(tee -a "${LOG_FILE}") 2>&1
 echo "Starting Arachne Teach Panel"
 echo "Log: ${LOG_FILE}"
 
+cleanup() {
+  echo "Cleaning Arachne real stack..."
+  "${ROOT_DIR}/scripts/hardware/stop_real_stack.sh" || true
+}
+trap cleanup EXIT INT TERM
+
+echo "Cleaning stale Arachne real stack before launch..."
+GRACE_SEC="${ARACHNE_START_CLEANUP_GRACE_SEC:-1}" "${ROOT_DIR}/scripts/hardware/stop_real_stack.sh" || true
+
 set +u
 if [[ -f "${ROOT_DIR}/scripts/env/arachne_env.sh" ]]; then
   # shellcheck disable=SC1091
@@ -30,6 +39,8 @@ ros2 launch arachne_operator teach_panel.launch.py "$@"
 status=$?
 set -e
 elapsed=$(( "$(date +%s)" - started_at ))
+cleanup
+trap - EXIT INT TERM
 if [[ "${status}" -ne 0 && "${elapsed}" -lt 20 ]]; then
   echo
   echo "Teach panel exited quickly with status ${status}."

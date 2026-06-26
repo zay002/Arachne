@@ -855,6 +855,7 @@ class TeachPanelNode(Node):
         with self.lock:
             base = self.base_pose
             tool = self.tool_position if self._aubo_reachable_locked() else None
+            tool_base = self._tool_base_link_locked(tool) if tool is not None else None
             arm_ready = (
                 self._current_arm_vector_locked() is not None and self._aubo_reachable_locked()
             )
@@ -862,17 +863,25 @@ class TeachPanelNode(Node):
                 key: self._managed_process_status_locked(key)
                 for key in MANAGED_SERVICE_COMMAND_PARAMS
             }
+            tool_aubo_text = (
+                f"x={tool[0]:.3f} y={tool[1]:.3f} z={tool[2]:.3f}"
+                if tool
+                else "waiting"
+            )
+            tool_base_text = (
+                f"x={tool_base[0]:.3f} y={tool_base[1]:.3f} z={tool_base[2]:.3f}"
+                if tool_base
+                else "waiting"
+            )
             return {
                 "base": (
                     f"x={base.x:.3f} y={base.y:.3f} yaw={math.degrees(base.yaw):.1f}deg"
                     if base
                     else "waiting"
                 ),
-                "tool": (
-                    f"x={tool[0]:.3f} y={tool[1]:.3f} z={tool[2]:.3f}"
-                    if tool
-                    else "waiting"
-                ),
+                "tool": tool_aubo_text,
+                "tool_aubo": tool_aubo_text,
+                "tool_base": tool_base_text,
                 "arm": "ready" if arm_ready else "waiting",
                 "gripper": self.gripper_state,
                 "teach": "on" if self.aubo_teach_gate_active else "off",
@@ -903,6 +912,19 @@ class TeachPanelNode(Node):
             if not self._aubo_reachable_locked():
                 return None
             return tuple(self.tool_position) if self.tool_position is not None else None
+
+    def _tool_base_link_locked(
+        self, tool: tuple[float, float, float]
+    ) -> tuple[float, float, float] | None:
+        try:
+            arm_base = _transform_from_xyz_rpy(
+                _parse_vector3(str(self.get_parameter("arm_base_xyz").value)),
+                _parse_vector3(str(self.get_parameter("arm_base_rpy").value)),
+            )
+            point = arm_base @ np.array([tool[0], tool[1], tool[2], 1.0], dtype=float)
+            return (float(point[0]), float(point[1]), float(point[2]))
+        except Exception:
+            return None
 
     def log_snapshot(self) -> list[str]:
         with self.lock:
@@ -3526,15 +3548,21 @@ class TeachPanelApp:
         self._arm_hold_stream_active = False
         self._preset_hold_after: str | None = None
         self._preset_hold_active = False
+        self._scroll_widgets: dict[tk.Widget, tk.Canvas] = {}
         self.program_record_buttons: list[ttk.Button] = []
         self.listbox: tk.Listbox | None = None
         self.log_text: tk.Text | None = None
         self.joint_tree: ttk.Treeview | None = None
         self._build()
+        self.root.bind_all("<MouseWheel>", self._on_mousewheel, add=True)
+        self.root.bind_all("<Button-4>", self._on_mousewheel, add=True)
+        self.root.bind_all("<Button-5>", self._on_mousewheel, add=True)
         self.root.bind_all("<ButtonRelease-1>", lambda _event: self._arm_hold_release(), add=True)
         self.root.bind("<FocusOut>", lambda _event: self._arm_hold_release(), add=True)
         self.root.protocol("WM_DELETE_WINDOW", self._close)
         self._refresh()
+        self.root.after(600, self._raise_window)
+        self.root.after(4500, self._raise_window)
 
     def _build(self) -> None:
         style = ttk.Style(self.root)
@@ -3566,7 +3594,18 @@ class TeachPanelApp:
         self._arm_hold_release()
         self._preset_hold_release()
         self.node.hold_arm_current()
+        self.node.stop_all_managed_processes()
         self.root.destroy()
+
+    def _raise_window(self) -> None:
+        try:
+            self.root.deiconify()
+            self.root.lift()
+            self.root.attributes("-topmost", True)
+            self.root.after(500, lambda: self.root.attributes("-topmost", False))
+            self.root.focus_force()
+        except tk.TclError:
+            pass
 
     def _add_scrollable_tab(self, title: str) -> ttk.Frame:
         outer = ttk.Frame(self.notebook)
@@ -3589,21 +3628,30 @@ class TeachPanelApp:
         def resize_content(event) -> None:
             canvas.itemconfigure(window_id, width=event.width)
 
-        def mousewheel(event) -> None:
-            if event.num == 4:
-                canvas.yview_scroll(-1, "units")
-            elif event.num == 5:
-                canvas.yview_scroll(1, "units")
-            else:
-                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
         content.bind("<Configure>", refresh_scrollregion)
         canvas.bind("<Configure>", resize_content)
-        for widget in (canvas, content):
-            widget.bind("<MouseWheel>", mousewheel, add=True)
-            widget.bind("<Button-4>", mousewheel, add=True)
-            widget.bind("<Button-5>", mousewheel, add=True)
+        self._scroll_widgets[outer] = canvas
+        self._scroll_widgets[canvas] = canvas
+        self._scroll_widgets[content] = canvas
         return content
+
+    def _on_mousewheel(self, event) -> str | None:
+        widget = event.widget
+        canvas = None
+        while widget is not None:
+            canvas = self._scroll_widgets.get(widget)
+            if canvas is not None:
+                break
+            widget = getattr(widget, "master", None)
+        if canvas is None:
+            return None
+        if event.num == 4:
+            canvas.yview_scroll(-3, "units")
+        elif event.num == 5:
+            canvas.yview_scroll(3, "units")
+        else:
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        return "break"
 
     def _build_button_group(
         self,
@@ -3658,6 +3706,7 @@ class TeachPanelApp:
     def _build_home_tab(self) -> None:
         tab = self._add_scrollable_tab("Home")
         tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(1, weight=1)
 
         header = ttk.Frame(tab)
         header.grid(row=0, column=0, sticky="ew")
@@ -3666,33 +3715,39 @@ class TeachPanelApp:
         overview = ttk.LabelFrame(header, text="Robot Status")
         overview.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         overview.columnconfigure(1, weight=1)
-        for row, key in enumerate(
-            (
-                "base",
-                "tool",
-                "arm",
-                "gripper",
-                "teach",
-                "grasp_task",
-                "road_cleanup",
-                "step_cleanup",
-                "camera",
-                "depth_pointcloud",
-                "viewer",
-                "slam",
-                "grasp_server",
-                "cleanup_server",
-                "step_cleanup_server",
-                "program",
-                "log_dir",
-            )
-        ):
-            ttk.Label(overview, text=key, style="State.TLabel", width=10).grid(
-                row=row, column=0, sticky="w", padx=6, pady=4
+        overview.columnconfigure(3, weight=1)
+        status_items = (
+            ("base", "base(odom)"),
+            ("tool_aubo", "tool(aubo)"),
+            ("tool_base", "tool(base)"),
+            ("arm", "arm"),
+            ("gripper", "gripper"),
+            ("teach", "teach"),
+            ("grasp_task", "grasp_task"),
+            ("road_cleanup", "road_cleanup"),
+            ("step_cleanup", "step_cleanup"),
+            ("camera", "camera"),
+            ("depth_pointcloud", "depth_cloud"),
+            ("viewer", "viewer"),
+            ("slam", "slam"),
+            ("grasp_server", "grasp_server"),
+            ("cleanup_server", "cleanup_server"),
+            ("step_cleanup_server", "step_server"),
+            ("program", "program"),
+            ("log_dir", "log_dir"),
+        )
+        split_row = (len(status_items) + 1) // 2
+        for index, (key, label) in enumerate(status_items):
+            row = index % split_row
+            column = 0 if index < split_row else 2
+            ttk.Label(overview, text=label, style="State.TLabel", width=12).grid(
+                row=row, column=column, sticky="w", padx=6, pady=3
             )
             var = tk.StringVar(value="waiting")
             self.status_vars[key] = var
-            ttk.Label(overview, textvariable=var).grid(row=row, column=1, sticky="ew", padx=6, pady=4)
+            ttk.Label(overview, textvariable=var).grid(
+                row=row, column=column + 1, sticky="ew", padx=6, pady=3
+            )
 
         quick = ttk.Frame(header)
         quick.grid(row=1, column=0, sticky="ew", pady=(0, 8))
@@ -3881,10 +3936,18 @@ class TeachPanelApp:
     def _build_move_monitor(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="Realtime")
         frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        for column in range(4):
+        for column in range(5):
             frame.columnconfigure(column, weight=1)
-        for column, key in enumerate(("base", "tool", "arm", "gripper")):
-            ttk.Label(frame, text=key, style="State.TLabel").grid(
+        for column, (key, label) in enumerate(
+            (
+                ("base", "base(odom)"),
+                ("tool_aubo", "tool(aubo)"),
+                ("tool_base", "tool(base)"),
+                ("arm", "arm"),
+                ("gripper", "gripper"),
+            )
+        ):
+            ttk.Label(frame, text=label, style="State.TLabel").grid(
                 row=0, column=column, sticky="w", padx=6, pady=(4, 0)
             )
             var = tk.StringVar(value="waiting")
@@ -4162,7 +4225,7 @@ class TeachPanelApp:
         )
 
     def _build_tool_target_controls(self, parent: ttk.Frame) -> None:
-        frame = ttk.LabelFrame(parent, text="TCP Target")
+        frame = ttk.LabelFrame(parent, text="TCP Target (AUBO base)")
         frame.grid(row=0, column=0, sticky="ew")
         for column in range(3):
             frame.columnconfigure(column, weight=1)
