@@ -610,6 +610,10 @@ def generate_launch_description():
                 default_value=(
                     "ros2 run arachne_sensors depth_to_pointcloud --ros-args "
                     "-p frames:=1 -p stride:=4 -p max_depth_m:=3.0 "
+                    "-p projection_flip_x:=false -p projection_flip_y:=false "
+                    "-p continuous:=true -p target_frame:=base_link "
+                    "-p min_target_z_m:=-10.0 -p max_target_z_m:=0.0 "
+                    "-p min_publish_points:=1000 "
                     "-p exit_after_publish:=false "
                     "-p pointcloud_topic:=/arachne/debug/depth_points"
                 ),

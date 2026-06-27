@@ -385,6 +385,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--depth-band", type=float, default=0.08, help=hidden)
     parser.add_argument("--yolo-depth-filter", action=argparse.BooleanOptionalAction, default=True, help=hidden)
     parser.add_argument("--yolo-depth-min-base-z", type=float, default=-0.20, help=hidden)
+    parser.add_argument("--yolo-depth-max-base-z", type=float, default=0.0, help=hidden)
     parser.add_argument("--roi-shrink", type=float, default=0.65, help=hidden)
     parser.add_argument("--roi-decimation", type=int, default=3, help=hidden)
     parser.add_argument(
@@ -1325,10 +1326,10 @@ class GraspPreviewNode(Node):
         except ValueError as exc:
             self._throttled_log(str(exc))
             return None
-        source_frame = self.latest_depth.header.frame_id
-        if not source_frame:
+        depth_header = self.latest_depth.header
+        if not depth_header.frame_id:
             return None
-        base_from_depth = self._base_from_depth_matrix(source_frame)
+        base_from_depth = self._base_from_depth_matrix(depth_header, timeout_sec=0.02)
         if base_from_depth is None:
             return None
 
@@ -1348,7 +1349,10 @@ class GraspPreviewNode(Node):
             points = self._pixels_to_xyz(uu[valid], vv[valid], depth_m[valid])
             if points.size:
                 base_z = points @ base_from_depth[2, :3] + base_from_depth[2, 3]
-                keep[valid] = (base_z >= float(self.args.yolo_depth_min_base_z)).astype(np.uint8)
+                keep[valid] = (
+                    (base_z >= float(self.args.yolo_depth_min_base_z))
+                    & (base_z <= float(self.args.yolo_depth_max_base_z))
+                ).astype(np.uint8)
         keep = cv2.dilate(keep, np.ones((3, 3), dtype=np.uint8), iterations=1)
         if keep.shape[:2] != color.shape[:2]:
             keep = cv2.resize(keep, (color.shape[1], color.shape[0]), interpolation=cv2.INTER_NEAREST)
@@ -1356,20 +1360,61 @@ class GraspPreviewNode(Node):
         filtered[keep == 0] = 0
         return filtered
 
-    def _base_from_depth_matrix(self, source_frame: str) -> np.ndarray | None:
+    def _base_from_depth_transform(self, header: Header, timeout_sec: float):
+        source_frame = header.frame_id
+        if not source_frame:
+            raise TransformException("depth image has no frame_id")
         if source_frame == self.base_frame:
+            return None
+        return self._lookup_depth_transform(
+            self.base_frame,
+            source_frame,
+            header.stamp,
+            timeout_sec,
+        )
+
+    def _base_from_depth_matrix(
+        self, header: Header | None = None, timeout_sec: float = 0.02
+    ) -> np.ndarray | None:
+        if header is None:
+            if self.latest_depth is None:
+                return None
+            header = self.latest_depth.header
+        if header.frame_id == self.base_frame:
             return np.eye(4, dtype=np.float64)
         try:
-            transform = self.tf_buffer.lookup_transform(
-                self.base_frame,
-                source_frame,
-                rclpy.time.Time(),
-                timeout=Duration(seconds=0.02),
-            )
+            transform = self._base_from_depth_transform(header, timeout_sec)
         except TransformException as exc:
-            self._throttled_log(f"waiting for depth TF {self.base_frame} <- {source_frame}: {exc}")
+            self._throttled_log(f"waiting for depth TF {self.base_frame} <- {header.frame_id}: {exc}")
             return None
+        if transform is None:
+            return np.eye(4, dtype=np.float64)
         return self._matrix_from_transform(transform)
+
+    def _lookup_depth_transform(
+        self,
+        target_frame: str,
+        source_frame: str,
+        stamp_msg,
+        timeout_sec: float,
+    ):
+        stamp = rclpy.time.Time.from_msg(stamp_msg)
+        stamps = [stamp]
+        if stamp.nanoseconds:
+            stamps.append(rclpy.time.Time())
+        last_error = None
+        for stamp in stamps:
+            try:
+                return self.tf_buffer.lookup_transform(
+                    target_frame,
+                    source_frame,
+                    stamp,
+                    timeout=Duration(seconds=timeout_sec),
+                )
+            except TransformException as exc:
+                last_error = exc
+        assert last_error is not None
+        raise last_error
 
     def _missing_depth_text(self) -> str:
         missing = []
@@ -3186,12 +3231,20 @@ class GraspPreviewNode(Node):
         )
         if base_grasp is not None:
             min_z = float(self.args.yolo_depth_min_base_z)
+            max_z = float(self.args.yolo_depth_max_base_z)
             z_epsilon = 0.005
             if base_grasp[2] < min_z - z_epsilon:
                 self._throttled_log(
                     f"reject detection below YOLO depth threshold: "
                     f"label={detection.label} base_z={base_grasp[2]:.3f} "
                     f"min_z={min_z:.3f}"
+                )
+                return None
+            if base_grasp[2] > max_z + z_epsilon:
+                self._throttled_log(
+                    f"reject detection above YOLO depth threshold: "
+                    f"label={detection.label} base_z={base_grasp[2]:.3f} "
+                    f"max_z={max_z:.3f}"
                 )
                 return None
         return GraspPreview(
@@ -3270,12 +3323,15 @@ class GraspPreviewNode(Node):
     ) -> list[tuple[float, float, float]]:
         if not bool(self.args.yolo_depth_filter) or not points or self.latest_depth is None:
             return points
-        base_from_depth = self._base_from_depth_matrix(self.latest_depth.header.frame_id)
+        base_from_depth = self._base_from_depth_matrix(self.latest_depth.header, timeout_sec=0.02)
         if base_from_depth is None:
             return points
         arr = np.asarray(points, dtype=np.float32)
         base_z = arr @ base_from_depth[2, :3] + base_from_depth[2, 3]
-        keep = base_z >= float(self.args.yolo_depth_min_base_z)
+        keep = (
+            (base_z >= float(self.args.yolo_depth_min_base_z))
+            & (base_z <= float(self.args.yolo_depth_max_base_z))
+        )
         return [tuple(float(value) for value in point) for point in arr[keep]]
 
     def _detection_visual_axis_camera(
@@ -5327,16 +5383,14 @@ class GraspPreviewNode(Node):
     ]:
         if self.latest_depth is None:
             return [], [], [], None, None
-        source_frame = self.latest_depth.header.frame_id
+        depth_header = self.latest_depth.header
+        source_frame = depth_header.frame_id
         try:
-            transform = self.tf_buffer.lookup_transform(
-                self.base_frame,
-                source_frame,
-                rclpy.time.Time(),
-                timeout=Duration(seconds=0.05),
-            )
+            transform = self._base_from_depth_transform(depth_header, 0.05)
         except TransformException as exc:
             self._throttled_log(f"waiting for TF {self.base_frame} <- {source_frame}: {exc}")
+            return [], [], [], None, None
+        if transform is None:
             return [], [], [], None, None
 
         base_grasp_path = [

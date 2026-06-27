@@ -17,6 +17,13 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("stride", default_value="1"),
             DeclareLaunchArgument("max_depth_m", default_value="5.0"),
             DeclareLaunchArgument("frames", default_value="1"),
+            DeclareLaunchArgument("continuous", default_value="false"),
+            DeclareLaunchArgument("projection_flip_x", default_value="false"),
+            DeclareLaunchArgument("projection_flip_y", default_value="false"),
+            DeclareLaunchArgument("target_frame", default_value="base_link"),
+            DeclareLaunchArgument("min_target_z_m", default_value="-10.0"),
+            DeclareLaunchArgument("max_target_z_m", default_value="0.0"),
+            DeclareLaunchArgument("min_publish_points", default_value="1000"),
             DeclareLaunchArgument("with_rviz", default_value="true"),
             DeclareLaunchArgument("with_camera", default_value="true"),
             DeclareLaunchArgument("joint_states_topic", default_value="/joint_states"),
@@ -104,6 +111,25 @@ def generate_launch_description() -> LaunchDescription:
                             LaunchConfiguration("max_depth_m"), value_type=float
                         ),
                         "frames": ParameterValue(LaunchConfiguration("frames"), value_type=int),
+                        "continuous": ParameterValue(
+                            LaunchConfiguration("continuous"), value_type=bool
+                        ),
+                        "projection_flip_x": ParameterValue(
+                            LaunchConfiguration("projection_flip_x"), value_type=bool
+                        ),
+                        "projection_flip_y": ParameterValue(
+                            LaunchConfiguration("projection_flip_y"), value_type=bool
+                        ),
+                        "target_frame": LaunchConfiguration("target_frame"),
+                        "min_target_z_m": ParameterValue(
+                            LaunchConfiguration("min_target_z_m"), value_type=float
+                        ),
+                        "max_target_z_m": ParameterValue(
+                            LaunchConfiguration("max_target_z_m"), value_type=float
+                        ),
+                        "min_publish_points": ParameterValue(
+                            LaunchConfiguration("min_publish_points"), value_type=int
+                        ),
                         "exit_after_publish": False,
                     }
                 ],
