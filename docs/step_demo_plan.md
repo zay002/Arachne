@@ -94,6 +94,7 @@ type: std_msgs/String(JSON)
   "reachable": true,
   "rejection_reasons": [],
   "suggested_base_step_m": 0.0,
+  "suggested_search_step_m": 0.10,
   "lock_token": "target-lock-xxxx",
   "expires_sec": 2.0
 }
@@ -153,6 +154,7 @@ prepare_search_pose
 observe
 evaluate_target
 approach
+search_step
 backtrack
 grasp
 return_home
@@ -176,27 +178,61 @@ succeeded / failed / canceled
    - 发布 `restart_search`。
    - 根据需要打开 `real_search_scan`。
    - 等待 fresh `target_status`。
-   - 如果 `state=no_target/stale`，允许重试或恢复。
+   - 如果 `state=stale`，丢弃旧目标并重新观察。
+   - 如果 `state=no_target`，不要立刻失败；进入有边界的 `search_step`。
 
 4. `evaluate_target`
    - 如果 `state=ready`，进入 grasp。
-   - 如果 `state=too_far`，根据 `suggested_base_step_m` 或保守 step policy 前进。
+   - 如果 `state=too_far`，根据 `suggested_base_step_m` 或保守 step policy 做目标引导靠近。
+   - 如果 `state=no_target`，根据 `suggested_search_step_m` 或固定 `search_step_m` 做盲搜前进。
    - 如果 `state=too_close`，允许一次小幅 backtrack，而不是直接失败。
    - 如果 `state=lateral_out_of_bounds/unreachable/planning_failed`，不要用 `base_x` 强行判断；记录原因并失败或请求 grasp task 的 recovery suggestion。
 
 5. `approach`
+   - 只用于已经看见目标但目标太远的 target-guided approach。
    - 通过 `/arachne/grasp_task/base_command` 发 `drive_relative`。
    - 等待 `/arachne/grasp_task/base_status` 确认同一个 request id 完成。
    - 每步后必须重新 observe，不复用旧 target。
 
-6. `grasp`
+6. `search_step`
+   - 只用于没有看到目标时的 bounded blind search。
+   - 每次只前进保守距离，例如 `search_step_m=0.10`。
+   - 计入独立的 `search_steps`，不得无限前进。
+   - 每步后必须 stop、重新 observe，并清空旧 target。
+   - 如果连续 `max_search_steps` 后仍是 `no_target`，才进入 failed：`no target after N search steps`。
+
+7. `grasp`
    - 调用锁定目标的 grasp start。
    - 等待 `/arachne/grasp_task/state` terminal result。
    - 成功后计数。
 
-7. `return_home`
+8. `return_home`
    - 可继续使用当前累计 progress 的反向 drive。
    - 只作为简化返航，不当成导航定位恢复。
+
+## Approach 与 Search Step 的区别
+
+Step Demo 应明确区分两种底盘前进：
+
+```text
+target-guided approach:
+  已经看到目标，target_status=too_far
+  使用 suggested_base_step_m 或根据目标距离算出小步
+  目标是把同一个目标带入可抓范围
+
+blind search step:
+  没看到目标，target_status=no_target
+  使用固定保守 search_step_m
+  目标是扩大前方观察区域，不绑定任何旧目标
+```
+
+两者都必须遵守：
+
+- 每步之前先停稳。
+- 每步之后重新观察。
+- 不复用旧 target。
+- 有最大步数上限。
+- stop/cancel 时立即停止 base 和 search scan。
 
 ## 目标状态的推荐计算位置
 
@@ -233,6 +269,8 @@ Step Demo 应尽量减少自己持有的几何阈值。
 
 - `approach_step_m`
 - `max_approach_steps`
+- `search_step_m`
+- `max_search_steps`
 - `max_grasps`
 - `observe_timeout_sec`
 - `base_step_timeout_sec`
@@ -267,6 +305,8 @@ Step Demo 应尽量减少自己持有的几何阈值。
 - Step Demo 不再订阅 `/arachne/perception/taco_instances` 做决策。
 - Step Demo 等待 `target_status`，按 state 决策 approach/backtrack/grasp。
 - raw detection 只保留为 debug fallback，默认关闭。
+- `target_status.state=no_target` 时执行 bounded search step，而不是直接失败。
+- `target_status.state=too_far` 时执行 target-guided approach。
 
 ### Phase S4: 目标锁定
 
@@ -304,10 +344,12 @@ ROS graph smoke：
 - `/joint_states` 正常。
 - `/arachne/aubo/move_joint` dry-run graph 正常。
 - grasp task target_status 能稳定报告 ready/too_far/no_target。
+- `no_target` 能触发 bounded search step，并在最大步数后明确失败。
+- `too_far` 能触发 target-guided approach，且每步后重新 observe。
 
 真实低风险：
 
-- 只允许小步 base approach。
+- 只允许小步 base approach / search step。
 - 每步后必须重新 observe。
 - 不允许 Step Demo 自己覆盖 grasp task 的目标选择。
 
@@ -327,7 +369,8 @@ ROS graph smoke：
 look
   ask grasp task what it can actually grasp
 step
-  move base only when grasp task says target is too far
+  if target is too far, move a target-guided small step
+  if no target is visible, move a bounded search step
 look again
   never reuse stale target
 grasp
