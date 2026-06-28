@@ -27,6 +27,7 @@ grasp_task_server runs its own current detection/planning/grasp logic
 - Step Demo 调 `/arachne/grasp_task/start` 时没有传递或锁定 candidate id / target token。
 - Step Demo 默认 `grasp_min_base_x_m=0.30`、`grasp_max_base_x_m=0.90`，可能和实机验证过的 road/grasp 参数不一致。
 - 深度相机点云坐标计算目前不是简单精度问题，而是可能存在相机外参/TF 根因：系统可能没有准确知道真实 depth optical frame 相对末端和 `base_link` 的位置。如果 `base_grasp_xyz` 的坐标系链路错了，Step Demo 的 approach / too_far 判断和最终抓取都会被连带放大。
+- 当前真机演示主要使用 topdown 抓取和锁定姿态，这对部分瓶罐/盒状物是低风险默认策略，但不能长期假设所有物体都适合从正上方抓。后续需要根据物体形态、朝向、可见点云和夹爪开口方向选择抓取策略。
 - `_observe_once()` 打开 `real_search_scan` 后，候选可能来自扫描过程，不应被当成简单静止单帧检测。
 - `too_close` 直接失败，未复用 grasp task 的恢复/可达性判断。
 
@@ -45,6 +46,7 @@ Grasp Task / Grasp Preview owns:
   - best target selection
   - depth / mask / ROI quality
   - pointcloud coordinate quality
+  - grasp strategy selection
   - reach / IK / collision / waypoint validity
   - final target lock used by grasp execution
 ```
@@ -70,6 +72,7 @@ grasp_task_server
 - 不把 dry-run / mock 成功当成真实硬件验证。
 - 不绕过 Aubo `/arachne/aubo/move_joint`、control owner、teach gate、stop/timeout 等安全边界。
 - 不改变 `grasp_task_server` 的真实执行确认、安全变量和 fallback 默认策略。
+- 不把 topdown 抓取写死为所有物体的唯一策略；它可以继续作为当前安全默认，但策略选择应由 grasp task / preview 评估产生。
 
 ## 建议的新目标状态合同
 
@@ -95,6 +98,11 @@ type: std_msgs/String(JSON)
   "depth_valid": true,
   "coordinate_quality": "usable",
   "coordinate_error_hint_m": 0.02,
+  "grasp_strategy": "topdown",
+  "grasp_strategy_confidence": 0.74,
+  "grasp_strategy_reasons": ["upright_or_flat_visible_surface", "topdown_ik_clear"],
+  "object_shape_hint": "bottle_or_can",
+  "object_major_axis_base": [0.98, 0.18, 0.0],
   "planning_ready": true,
   "reachable": true,
   "rejection_reasons": [],
@@ -111,6 +119,7 @@ type: std_msgs/String(JSON)
 - `stale`
 - `depth_invalid`
 - `coordinate_suspect`
+- `grasp_strategy_unavailable`
 - `too_far`
 - `too_close`
 - `lateral_out_of_bounds`
@@ -193,6 +202,7 @@ succeeded / failed / canceled
    - 如果 `state=no_target`，根据 `suggested_search_step_m` 或固定 `search_step_m` 做盲搜前进。
    - 如果 `state=too_close`，允许一次小幅 backtrack，而不是直接失败。
    - 如果 `state=coordinate_suspect/depth_invalid`，优先重新 observe 或请求相机/点云诊断，不用不可信坐标发 grasp。
+   - 如果 `state=grasp_strategy_unavailable`，不要用 Step Demo 的默认姿态硬抓；记录目标形态/原因并重新观察或安全失败。
    - 如果 `state=lateral_out_of_bounds/unreachable/planning_failed`，不要用 `base_x` 强行判断；记录原因并失败或请求 grasp task 的 recovery suggestion。
 
 5. `approach`
@@ -314,6 +324,52 @@ base_link
 - 在 RViz 同时查看 `/arachne/debug/depth_points`、目标 marker、规划 waypoint，确认点云落地位置和机械臂可达判断一致。
 - 相机 TF 没有收敛前，不把 Step Demo 的 ready/too_far 判断当成最终真机抓取验证。
 
+## 抓取策略不应长期固定为 Topdown
+
+当前真机链路倾向于 topdown 抓取，部分 launch 参数还会锁定抓取姿态，例如 `--lock-grasp-orientation`、`--grasp-topdown-max-tilt-deg`、`--topdown-flange-rpy-rad`。这适合作为当前阶段的保守默认，但它不是通用抓取策略。
+
+后续应把“怎么抓”也纳入 grasp task / preview 的 evaluated target，而不是让 Step Demo 固定调用一种姿态。
+
+建议先支持这些策略枚举：
+
+- `topdown`: 目标上表面可见，点云高度稳定，IK 和碰撞检查通过。
+- `side_pinch`: 目标竖直或侧面轮廓更可靠，夹爪应沿点云主轴/副轴选择夹持方向。
+- `angled_topdown`: topdown 可行但需要小角度倾斜，适合边缘遮挡或瓶罐倾斜。
+- `defer`: 形态/点云/可达性不足，不执行抓取，只重新观察或安全失败。
+
+策略选择应优先由这些信号决定：
+
+- label / class hint，例如 bottle、can、box、cup、bag。
+- mask 轮廓长宽比和朝向。
+- ROI 点云 PCA 主轴、副轴、高度范围和 axis confidence。
+- 目标是否贴地、是否倾斜、是否只有上半部分可见。
+- 当前夹爪类型、开口方向、gripper clearance。
+- IK、碰撞、地面 clearance、basket/rear-rack keepout。
+
+推荐输出方式：
+
+```text
+grasp_preview_pipeline estimates shape / orientation candidates
+        ↓
+grasp_task_server chooses grasp_strategy and validates IK/collision
+        ↓
+target_status publishes grasp_strategy + reasons + lock_token
+        ↓
+step_cleanup_demo only starts locked target when strategy is accepted
+```
+
+Step Demo 的责任是尊重 `target_status.grasp_strategy` 和 `state`：
+
+- `ready + topdown/side_pinch/angled_topdown`：可以进入 locked grasp。
+- `grasp_strategy_unavailable/defer`：不硬抓，重新 observe 或失败。
+- debug 日志记录策略、原因、候选姿态数和最终锁定姿态。
+
+实施时不要一次性改掉当前 topdown 真机默认。推荐顺序是：
+
+1. 先在 `target_status` 中记录当前实际使用的 topdown 策略和原因。
+2. 再让 preview 输出候选姿态和 shape hints，不改变执行。
+3. 最后才允许 grasp task 在明确安全门槛下选择非 topdown 策略。
+
 ## 参数策略
 
 Step Demo 应尽量减少自己持有的几何阈值。
@@ -351,6 +407,7 @@ Step Demo 应尽量减少自己持有的几何阈值。
 
 - 在 `grasp_task_server` 增加 `/arachne/grasp_task/target_status`。
 - 从 preview event 中整理出 best target、rejection reasons、suggested step。
+- target_status 先记录当前默认 topdown 策略、候选姿态数量和选择原因。
 - 不改变 grasp execution。
 
 ### Phase S2.5: 先收敛相机外参 / TF
@@ -371,12 +428,20 @@ Step Demo 应尽量减少自己持有的几何阈值。
 - raw detection 只保留为 debug fallback，默认关闭。
 - `target_status.state=no_target` 时执行 bounded search step，而不是直接失败。
 - `target_status.state=too_far` 时执行 target-guided approach。
+- `target_status.state=grasp_strategy_unavailable` 时不使用 Step Demo 默认姿态硬抓。
 
 ### Phase S4: 目标锁定
 
 - 增加 lock token 或 start_locked 服务。
 - Step Demo 调用 grasp 时传递 token。
 - Grasp Task 保证执行同一个 target，否则失败并返回 reason。
+
+### Phase S4.5: 多抓取策略
+
+- 在相机 TF、点云坐标和 target lock 稳定后，再引入非 topdown 策略。
+- 先只做离线/preview 策略评估，不改变真机执行。
+- 再在低速低风险验证中启用 `side_pinch` / `angled_topdown`。
+- topdown 继续保留为默认安全策略和 fallback，但不再被当作所有目标的唯一策略。
 
 ### Phase S5: 真实硬件验证
 
@@ -402,6 +467,7 @@ ROS graph smoke：
 - Step Demo status 中能看到最近 target state。
 - 不调用真实 start 时不发 base command。
 - target_status 能报告 depth / coordinate quality，不把 `coordinate_suspect` 当成 `ready`。
+- target_status 能报告当前 grasp_strategy；`grasp_strategy_unavailable` 不会触发 grasp start。
 
 真实硬件前置：
 
@@ -426,6 +492,7 @@ ROS graph smoke：
 - 不复制 grasp pipeline 的 reach/IK/collision 逻辑。
 - 不改变实机验证过的抓取坐标阈值。
 - 不在 Step Demo 内硬编码临时深度坐标补偿。
+- 不在 Step Demo 内硬编码 topdown 为所有物体的唯一抓取方式。
 - 不把 `/arachne/perception/taco_instances` 当成最终任务合同。
 - 不默认开启任何新的真实运动路径。
 
@@ -442,7 +509,7 @@ step
 look again
   never reuse stale target
 grasp
-  execute the same locked target that was evaluated
+  execute the same locked target and grasp strategy that were evaluated
 return
   backtrack only the measured step-demo progress
 ```
