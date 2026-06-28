@@ -289,10 +289,12 @@ base_link
 - `src/arachne_description/urdf/arachne.urdf.xacro` / `ee_camera.xacro` 也定义了 `ee_camera_support_link -> ee_camera_link` 的固定安装位姿。
 - `src/arachne_description/config/physical_parameters.yaml` 中存在历史 hand-eye 标定 `tool0 -> camera_color_optical_frame`，但状态是 `archived_hand_eye_not_used_for_rviz_camera_tf`，当前并未作为运行时 TF source of truth。
 - 如果真实相机安装位置、optical frame 方向、URDF 支架位姿、hand-eye 标定和 launch 静态 TF 之间任一处不一致，点云坐标就会“看起来能用但抓不准”。
+- 2026-06-28 离线验证发现：启动现有 `arachne_description display.launch.py` 后，`/arachne/display/joint_states` 能接收变化的 Aubo 关节角，`ee_camera_link -> camera_depth_optical_frame` static TF 也存在，但 `tf2_echo base_link camera_depth_optical_frame` 报告两者不在同一棵 TF 树中。这说明当前运行路径下实时模型 TF 到相机 optical frame 的连接尚未验证通过。
 
 重点不要在 Step Demo 内部做补偿，而应检查和收敛这些上游环节：
 
 - 先验证 `camera_depth_optical_frame` 在 RViz/TF 中的位置和方向，而不是先调 Step Demo 阈值。
+- 先确认 `robot_state_publisher` 实际发布 `base_link -> aubo_* -> aubo_wrist3_Link -> ee_camera_support_link -> ee_camera_link`，并且它和 `ee_camera_link -> camera_depth_optical_frame` static TF 属于同一棵 TF 树。
 - 明确运行时 TF 的 source of truth：要么使用经过验证的 URDF + static TF，要么接入新的 hand-eye 标定结果；不要同时存在互相矛盾的 camera TF。
 - `src/arachne_sensors/arachne_sensors/depth_to_pointcloud_node.py` 的 `CameraInfo`、`depth_scale`、`projection_flip_x/y`、stride 后像素网格、`target_frame` TF 转换必须和真实相机一致。
 - `src/arachne_operator/arachne_operator/grasp_preview_pipeline.py` 的 `_pixel_to_xyz()`、ROI depth 采样、`_roi_points()`、`_base_from_depth_transform()`、`_make_base_path()` 必须使用同一套投影和 TF 约定。
@@ -303,6 +305,8 @@ base_link
 建议的验证方式：
 
 - 先运行只读 TF 检查，确认 `ros2 run tf2_ros tf2_echo base_link camera_depth_optical_frame` 的平移和姿态与真实安装大体一致。
+- 移动或注入两组不同的 Aubo joint state 后，重复 `tf2_echo base_link camera_depth_optical_frame`；如果平移/姿态不变，说明相机 TF 没有跟随机械臂运动。
+- 如果 `tf2_echo` 报告 `base_link` 和 `camera_depth_optical_frame` 不在同一棵树，必须先修 TF 发布链路，再讨论点云精度。
 - 在 RViz 中显示机器人模型、`camera_depth_optical_frame`、`/arachne/debug/depth_points`，确认点云地面落在真实地面附近，而不是整体旋转/漂移到错误位置。
 - 用固定高度地面、已知尺寸物体或标定板采样，比较 `grasp_camera_xyz` 和 `base_grasp_xyz` 的 x/y/z 偏差。
 - 对同一静止目标重复采样，记录 `base_grasp_xyz` 抖动量，区分系统偏差和随机噪声。
@@ -352,6 +356,8 @@ Step Demo 应尽量减少自己持有的几何阈值。
 ### Phase S2.5: 先收敛相机外参 / TF
 
 - 确认运行时 `base_link -> camera_depth_optical_frame` 真实可信。
+- 确认机械臂关节变化时，`base_link -> camera_depth_optical_frame` 会随 URDF/FK 实时变化。
+- 修复或确认 `robot_state_publisher`、`/joint_states`、`/tf`、`/tf_static`、`ee_camera_link -> camera_depth_optical_frame` 之间处于同一 TF 树。
 - 对齐 URDF、`gemini335.launch.py` 静态 TF、历史/新 hand-eye 标定和真实安装位姿。
 - 对齐 `depth_to_pointcloud_node` 和 `grasp_preview_pipeline` 的投影、flip、scale、TF 语义。
 - 保留远端实机实验验证过的 grasp 坐标、offset 和阈值，不用本地默认参数替代。
