@@ -26,7 +26,7 @@ grasp_task_server runs its own current detection/planning/grasp logic
 - Step Demo 决策的候选不一定是 `grasp_task_server` 实际会抓的候选。
 - Step Demo 调 `/arachne/grasp_task/start` 时没有传递或锁定 candidate id / target token。
 - Step Demo 默认 `grasp_min_base_x_m=0.30`、`grasp_max_base_x_m=0.90`，可能和实机验证过的 road/grasp 参数不一致。
-- 深度相机点云坐标计算此前已调整到勉强可用，但仍不够精准；如果 `base_grasp_xyz` 有系统偏差，Step Demo 的 approach / too_far 判断和最终抓取都会被连带放大。
+- 深度相机点云坐标计算目前不是简单精度问题，而是可能存在相机外参/TF 根因：系统可能没有准确知道真实 depth optical frame 相对末端和 `base_link` 的位置。如果 `base_grasp_xyz` 的坐标系链路错了，Step Demo 的 approach / too_far 判断和最终抓取都会被连带放大。
 - `_observe_once()` 打开 `real_search_scan` 后，候选可能来自扫描过程，不应被当成简单静止单帧检测。
 - `too_close` 直接失败，未复用 grasp task 的恢复/可达性判断。
 
@@ -66,7 +66,7 @@ grasp_task_server
 
 - 不替换实机验证过的抓取坐标和阈值；Step Demo 应引用或消费这些结果，而不是复制一套新阈值。
 - 不让 Step Demo 直接使用 raw detection 作为最终决策源。
-- 不让 Step Demo 用临时系数补偿深度点云坐标误差；坐标修正应收敛在 `grasp_preview_pipeline` / `depth_to_pointcloud` / TF 标定链路中。
+- 不让 Step Demo 用临时系数补偿深度点云坐标误差；必须先确认真实相机位姿和 TF 链路，坐标修正应收敛在 `grasp_preview_pipeline` / `depth_to_pointcloud` / TF 标定链路中。
 - 不把 dry-run / mock 成功当成真实硬件验证。
 - 不绕过 Aubo `/arachne/aubo/move_joint`、control owner、teach gate、stop/timeout 等安全边界。
 - 不改变 `grasp_task_server` 的真实执行确认、安全变量和 fallback 默认策略。
@@ -268,25 +268,47 @@ grasp_task_server consumes it and republishes /arachne/grasp_task/target_status
 step_cleanup_demo consumes only target_status
 ```
 
-## 深度/点云坐标精度改进项
+## 相机外参 / TF 根因排查
 
-Step Demo 的动作是否自洽，依赖 `target_status.base_grasp_xyz` 是否可信。当前深度相机点云坐标已经能勉强工作，但还不够精准，因此计划中需要单独加入坐标链路收敛项。
+Step Demo 的动作是否自洽，依赖 `target_status.base_grasp_xyz` 是否可信。当前更可能的问题不是 Step Demo 如何解释坐标，而是系统是否正确知道深度相机在哪里：`camera_depth_optical_frame` 到 `base_link` 的 TF 链路一旦错，所有点云投影后的坐标都会系统性偏移。
+
+当前源码中需要重点核对的链路是：
+
+```text
+base_link
+  -> aubo_base_link
+  -> Aubo joints / aubo_wrist3_Link
+  -> ee_camera_support_link
+  -> ee_camera_link
+  -> camera_depth_optical_frame
+```
+
+风险点：
+
+- `src/arachne_sensors/launch/gemini335.launch.py` 当前用 `camera_parent_frame=ee_camera_link` 和 hardcoded `camera_optical_*` 发布 `ee_camera_link -> camera_depth_optical_frame`。
+- `src/arachne_description/urdf/arachne.urdf.xacro` / `ee_camera.xacro` 也定义了 `ee_camera_support_link -> ee_camera_link` 的固定安装位姿。
+- `src/arachne_description/config/physical_parameters.yaml` 中存在历史 hand-eye 标定 `tool0 -> camera_color_optical_frame`，但状态是 `archived_hand_eye_not_used_for_rviz_camera_tf`，当前并未作为运行时 TF source of truth。
+- 如果真实相机安装位置、optical frame 方向、URDF 支架位姿、hand-eye 标定和 launch 静态 TF 之间任一处不一致，点云坐标就会“看起来能用但抓不准”。
 
 重点不要在 Step Demo 内部做补偿，而应检查和收敛这些上游环节：
 
-- `src/arachne_sensors/arachne_sensors/depth_to_pointcloud_node.py` 的 `CameraInfo`、`depth_scale`、`projection_flip_x/y`、stride 后像素网格、`target_frame` TF 转换是否和真实相机一致。
-- `src/arachne_operator/arachne_operator/grasp_preview_pipeline.py` 的 `_pixel_to_xyz()`、ROI depth 采样、`_roi_points()`、`_base_from_depth_transform()`、`_make_base_path()` 是否使用同一套投影约定。
-- `camera_optical_*`、`grasp_base_offset_xyz`、`depth_projection_flip_*` 等实机调过的参数必须保留为 source of truth，不应被 Step Demo 默认值覆盖。
+- 先验证 `camera_depth_optical_frame` 在 RViz/TF 中的位置和方向，而不是先调 Step Demo 阈值。
+- 明确运行时 TF 的 source of truth：要么使用经过验证的 URDF + static TF，要么接入新的 hand-eye 标定结果；不要同时存在互相矛盾的 camera TF。
+- `src/arachne_sensors/arachne_sensors/depth_to_pointcloud_node.py` 的 `CameraInfo`、`depth_scale`、`projection_flip_x/y`、stride 后像素网格、`target_frame` TF 转换必须和真实相机一致。
+- `src/arachne_operator/arachne_operator/grasp_preview_pipeline.py` 的 `_pixel_to_xyz()`、ROI depth 采样、`_roi_points()`、`_base_from_depth_transform()`、`_make_base_path()` 必须使用同一套投影和 TF 约定。
+- `camera_optical_*`、`ee_camera_xyz/rpy`、`grasp_base_offset_xyz`、`depth_projection_flip_*` 等实机调过的参数必须保留为 source of truth，不应被 Step Demo 默认值覆盖。
 - `target_status` 应暴露坐标质量信号，例如 `coordinate_quality`、`coordinate_error_hint_m`、`depth_valid`、`roi_points`、`pointcloud_grasp_shape.point_count`、`depth_projection`。
 - 如果坐标质量不足，grasp task 应发布 `state=coordinate_suspect` 或 `depth_invalid`；Step Demo 只能重新 observe / search step / fail safe，不应直接发抓取。
 
 建议的验证方式：
 
+- 先运行只读 TF 检查，确认 `ros2 run tf2_ros tf2_echo base_link camera_depth_optical_frame` 的平移和姿态与真实安装大体一致。
+- 在 RViz 中显示机器人模型、`camera_depth_optical_frame`、`/arachne/debug/depth_points`，确认点云地面落在真实地面附近，而不是整体旋转/漂移到错误位置。
 - 用固定高度地面、已知尺寸物体或标定板采样，比较 `grasp_camera_xyz` 和 `base_grasp_xyz` 的 x/y/z 偏差。
 - 对同一静止目标重复采样，记录 `base_grasp_xyz` 抖动量，区分系统偏差和随机噪声。
 - 检查彩色 ROI、深度 ROI、mask ROI 是否对齐，特别是反光地面和目标边缘处的深度 percentile 是否稳定。
 - 在 RViz 同时查看 `/arachne/debug/depth_points`、目标 marker、规划 waypoint，确认点云落地位置和机械臂可达判断一致。
-- 坐标误差没有收敛前，不把 Step Demo 的 ready/too_far 判断当成最终真机抓取验证。
+- 相机 TF 没有收敛前，不把 Step Demo 的 ready/too_far 判断当成最终真机抓取验证。
 
 ## 参数策略
 
@@ -327,8 +349,10 @@ Step Demo 应尽量减少自己持有的几何阈值。
 - 从 preview event 中整理出 best target、rejection reasons、suggested step。
 - 不改变 grasp execution。
 
-### Phase S2.5: 收敛深度/点云坐标质量
+### Phase S2.5: 先收敛相机外参 / TF
 
+- 确认运行时 `base_link -> camera_depth_optical_frame` 真实可信。
+- 对齐 URDF、`gemini335.launch.py` 静态 TF、历史/新 hand-eye 标定和真实安装位姿。
 - 对齐 `depth_to_pointcloud_node` 和 `grasp_preview_pipeline` 的投影、flip、scale、TF 语义。
 - 保留远端实机实验验证过的 grasp 坐标、offset 和阈值，不用本地默认参数替代。
 - 在 target_status 中加入坐标质量字段和 rejection reason。
@@ -378,6 +402,7 @@ ROS graph smoke：
 - Aubo readonly check 通过。
 - `/joint_states` 正常。
 - `/arachne/aubo/move_joint` dry-run graph 正常。
+- `base_link -> camera_depth_optical_frame` TF 与真实安装方向一致，且没有互相矛盾的重复 camera TF source。
 - grasp task target_status 能稳定报告 ready/too_far/no_target。
 - 静止目标的 `base_grasp_xyz` 重复采样误差在可接受范围内，且 RViz 点云/marker/waypoint 方向一致。
 - `no_target` 能触发 bounded search step，并在最大步数后明确失败。
