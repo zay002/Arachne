@@ -137,6 +137,10 @@ class GripperSimController(Node):
         elif command == "stop":
             self.stopped = True
             self.target = self.position
+        elif command.isdigit():
+            ratio = min(max(int(command) / 19656.0, 0.0), 1.0)
+            span = self.profile.open_position - self.profile.closed_position
+            self._set_target(self.profile.closed_position + ratio * span)
         else:
             self.get_logger().warn(f"Unknown gripper command '{msg.data}'")
 

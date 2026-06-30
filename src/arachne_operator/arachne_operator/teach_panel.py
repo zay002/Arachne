@@ -14,7 +14,7 @@ import time
 from dataclasses import asdict, dataclass, fields, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -63,6 +63,9 @@ DEFAULT_REAR_RACK_KEEPOUT_MIN_XYZ = "-0.41,-0.22,0.04"
 DEFAULT_REAR_RACK_KEEPOUT_MAX_XYZ = "0.09,0.22,0.82"
 DEFAULT_TEACH_CONFIG_PATH = "recordings/teach/teach_panel_config.json"
 DEFAULT_AUBO_TEACH_FLAG_PATH = "/tmp/arachne_aubo_teach_mode"
+GRIPPER_PRESET_COMMANDS = ("12000", "9000", "6000")
+GRIPPER_CUSTOM_MIN = 0
+GRIPPER_CUSTOM_MAX = 18720
 MANAGED_SERVICE_COMMAND_PARAMS = {
     "camera": "camera_command",
     "depth_pointcloud": "depth_pointcloud_command",
@@ -228,9 +231,29 @@ def _transform_from_xyz_rpy(xyz: np.ndarray, rpy: np.ndarray) -> np.ndarray:
     return transform
 
 
+def _normalize_gripper_command(command: object) -> str | None:
+    text = str(command).strip().lower()
+    if text in ("open", "close", "stop"):
+        return text
+    if text.isdigit():
+        value = int(text)
+        if GRIPPER_CUSTOM_MIN <= value <= GRIPPER_CUSTOM_MAX:
+            return str(value)
+    return None
+
+
+def _is_replay_gripper_command(command: object) -> bool:
+    normalized = _normalize_gripper_command(command)
+    return normalized is not None and normalized != "stop"
+
+
 def _waypoint_from_dict(data: dict) -> TeachWaypoint:
     known = {item.name for item in fields(TeachWaypoint)}
     filtered = {key: value for key, value in data.items() if key in known}
+    if "gripper" in filtered:
+        filtered["gripper"] = _normalize_gripper_command(filtered["gripper"]) or str(
+            filtered["gripper"]
+        ).strip().lower()
     return TeachWaypoint(**filtered)
 
 
@@ -801,8 +824,9 @@ class TeachPanelNode(Node):
         first = data.split(":", 1)[0].strip().lower()
         with self.lock:
             self.hardware_status["Gripper"] = data
-            if first in ("open", "close", "stop"):
-                self.gripper_state = first
+            command = _normalize_gripper_command(first)
+            if command is not None:
+                self.gripper_state = command
         self._log_hardware_status_change("Gripper", data)
 
     def _grasp_task_state_callback(self, msg: String) -> None:
@@ -916,6 +940,19 @@ class TeachPanelNode(Node):
             if not self._aubo_reachable_locked():
                 return None
             return tuple(self.tool_position) if self.tool_position is not None else None
+
+    def arm_gripper_snapshot(self) -> tuple[list[float], list[float], str]:
+        with self.lock:
+            arm = self._current_arm_vector_locked()
+            tool = self.tool_position
+            gripper = self.gripper_state
+            if arm is None or tool is None:
+                raise RuntimeError("missing Aubo /joint_states")
+            return (
+                [float(value) for value in arm],
+                [float(value) for value in tool],
+                gripper,
+            )
 
     def _tool_base_link_locked(
         self, tool: tuple[float, float, float]
@@ -1288,12 +1325,18 @@ class TeachPanelNode(Node):
         self._status("arm hold current requested")
 
     def publish_gripper(self, command: str) -> None:
+        command = _normalize_gripper_command(command)
+        if command is None:
+            self._status(
+                f"gripper command must be open, close, stop, or {GRIPPER_CUSTOM_MIN}-{GRIPPER_CUSTOM_MAX}",
+                warn=True,
+            )
+            return
         msg = String()
         msg.data = command
         self.gripper_pub.publish(msg)
         with self.lock:
-            if command in ("open", "close", "stop"):
-                self.gripper_state = command
+            self.gripper_state = command
         self._status(f"gripper {command}")
 
     def set_aubo_teach(self, enabled: bool) -> None:
@@ -2373,7 +2416,14 @@ class TeachPanelNode(Node):
         self._status(f"recorded wait {clean_label}: {wait_sec:.1f}s")
         return waypoint
 
-    def replay(self, waypoints: list[TeachWaypoint]) -> None:
+    def replay(
+        self,
+        waypoints: list[TeachWaypoint],
+        *,
+        replay_arm: bool = True,
+        replay_gripper: bool = True,
+        progress_callback: Callable[[int | None, int, str, str], None] | None = None,
+    ) -> None:
         if not waypoints:
             self._status("replay skipped: no waypoints", warn=True)
             return
@@ -2384,22 +2434,57 @@ class TeachPanelNode(Node):
         self.cancel_event.clear()
         self.replay_thread = threading.Thread(
             target=self._replay_worker,
-            args=([TeachWaypoint(**asdict(item)) for item in waypoints],),
+            args=(
+                [TeachWaypoint(**asdict(item)) for item in waypoints],
+                bool(replay_arm),
+                bool(replay_gripper),
+                progress_callback,
+            ),
             daemon=True,
         )
         self.replay_thread.start()
 
-    def _replay_worker(self, waypoints: list[TeachWaypoint]) -> None:
-        self._status(f"replay started: {len(waypoints)} waypoints")
+    def _notify_replay_progress(
+        self,
+        progress_callback: Callable[[int | None, int, str, str], None] | None,
+        index: int | None,
+        total: int,
+        label: str,
+        state: str,
+    ) -> None:
+        if progress_callback is None:
+            return
         try:
-            if self._replay_has_arm_targets(waypoints) and not self._ensure_aubo_motion_ready():
+            progress_callback(index, total, label, state)
+        except Exception as exc:
+            self.get_logger().warning(f"replay progress callback failed: {exc}")
+
+    def _replay_worker(
+        self,
+        waypoints: list[TeachWaypoint],
+        replay_arm: bool,
+        replay_gripper_enabled: bool,
+        progress_callback: Callable[[int | None, int, str, str], None] | None,
+    ) -> None:
+        total = len(waypoints)
+        mode = "" if replay_arm or replay_gripper_enabled else " (base only)"
+        self._status(f"replay started: {total} waypoints{mode}")
+        try:
+            if (
+                replay_arm
+                and self._replay_has_arm_targets(waypoints)
+                and not self._ensure_aubo_motion_ready()
+            ):
                 raise RuntimeError("Aubo teach mode is still active")
             replay_gripper = self.gripper_state
             previous_arm_joints: list[float] | None = None
             for index, waypoint in enumerate(waypoints, start=1):
                 if self.cancel_event.is_set():
                     break
-                self._status(f"replay {index}/{len(waypoints)}: {waypoint.label}")
+                self._notify_replay_progress(
+                    progress_callback, index, total, waypoint.label, "running"
+                )
+                self._status(f"replay {index}/{total}: {waypoint.label}")
                 if waypoint.kind == "wait":
                     self.set_base_velocity(0.0, 0.0)
                     self._status(f"wait {waypoint.wait_sec:.1f}s: {waypoint.label}")
@@ -2408,7 +2493,7 @@ class TeachPanelNode(Node):
 
                 if waypoint.base_motion:
                     self._replay_base_motion(waypoint.base_motion, waypoint.label)
-                if self._valid_arm_target(waypoint.arm_joints):
+                if replay_arm and self._valid_arm_target(waypoint.arm_joints):
                     if previous_arm_joints is None:
                         previous_arm_joints = self._current_arm_vector()
                     if previous_arm_joints is None:
@@ -2429,12 +2514,16 @@ class TeachPanelNode(Node):
                             f"arm replay skipped: unchanged target for {waypoint.label}"
                         )
                     previous_arm_joints = target_arm_joints
-                elif waypoint.arm_joints:
+                elif replay_arm and waypoint.arm_joints:
                     self._status(
                         f"arm replay skipped: invalid joint target for {waypoint.label}",
                         warn=True,
                     )
-                if waypoint.gripper in ("open", "close") and waypoint.gripper != replay_gripper:
+                if (
+                    replay_gripper_enabled
+                    and _is_replay_gripper_command(waypoint.gripper)
+                    and waypoint.gripper != replay_gripper
+                ):
                     self.publish_gripper(waypoint.gripper)
                     replay_gripper = waypoint.gripper
                     gripper_wait = max(float(self.get_parameter("gripper_settle_sec").value), 0.0)
@@ -2443,9 +2532,12 @@ class TeachPanelNode(Node):
                         self._sleep(gripper_wait)
                 self._sleep(float(self.get_parameter("replay_settle_sec").value))
             self.set_base_velocity(0.0, 0.0)
-            self._status("replay complete" if not self.cancel_event.is_set() else "replay stopped")
+            state = "stopped" if self.cancel_event.is_set() else "complete"
+            self._notify_replay_progress(progress_callback, None, total, "", state)
+            self._status("replay complete" if state == "complete" else "replay stopped")
         except Exception as exc:
             self.set_base_velocity(0.0, 0.0)
+            self._notify_replay_progress(progress_callback, None, total, str(exc), "failed")
             self._status(f"replay failed: {exc}", warn=True)
 
     def _replay_has_arm_targets(self, waypoints: list[TeachWaypoint]) -> bool:
@@ -3512,6 +3604,7 @@ class TeachPanelApp:
         self.wait_var = tk.StringVar(value="2.0")
         self.file_var = tk.StringVar(value="unsaved")
         self.program_var = tk.StringVar(value="0 nodes")
+        self.replay_current_var = tk.StringVar(value="Current: -")
         self.base_linear_var = tk.StringVar(value=f"{float(node.get_parameter('base_linear_speed').value):.3f}")
         self.base_angular_var = tk.StringVar(
             value=f"{float(node.get_parameter('base_angular_speed').value):.3f}"
@@ -3532,6 +3625,7 @@ class TeachPanelApp:
         self.gripper_settle_var = tk.StringVar(
             value=f"{float(node.get_parameter('gripper_settle_sec').value):.1f}"
         )
+        self.gripper_custom_var = tk.StringVar(value="12000")
         self.home_joints_var = tk.StringVar(
             value=str(node.get_parameter("arm_home_joints_deg").value)
         )
@@ -3541,6 +3635,7 @@ class TeachPanelApp:
         self.config_path_var = tk.StringVar(
             value=str(node.get_parameter("teach_config_path").value)
         )
+        self.base_only_run_var = tk.BooleanVar(value=False)
         self.joint_target_vars = [tk.StringVar(value="") for _ in range(6)]
         self.tool_target_vars = {axis: tk.StringVar(value="") for axis in ("x", "y", "z")}
         self.move_status_vars: dict[str, tk.StringVar] = {}
@@ -3842,8 +3937,18 @@ class TeachPanelApp:
             (
                 ("Open", lambda: self.node.publish_gripper("open"), None),
                 ("Close", lambda: self.node.publish_gripper("close"), None),
+                *(
+                    (command, lambda value=command: self.node.publish_gripper(value), None)
+                    for command in GRIPPER_PRESET_COMMANDS
+                ),
             ),
             columns=2,
+        )
+        ttk.Entry(gripper_group, textvariable=self.gripper_custom_var, width=8).grid(
+            row=3, column=0, sticky="ew", padx=5, pady=4
+        )
+        ttk.Button(gripper_group, text="Set", command=self._publish_custom_gripper).grid(
+            row=3, column=1, sticky="ew", padx=5, pady=4
         )
         gripper_group.grid(row=4, column=0, columnspan=2, sticky="ew")
 
@@ -3978,6 +4083,9 @@ class TeachPanelApp:
         ttk.Label(editor, text="Wait s").grid(row=0, column=3, padx=5, pady=5)
         ttk.Entry(editor, textvariable=self.wait_var, width=8).grid(row=0, column=4, padx=5, pady=5)
         ttk.Button(editor, text="Wait", command=self._add_wait).grid(row=0, column=5, padx=5, pady=5)
+        ttk.Checkbutton(editor, text="Base-only Run", variable=self.base_only_run_var).grid(
+            row=1, column=0, columnspan=6, sticky="w", padx=5, pady=(0, 5)
+        )
 
         toolbar = ttk.Frame(tab)
         toolbar.grid(row=1, column=0, sticky="ew", pady=(0, 8))
@@ -3986,6 +4094,7 @@ class TeachPanelApp:
         for index, (text, command) in enumerate(
             (
                 ("Update", self._update_selected),
+                ("Arm/Grip Update", self._update_arm_grip_selected),
                 ("Duplicate", self._duplicate_selected),
                 ("Delete", self._delete_selected),
                 ("Clear", self._clear),
@@ -4006,12 +4115,15 @@ class TeachPanelApp:
 
         program = ttk.LabelFrame(tab, text="Program Tree")
         program.grid(row=2, column=0, sticky="nsew")
-        program.rowconfigure(0, weight=1)
+        program.rowconfigure(1, weight=1)
         program.columnconfigure(0, weight=1)
+        ttk.Label(program, textvariable=self.replay_current_var).grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=4, pady=(4, 0)
+        )
         self.listbox = tk.Listbox(program, height=18, selectmode=tk.EXTENDED)
-        self.listbox.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        self.listbox.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
         scroll = ttk.Scrollbar(program, command=self.listbox.yview)
-        scroll.grid(row=0, column=1, sticky="ns")
+        scroll.grid(row=1, column=1, sticky="ns")
         self.listbox.configure(yscrollcommand=scroll.set)
         ttk.Label(tab, textvariable=self.file_var).grid(row=3, column=0, sticky="w", pady=(6, 0))
 
@@ -4258,6 +4370,18 @@ class TeachPanelApp:
         button.bind("<Leave>", lambda _event: self._preset_hold_release())
         return button
 
+    def _publish_custom_gripper(self) -> None:
+        text = self.gripper_custom_var.get().strip()
+        command = _normalize_gripper_command(text)
+        if command is None or not command.isdigit():
+            messagebox.showerror(
+                "Gripper",
+                f"Enter an integer from {GRIPPER_CUSTOM_MIN} to {GRIPPER_CUSTOM_MAX}.",
+            )
+            return
+        self.gripper_custom_var.set(command)
+        self.node.publish_gripper(command)
+
     def _build_gripper_controls(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="Gripper")
         frame.grid(row=2, column=0, sticky="ew", pady=(8, 0))
@@ -4267,8 +4391,20 @@ class TeachPanelApp:
         ttk.Button(frame, text="Close", command=lambda: self.node.publish_gripper("close")).grid(
             row=0, column=1, padx=4, pady=4
         )
+        for index, command in enumerate(GRIPPER_PRESET_COMMANDS, start=2):
+            ttk.Button(
+                frame,
+                text=command,
+                command=lambda value=command: self.node.publish_gripper(value),
+            ).grid(row=index // 2, column=index % 2, padx=4, pady=4, sticky="ew")
+        ttk.Entry(frame, textvariable=self.gripper_custom_var, width=8).grid(
+            row=3, column=0, padx=4, pady=4, sticky="ew"
+        )
+        ttk.Button(frame, text="Set", command=self._publish_custom_gripper).grid(
+            row=3, column=1, padx=4, pady=4, sticky="ew"
+        )
         ttk.Button(frame, text="Stop All", command=self.node.stop_all).grid(
-            row=1, column=0, columnspan=2, padx=4, pady=4, sticky="ew"
+            row=4, column=0, columnspan=2, padx=4, pady=4, sticky="ew"
         )
 
     def _refresh(self) -> None:
@@ -4593,6 +4729,31 @@ class TeachPanelApp:
         self.listbox.selection_set(index)
         self.listbox.see(index)
 
+    def _update_arm_grip_selected(self) -> None:
+        selected = list(self.listbox.curselection())
+        if len(selected) != 1:
+            messagebox.showinfo("Arm/Grip Update", "Select exactly one pose waypoint first.")
+            return
+        index = selected[0]
+        source = self.waypoints[index]
+        if source.kind == "wait":
+            messagebox.showinfo("Arm/Grip Update", "Wait nodes do not have arm/gripper targets.")
+            return
+        try:
+            arm, tool, gripper = self.node.arm_gripper_snapshot()
+        except Exception as exc:
+            messagebox.showerror("Arm/Grip Update", str(exc))
+            return
+        waypoint = _waypoint_from_dict(asdict(source))
+        waypoint.arm_joints = arm
+        waypoint.tool_position = tool
+        waypoint.gripper = gripper
+        waypoint.stamp = datetime.now().isoformat(timespec="seconds")
+        self.waypoints[index] = waypoint
+        self._refresh_waypoints()
+        self.listbox.selection_set(index)
+        self.listbox.see(index)
+
     def _duplicate_selected(self) -> None:
         selected = list(self.listbox.curselection())
         if not selected:
@@ -4616,6 +4777,7 @@ class TeachPanelApp:
         self.node.clear_base_motion_history()
         self.label_var.set("wp_1")
         self._refresh_waypoints()
+        self._reset_replay_current()
 
     def _reset(self) -> None:
         self.node.stop_all()
@@ -4625,6 +4787,7 @@ class TeachPanelApp:
         self.wait_var.set("2.0")
         self.file_var.set("unsaved")
         self._refresh_waypoints()
+        self._reset_replay_current()
 
     def _save(self) -> None:
         default = self.node.recording_dir() / f"arachne_teach_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -4653,13 +4816,74 @@ class TeachPanelApp:
         if not path:
             return
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        replay_args = payload.get("recommended_replay_args", {})
+        replay_params = []
+        if isinstance(replay_args, dict):
+            for name in (
+                "aubo_sdk_move_speed_rad_sec",
+                "arm_waypoint_duration_sec",
+                "replay_settle_sec",
+            ):
+                if name in replay_args:
+                    replay_params.append(
+                        Parameter(name, Parameter.Type.DOUBLE, float(replay_args[name]))
+                    )
+        if replay_params:
+            self.node.set_parameters(replay_params)
+            self._sync_config_vars_from_node()
+            self.node._status(
+                "applied replay args: "
+                + ", ".join(f"{item.name}={item.value}" for item in replay_params)
+            )
         self.waypoints = [_waypoint_from_dict(item) for item in payload.get("waypoints", [])]
         self.file_var.set(path)
         self.label_var.set(f"wp_{len(self.waypoints) + 1}")
         self._refresh_waypoints()
+        self._reset_replay_current()
 
     def _play(self) -> None:
-        self.node.replay(self.waypoints)
+        base_only = bool(self.base_only_run_var.get())
+        self.node.replay(
+            self.waypoints,
+            replay_arm=not base_only,
+            replay_gripper=not base_only,
+            progress_callback=self._on_replay_progress,
+        )
+
+    def _reset_replay_current(self) -> None:
+        self.replay_current_var.set("Current: -")
+        if self.listbox is not None:
+            self.listbox.selection_clear(0, tk.END)
+
+    def _on_replay_progress(
+        self,
+        index: int | None,
+        total: int,
+        label: str,
+        state: str,
+    ) -> None:
+        self.root.after(0, lambda: self._apply_replay_progress(index, total, label, state))
+
+    def _apply_replay_progress(
+        self,
+        index: int | None,
+        total: int,
+        label: str,
+        state: str,
+    ) -> None:
+        if state == "running" and index is not None:
+            self.replay_current_var.set(f"Current: {index:02d}/{total} {label}")
+            if self.listbox is not None:
+                row = max(0, index - 1)
+                self.listbox.selection_clear(0, tk.END)
+                self.listbox.selection_set(row)
+                self.listbox.activate(row)
+                self.listbox.see(row)
+            return
+        if state == "failed":
+            self.replay_current_var.set(f"Current: failed: {label}")
+        else:
+            self.replay_current_var.set(f"Current: {state}")
 
     def _refresh_waypoints(self) -> None:
         self.listbox.delete(0, tk.END)

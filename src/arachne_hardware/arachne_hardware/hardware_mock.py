@@ -112,6 +112,8 @@ class ArachneHardwareMock(Node):
             self.gripper_position = 0.0
         elif command == "close":
             self.gripper_position = 0.6
+        elif command.isdigit():
+            self.gripper_position = (1.0 - min(max(int(command) / 19656.0, 0.0), 1.0)) * 0.6
 
     def _on_aubo_teach(self, msg: String) -> None:
         command = msg.data.strip().lower()

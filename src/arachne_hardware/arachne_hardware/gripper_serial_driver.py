@@ -39,6 +39,7 @@ class MS42DCOfficialBridge(Node):
         self.create_subscription(Float64, "/arachne/gripper/angle_degrees", self._on_angle, 10)
         self.create_timer(1.0, self._publish_status)
         self.last_status = "ready"
+        self.target_opening_tenths = int(self.get_parameter("open_angle_tenths").value)
 
         self.get_logger().info(
             "MS42DC bridge ready: /arachne/gripper/command -> step_motor/motor_control"
@@ -49,11 +50,15 @@ class MS42DCOfficialBridge(Node):
         if command == "close":
             angle = int(self.get_parameter("close_angle_tenths").value)
             self._publish_motor(direction=1, angle_tenths=angle, label="close")
+            self.target_opening_tenths = 0
         elif command in ("open", "home"):
             angle = int(self.get_parameter("open_angle_tenths").value)
             self._publish_motor(direction=0, angle_tenths=angle, label="open")
+            self.target_opening_tenths = angle
         elif command == "stop":
             self._publish_motor(direction=0, angle_tenths=0, speed_tenths=0, label="stop")
+        elif command.isdigit():
+            self._publish_opening_target(int(command))
         else:
             self.get_logger().warning(f"Ignoring unknown gripper command: {msg.data!r}")
 
@@ -61,6 +66,30 @@ class MS42DCOfficialBridge(Node):
         direction = 1 if msg.data >= 0.0 else 0
         angle = int(round(abs(float(msg.data)) * 10.0))
         self._publish_motor(direction=direction, angle_tenths=angle, label="angle")
+        self._update_target_opening(direction=direction, angle_tenths=angle)
+
+    def _publish_opening_target(self, target_tenths: int) -> None:
+        max_open = max(int(self.get_parameter("open_angle_tenths").value), 1)
+        target = max(0, min(int(target_tenths), max_open))
+        current = max(0, min(int(self.target_opening_tenths), max_open))
+        delta = target - current
+        if delta == 0:
+            self.last_status = f"opening target unchanged: {target}/{max_open}"
+            self.get_logger().info(self.last_status)
+            return
+        self._publish_motor(
+            direction=0 if delta > 0 else 1,
+            angle_tenths=abs(delta),
+            label=f"opening {target}/{max_open}",
+        )
+        self.target_opening_tenths = target
+
+    def _update_target_opening(self, *, direction: int, angle_tenths: int) -> None:
+        max_open = max(int(self.get_parameter("open_angle_tenths").value), 1)
+        delta = -int(angle_tenths) if int(direction) == 1 else int(angle_tenths)
+        self.target_opening_tenths = max(
+            0, min(int(self.target_opening_tenths) + delta, max_open)
+        )
 
     def _publish_motor(
         self,
