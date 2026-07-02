@@ -44,6 +44,7 @@ if [[ -f build/aubo_description/cmake_install.cmake ]] \
 fi
 
 PACKAGES=(
+  lslidar_msgs lslidar_driver \
   aubo_description scout_description dh_ag95_description \
   arachne_sim arachne_gripper arachne_hardware arachne_control arachne_moveit_config \
   arachne_nav arachne_operator arachne_sensors arachne_agent_bridge arachne_description
@@ -81,6 +82,8 @@ else
   echo "Skipping Gazebo demo packages. Set ARACHNE_BUILD_WITH_GAZEBO=true after installing Gazebo deps."
 fi
 
-colcon --log-base "${BUILD_LOG_DIR}" build "${COLCON_ARGS[@]}" --base-paths src --packages-select \
+colcon --log-base "${BUILD_LOG_DIR}" build "${COLCON_ARGS[@]}" \
+  --base-paths src third_party/Lslidar_ROS2_driver_C16_V4 \
+  --packages-select \
   "${PACKAGES[@]}" \
   --cmake-args -DPython3_EXECUTABLE="${ARACHNE_SYSTEM_PYTHON}"

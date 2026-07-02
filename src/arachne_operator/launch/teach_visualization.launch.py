@@ -87,11 +87,11 @@ def launch_setup(context, *args, **kwargs):
         "yes",
         "on",
     }:
-        lslidar_share = Path(get_package_share_directory("lslidar_c16_decoder"))
+        lslidar_share = Path(get_package_share_directory("lslidar_driver"))
         actions.insert(
             0,
             IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(str(lslidar_share / "launch" / "lslidar_c16_launch.py"))
+                PythonLaunchDescriptionSource(str(lslidar_share / "launch" / "lslidar_cx_launch.py"))
             ),
         )
     return actions

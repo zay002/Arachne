@@ -598,6 +598,7 @@ class TeachPanelNode(Node):
         self.active_base_motion: dict | None = None
         self.base_motion_recording_enabled = False
         self.manual_base_velocity: tuple[float, float] | None = None
+        self.base_target_motion_active = False
         self.manual_arm_stream_command: dict[str, object] | None = None
         self.manual_arm_stream_deadline = 0.0
         self.manual_arm_velocity: list[float] | None = None
@@ -1292,6 +1293,10 @@ class TeachPanelNode(Node):
             "back": (-linear, 0.0),
             "left": (0.0, angular),
             "right": (0.0, -angular),
+            "forward_left": (linear, angular),
+            "forward_right": (linear, -angular),
+            "back_left": (-linear, angular),
+            "back_right": (-linear, -angular),
             "stop": (0.0, 0.0),
         }
         vx, wz = mapping.get(direction, (0.0, 0.0))
@@ -1299,6 +1304,65 @@ class TeachPanelNode(Node):
         with self.lock:
             self.manual_base_velocity = None if direction == "stop" else (vx, wz)
         self.set_base_velocity(vx, wz)
+
+    def move_base_distance(self, distance_m: float) -> None:
+        value = float(distance_m)
+        max_distance = abs(
+            float(self.get_parameter("base_motion_max_segment_sec").value)
+            * float(self.get_parameter("base_linear_speed").value)
+        )
+        if not math.isfinite(value) or abs(value) < 1e-9 or abs(value) > max_distance:
+            self._status(f"base distance ignored: max={max_distance:.2f}m", warn=True)
+            return
+        self._start_base_target_motion("distance", value)
+
+    def turn_base_relative(self, angle_rad: float) -> None:
+        value = float(angle_rad)
+        if not math.isfinite(value) or abs(value) < 1e-9 or abs(value) > math.tau:
+            self._status("base turn ignored: angle must be <= 360deg", warn=True)
+            return
+        self._start_base_target_motion("turn", value)
+
+    def _start_base_target_motion(self, kind: str, value: float) -> None:
+        if not math.isfinite(value) or abs(value) < 1e-9:
+            self._status("base target ignored: value must be non-zero and finite", warn=True)
+            return
+        with self.lock:
+            if self.base_target_motion_active:
+                busy = True
+            else:
+                busy = False
+                self.base_target_motion_active = True
+        if busy:
+            self._status("base target ignored: another base target is running", warn=True)
+            return
+        self._start_worker(lambda: self._base_target_motion_worker(kind, value))
+
+    def _base_target_motion_worker(self, kind: str, value: float) -> None:
+        try:
+            self.cancel_event.clear()
+            self.drive_base_manual("stop")
+            self._current_base_pose()
+            if kind == "distance":
+                speed = abs(float(self.get_parameter("base_replay_linear_speed").value))
+                direction = "forward" if value >= 0.0 else "back"
+                self._track_base_motion(direction, math.copysign(speed, value), 0.0)
+                self._status(f"base target {direction}: {abs(value):.3f}m")
+                self._drive_distance(value)
+                return
+
+            speed = abs(float(self.get_parameter("base_replay_angular_speed").value))
+            direction = "left" if value >= 0.0 else "right"
+            self._track_base_motion(direction, 0.0, math.copysign(speed, value))
+            self._status(f"base target {direction}: {abs(math.degrees(value)):.1f}deg")
+            self._turn_relative(value)
+        except Exception as exc:
+            self.set_base_velocity(0.0, 0.0)
+            self._status(f"base target failed: {exc}", warn=True)
+        finally:
+            self._track_base_motion("stop", 0.0, 0.0)
+            with self.lock:
+                self.base_target_motion_active = False
 
     def stop_all(self) -> None:
         self.cancel_event.set()
@@ -2067,6 +2131,17 @@ class TeachPanelNode(Node):
         signed_distance = linear_x * duration
         signed_angle = angular_z * duration
 
+        if abs(linear_x) > 1e-9 and abs(angular_z) > 1e-9:
+            return {
+                "type": "timed",
+                "action": command,
+                "duration_sec": float(duration),
+                "linear_x": linear_x,
+                "angular_z": angular_z,
+                "source": "timed",
+                "start_stamp": active.get("start_stamp", ""),
+            }
+
         if len(start_pose) == 3 and len(end_pose) == 3:
             dx = float(end_pose[0]) - float(start_pose[0])
             dy = float(end_pose[1]) - float(start_pose[1])
@@ -2124,7 +2199,11 @@ class TeachPanelNode(Node):
         if segment.get("type") == "angular":
             angle = math.degrees(float(segment.get("angle_rad", 0.0)))
             return f"base recorded: {action} {angle:.1f} deg"
-        return f"base recorded: {action} {float(segment.get('duration_sec', 0.0)):.1f} s"
+        return (
+            f"base recorded: {action} vx={float(segment.get('linear_x', 0.0)):.3f} "
+            f"wz={float(segment.get('angular_z', 0.0)):.3f} "
+            f"t={float(segment.get('duration_sec', 0.0)):.1f} s"
+        )
 
     def _jog_arm_worker(self, axis: str, sign: float) -> None:
         q_start = self._current_arm_vector()
@@ -3609,6 +3688,14 @@ class TeachPanelApp:
         self.base_angular_var = tk.StringVar(
             value=f"{float(node.get_parameter('base_angular_speed').value):.3f}"
         )
+        self.base_distance_var = tk.StringVar(value="0.20")
+        self.base_angle_var = tk.StringVar(value="30")
+        self.base_target_linear_speed_var = tk.StringVar(
+            value=f"{float(node.get_parameter('base_replay_linear_speed').value):.3f}"
+        )
+        self.base_target_angular_speed_var = tk.StringVar(
+            value=f"{float(node.get_parameter('base_replay_angular_speed').value):.3f}"
+        )
         self.arm_step_var = tk.StringVar(value=f"{float(node.get_parameter('arm_jog_step_m').value):.3f}")
         self.arm_rotate_var = tk.StringVar(
             value=f"{math.degrees(float(node.get_parameter('arm_rotate_step_rad').value)):.1f}"
@@ -4243,11 +4330,15 @@ class TeachPanelApp:
         for column in range(3):
             frame.columnconfigure(column, weight=1)
         buttons = {
+            "Fwd Left": ("forward_left", 0, 0),
             "Forward": ("forward", 0, 1),
-            "Back": ("back", 2, 1),
+            "Fwd Right": ("forward_right", 0, 2),
             "Left": ("left", 1, 0),
-            "Right": ("right", 1, 2),
             "Stop": ("stop", 1, 1),
+            "Right": ("right", 1, 2),
+            "Back Left": ("back_left", 2, 0),
+            "Back": ("back", 2, 1),
+            "Back Right": ("back_right", 2, 2),
         }
         for text, (direction, row, column) in buttons.items():
             button = ttk.Button(frame, text=text)
@@ -4260,7 +4351,35 @@ class TeachPanelApp:
         base_rec_button = ttk.Button(
             frame, text="Program Rec Off", command=self._toggle_program_recording
         )
-        base_rec_button.grid(row=3, column=0, columnspan=3, padx=4, pady=(8, 4), sticky="ew")
+        ttk.Label(frame, text="Distance m").grid(row=3, column=0, padx=4, pady=(8, 4))
+        ttk.Entry(frame, textvariable=self.base_distance_var, width=8).grid(
+            row=3, column=1, padx=4, pady=(8, 4), sticky="ew"
+        )
+        ttk.Button(frame, text="Go Fwd", command=lambda: self._move_base_distance(1.0)).grid(
+            row=3, column=2, padx=4, pady=(8, 4), sticky="ew"
+        )
+        ttk.Button(frame, text="Go Back", command=lambda: self._move_base_distance(-1.0)).grid(
+            row=4, column=2, padx=4, pady=4, sticky="ew"
+        )
+        ttk.Label(frame, text="Speed m/s").grid(row=4, column=0, padx=4, pady=4)
+        ttk.Entry(frame, textvariable=self.base_target_linear_speed_var, width=8).grid(
+            row=4, column=1, padx=4, pady=4, sticky="ew"
+        )
+        ttk.Label(frame, text="Angle deg").grid(row=5, column=0, padx=4, pady=(8, 4))
+        ttk.Entry(frame, textvariable=self.base_angle_var, width=8).grid(
+            row=5, column=1, padx=4, pady=(8, 4), sticky="ew"
+        )
+        ttk.Button(frame, text="Turn Left", command=lambda: self._turn_base_relative(1.0)).grid(
+            row=5, column=2, padx=4, pady=(8, 4), sticky="ew"
+        )
+        ttk.Button(frame, text="Turn Right", command=lambda: self._turn_base_relative(-1.0)).grid(
+            row=6, column=2, padx=4, pady=4, sticky="ew"
+        )
+        ttk.Label(frame, text="Turn speed rad/s").grid(row=6, column=0, padx=4, pady=4)
+        ttk.Entry(frame, textvariable=self.base_target_angular_speed_var, width=8).grid(
+            row=6, column=1, padx=4, pady=4, sticky="ew"
+        )
+        base_rec_button.grid(row=7, column=0, columnspan=3, padx=4, pady=(8, 4), sticky="ew")
         self.program_record_buttons.append(base_rec_button)
 
     def _build_arm_controls(self, parent: ttk.Frame) -> None:
@@ -4655,6 +4774,62 @@ class TeachPanelApp:
             return
         self.node.move_tool_to_position(target)
 
+    def _move_base_distance(self, sign: float) -> None:
+        try:
+            distance = float(self.base_distance_var.get())
+        except ValueError:
+            messagebox.showerror("Base Move", "Distance must be a numeric meter value.")
+            return
+        max_distance = abs(
+            float(self.node.get_parameter("base_motion_max_segment_sec").value)
+            * float(self.node.get_parameter("base_linear_speed").value)
+        )
+        if not math.isfinite(distance) or distance <= 0.0 or distance > max_distance:
+            messagebox.showerror(
+                "Base Move",
+                f"Distance must be > 0 and <= {max_distance:.2f} m.",
+            )
+            return
+        speed = self._positive_base_input(
+            self.base_target_linear_speed_var.get(), "Base Move", "Speed m/s"
+        )
+        if speed is None:
+            return
+        self.node.set_parameters(
+            [Parameter("base_replay_linear_speed", Parameter.Type.DOUBLE, speed)]
+        )
+        self.node.move_base_distance(float(sign) * distance)
+
+    def _turn_base_relative(self, sign: float) -> None:
+        try:
+            angle_deg = float(self.base_angle_var.get())
+        except ValueError:
+            messagebox.showerror("Base Turn", "Angle must be a numeric degree value.")
+            return
+        if not math.isfinite(angle_deg) or angle_deg <= 0.0 or angle_deg > 360.0:
+            messagebox.showerror("Base Turn", "Angle must be > 0 and <= 360 deg.")
+            return
+        speed = self._positive_base_input(
+            self.base_target_angular_speed_var.get(), "Base Turn", "Turn speed rad/s"
+        )
+        if speed is None:
+            return
+        self.node.set_parameters(
+            [Parameter("base_replay_angular_speed", Parameter.Type.DOUBLE, speed)]
+        )
+        self.node.turn_base_relative(float(sign) * math.radians(angle_deg))
+
+    def _positive_base_input(self, text: str, title: str, label: str) -> float | None:
+        try:
+            value = float(text)
+        except ValueError:
+            messagebox.showerror(title, f"{label} must be numeric.")
+            return None
+        if not math.isfinite(value) or value <= 0.0:
+            messagebox.showerror(title, f"{label} must be > 0.")
+            return None
+        return value
+
     def _base_press(self, direction: str) -> None:
         self.node.drive_base_manual(direction)
 
@@ -4919,7 +5094,11 @@ class TeachPanelApp:
                 angle = math.degrees(float(normalized.get("angle_rad", 0.0)))
                 parts.append(f"{action} {angle:.0f}deg")
             else:
-                parts.append(f"{action} {float(normalized.get('duration_sec', 0.0)):.1f}s")
+                parts.append(
+                    f"{action} vx={float(normalized.get('linear_x', 0.0)):.2f} "
+                    f"wz={float(normalized.get('angular_z', 0.0)):.2f} "
+                    f"t={float(normalized.get('duration_sec', 0.0)):.1f}s"
+                )
         if len(segments) > 3:
             parts.append(f"+{len(segments) - 3}")
         return ", ".join(parts)
