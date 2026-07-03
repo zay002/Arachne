@@ -62,6 +62,7 @@ DEFAULT_ARM_BASE_RPY = "0.0,0.0,1.57079632679"
 DEFAULT_REAR_RACK_KEEPOUT_MIN_XYZ = "-0.41,-0.22,0.04"
 DEFAULT_REAR_RACK_KEEPOUT_MAX_XYZ = "0.09,0.22,0.82"
 DEFAULT_TEACH_CONFIG_PATH = "recordings/teach/teach_panel_config.json"
+DEFAULT_DEMO_RECORDING_PATH = "recordings/teach/arachne_teach_20260629_213710.json"
 DEFAULT_AUBO_TEACH_FLAG_PATH = "/tmp/arachne_aubo_teach_mode"
 GRIPPER_PRESET_COMMANDS = ("12000", "9000", "6000")
 GRIPPER_CUSTOM_MIN = 0
@@ -278,6 +279,11 @@ class TeachPanelNode(Node):
         self.declare_parameter("base_angular_speed", 0.60)
         self.declare_parameter("base_replay_linear_speed", 0.40)
         self.declare_parameter("base_replay_angular_speed", 0.48)
+        self.declare_parameter("base_curve_replay_enabled", True)
+        self.declare_parameter("base_curve_publish_rate", 20.0)
+        self.declare_parameter("base_curve_min_turn_angle_rad", 0.05)
+        self.declare_parameter("base_curve_max_linear_speed", 0.0)
+        self.declare_parameter("base_curve_max_angular_speed", 0.0)
         self.declare_parameter("base_position_tolerance", 0.02)
         self.declare_parameter("base_yaw_tolerance_deg", 2.0)
         self.declare_parameter("base_manual_publish_rate", 12.0)
@@ -348,7 +354,7 @@ class TeachPanelNode(Node):
         self.declare_parameter("arm_keepout_joint_step_rad", 0.06)
         self.declare_parameter("aubo_teach_command_topic", "/arachne/aubo/teach_command")
         self.declare_parameter("aubo_teach_exit_wait_sec", 8.0)
-        self.declare_parameter("replay_settle_sec", 0.2)
+        self.declare_parameter("replay_settle_sec", 0.05)
         self.declare_parameter("gripper_settle_sec", 2.0)
         self.declare_parameter("recording_dir", "recordings/teach")
         self.declare_parameter("teach_config_path", DEFAULT_TEACH_CONFIG_PATH)
@@ -2649,10 +2655,21 @@ class TeachPanelNode(Node):
 
     def _replay_base_motion(self, segments: list[dict], label: str) -> None:
         max_duration = float(self.get_parameter("base_motion_max_segment_sec").value)
-        for index, segment in enumerate(segments, start=1):
+        normalized_segments = [self._normalize_base_motion_segment(segment) for segment in segments]
+        if self._should_replay_base_curve(normalized_segments):
+            self._status(f"base curve motion for {label}: segments={len(normalized_segments)}")
+            try:
+                self._current_base_pose()
+            except Exception as exc:
+                self._status(f"base curve fallback for {label}: {exc}", warn=True)
+            else:
+                if not self._replay_base_curve_motion(normalized_segments):
+                    self._status(f"base curve incomplete for {label}", warn=True)
+                return
+
+        for index, normalized in enumerate(normalized_segments, start=1):
             if self.cancel_event.is_set():
                 break
-            normalized = self._normalize_base_motion_segment(segment)
             motion_type = normalized.get("type")
             if motion_type == "linear":
                 distance = float(normalized.get("signed_distance_m", 0.0))
@@ -2686,6 +2703,86 @@ class TeachPanelNode(Node):
                     time.sleep(0.05)
             self.set_base_velocity(0.0, 0.0)
             self._sleep(0.1)
+
+    def _should_replay_base_curve(self, segments: list[dict]) -> bool:
+        if not bool(self.get_parameter("base_curve_replay_enabled").value):
+            return False
+        min_turn = abs(float(self.get_parameter("base_curve_min_turn_angle_rad").value))
+        return any(
+            segment.get("type") == "angular"
+            and abs(float(segment.get("signed_angle_rad", 0.0))) >= min_turn
+            for segment in segments
+        )
+
+    def _replay_base_curve_motion(self, segments: list[dict]) -> bool:
+        linear_limit = abs(float(self.get_parameter("base_curve_max_linear_speed").value))
+        angular_limit = abs(float(self.get_parameter("base_curve_max_angular_speed").value))
+        if linear_limit <= 0.0:
+            linear_limit = abs(float(self.get_parameter("base_replay_linear_speed").value))
+        if angular_limit <= 0.0:
+            angular_limit = abs(float(self.get_parameter("base_replay_angular_speed").value))
+        rate = max(float(self.get_parameter("base_curve_publish_rate").value), 1.0)
+        period = 1.0 / rate
+        max_duration = float(self.get_parameter("base_motion_max_segment_sec").value)
+
+        commands: list[tuple[float, float, float]] = []
+        index = 0
+        while index < len(segments):
+            segment = segments[index]
+            next_segment = segments[index + 1] if index + 1 < len(segments) else {}
+            if segment.get("type") == "angular" and next_segment.get("type") == "linear":
+                angle = float(segment.get("signed_angle_rad", 0.0))
+                distance = float(next_segment.get("signed_distance_m", 0.0))
+                recorded_duration = max(float(segment.get("duration_sec", 0.0)), 0.0) + max(
+                    float(next_segment.get("duration_sec", 0.0)), 0.0
+                )
+                index += 2
+            elif segment.get("type") == "linear":
+                distance = float(segment.get("signed_distance_m", 0.0))
+                angle = 0.0
+                recorded_duration = max(float(segment.get("duration_sec", 0.0)), 0.0)
+                index += 1
+            elif segment.get("type") == "angular":
+                distance = 0.0
+                angle = float(segment.get("signed_angle_rad", 0.0))
+                recorded_duration = max(float(segment.get("duration_sec", 0.0)), 0.0)
+                index += 1
+            else:
+                commands.append(
+                    (
+                        float(segment.get("linear_x", 0.0)),
+                        float(segment.get("angular_z", 0.0)),
+                        max(0.0, min(float(segment.get("duration_sec", 0.0)), max_duration)),
+                    )
+                )
+                index += 1
+                continue
+
+            if abs(distance) < 1e-6 and abs(angle) < 1e-6:
+                continue
+            duration = max(
+                recorded_duration,
+                abs(distance) / max(linear_limit, 1e-3),
+                abs(angle) / max(angular_limit, 1e-3),
+                0.3,
+            )
+            commands.append((distance / duration, angle / duration, min(duration, max_duration)))
+
+        if not commands:
+            return False
+
+        try:
+            for linear_x, angular_z, duration in commands:
+                deadline = time.monotonic() + duration
+                twist = Twist()
+                twist.linear.x = float(np.clip(linear_x, -linear_limit, linear_limit))
+                twist.angular.z = float(np.clip(angular_z, -angular_limit, angular_limit))
+                while not self.cancel_event.is_set() and time.monotonic() < deadline:
+                    self.cmd_vel_pub.publish(twist)
+                    time.sleep(period)
+            return not self.cancel_event.is_set()
+        finally:
+            self.set_base_velocity(0.0, 0.0)
 
     def _normalize_base_motion_segment(self, segment: dict) -> dict:
         if segment.get("type") == "linear":
@@ -3684,6 +3781,8 @@ class TeachPanelApp:
         self.file_var = tk.StringVar(value="unsaved")
         self.program_var = tk.StringVar(value="0 nodes")
         self.replay_current_var = tk.StringVar(value="Current: -")
+        self.demo_file_var = tk.StringVar(value=DEFAULT_DEMO_RECORDING_PATH)
+        self.demo_stats_var = tk.StringVar(value=self._demo_stats_text())
         self.base_linear_var = tk.StringVar(value=f"{float(node.get_parameter('base_linear_speed').value):.3f}")
         self.base_angular_var = tk.StringVar(
             value=f"{float(node.get_parameter('base_angular_speed').value):.3f}"
@@ -3772,6 +3871,7 @@ class TeachPanelApp:
         self.notebook.grid(row=1, column=0, sticky="nsew")
         self._build_home_tab()
         self._build_move_tab()
+        self._build_demo_tab()
         self._build_program_tab()
         self._build_config_tab()
         self._build_log_tab()
@@ -4213,6 +4313,30 @@ class TeachPanelApp:
         scroll.grid(row=1, column=1, sticky="ns")
         self.listbox.configure(yscrollcommand=scroll.set)
         ttk.Label(tab, textvariable=self.file_var).grid(row=3, column=0, sticky="w", pady=(6, 0))
+
+    def _build_demo_tab(self) -> None:
+        tab = self._add_scrollable_tab("Demo")
+        tab.columnconfigure(0, weight=1)
+
+        demo = ttk.LabelFrame(tab, text="Teach Recording Demo")
+        demo.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        demo.columnconfigure(1, weight=1)
+        ttk.Label(demo, text="Recording").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        ttk.Label(demo, textvariable=self.demo_file_var).grid(
+            row=0, column=1, columnspan=3, sticky="w", padx=5, pady=5
+        )
+        ttk.Label(demo, textvariable=self.demo_stats_var).grid(
+            row=1, column=0, columnspan=4, sticky="w", padx=5, pady=5
+        )
+        ttk.Button(demo, text="Load Demo", command=self._load_demo).grid(
+            row=2, column=0, sticky="ew", padx=5, pady=5
+        )
+        ttk.Button(demo, text="Run Demo", command=self._run_demo, style="Primary.TButton").grid(
+            row=2, column=1, sticky="ew", padx=5, pady=5
+        )
+        ttk.Button(demo, text="Stop", command=self.node.stop_all, style="Danger.TButton").grid(
+            row=2, column=2, sticky="ew", padx=5, pady=5
+        )
 
     def _build_config_tab(self) -> None:
         tab = self._add_scrollable_tab("Configure")
@@ -4990,7 +5114,37 @@ class TeachPanelApp:
         )
         if not path:
             return
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        self._load_recording_path(Path(path))
+
+    def _demo_recording_path(self) -> Path:
+        path = Path(DEFAULT_DEMO_RECORDING_PATH)
+        return path if path.is_absolute() else root_dir() / path
+
+    def _demo_stats_text(self) -> str:
+        try:
+            payload = json.loads(self._demo_recording_path().read_text(encoding="utf-8"))
+            waypoints = payload.get("waypoints", [])
+            base_segments = sum(len(item.get("base_motion") or []) for item in waypoints)
+            return f"Demo: {len(waypoints)} waypoints, {base_segments} base segments"
+        except Exception as exc:
+            return f"Demo: unavailable ({exc})"
+
+    def _load_demo(self) -> None:
+        try:
+            self._load_recording_path(self._demo_recording_path())
+        except Exception as exc:
+            messagebox.showerror("Load Demo", str(exc))
+
+    def _run_demo(self) -> None:
+        try:
+            if Path(self.file_var.get()) != self._demo_recording_path():
+                self._load_recording_path(self._demo_recording_path())
+            self._play()
+        except Exception as exc:
+            messagebox.showerror("Run Demo", str(exc))
+
+    def _load_recording_path(self, path: Path) -> None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
         replay_args = payload.get("recommended_replay_args", {})
         replay_params = []
         if isinstance(replay_args, dict):
@@ -5011,7 +5165,12 @@ class TeachPanelApp:
                 + ", ".join(f"{item.name}={item.value}" for item in replay_params)
             )
         self.waypoints = [_waypoint_from_dict(item) for item in payload.get("waypoints", [])]
-        self.file_var.set(path)
+        base_segments = sum(len(waypoint.base_motion) for waypoint in self.waypoints)
+        self.file_var.set(str(path))
+        if path == self._demo_recording_path():
+            self.demo_stats_var.set(
+                f"Demo: {len(self.waypoints)} waypoints, {base_segments} base segments"
+            )
         self.label_var.set(f"wp_{len(self.waypoints) + 1}")
         self._refresh_waypoints()
         self._reset_replay_current()
