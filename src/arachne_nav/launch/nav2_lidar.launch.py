@@ -65,7 +65,7 @@ def launch_setup(context, *args, **kwargs):
                     "max_height": 0.35,
                     "angle_min": -3.14159,
                     "angle_max": 3.14159,
-                    "angle_increment": 0.0087,
+                    "angle_increment": 0.01745,
                     "scan_time": 0.10,
                     "range_min": 0.15,
                     "range_max": 18.0,

@@ -23,6 +23,9 @@ import rclpy
 from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
+from rcl_interfaces.msg import Parameter as RosParameter
+from rcl_interfaces.msg import ParameterType, ParameterValue
+from rcl_interfaces.srv import SetParameters
 from rclpy.action import ActionClient
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -418,7 +421,7 @@ class TeachPanelNode(Node):
                 "ros2 launch arachne_operator grasp_task_server.launch.py "
                 "execute_real:=true confirm_execute_real:=true with_rviz:=false "
                 "confidence:=0.03 "
-                "grasp_base_offset:=-0.31,0,0.16 "
+                "grasp_base_offset:=-0.23,0.01,0.16 "
                 "real_fixed_post_grasp:=true "
                 "real_fixed_search_joints:=-1.611779,-0.457910,1.071527,-0.044520,1.575231,0.771459 "
                 "real_sdk_move_speed:=0.18 "
@@ -435,8 +438,7 @@ class TeachPanelNode(Node):
                 "--local-planning-timeout-sec 4.0 --local-ik-max-iterations 120 "
                 "--lock-grasp-orientation --grasp-topdown-max-tilt-deg 20 "
                 "--grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0 "
-                "--fixed-grasp-z-base -0.11 "
-                "--local-position-tolerance 0.070 --local-orientation-tolerance 0.35 "
+                "--local-position-tolerance 0.010 --local-orientation-tolerance 0.35 "
                 "--real-sdk-arrival-timeout-padding 10 "
                 "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "
                 "preview_on_start:=false warm_execute_preview:=false planning_recovery_base_enabled:=false skip_preflight:=true "
@@ -472,6 +474,9 @@ class TeachPanelNode(Node):
         self.declare_parameter("grasp_task_restore_service", "/arachne/grasp_task/restore")
         self.declare_parameter("grasp_task_status_service", "/arachne/grasp_task/status")
         self.declare_parameter("grasp_task_preflight_service", "/arachne/grasp_task/preflight")
+        self.declare_parameter(
+            "grasp_task_parameter_service", "/arachne_grasp_task_server/set_parameters"
+        )
         self.declare_parameter("cleanup_task_state_topic", "/arachne/road_cleanup/state")
         self.declare_parameter("cleanup_task_start_service", "/arachne/road_cleanup/start")
         self.declare_parameter("cleanup_task_pause_service", "/arachne/road_cleanup/pause")
@@ -541,6 +546,9 @@ class TeachPanelNode(Node):
                 Trigger, str(self.get_parameter("grasp_task_preflight_service").value)
             ),
         }
+        self.grasp_task_parameter_client = self.create_client(
+            SetParameters, str(self.get_parameter("grasp_task_parameter_service").value)
+        )
         self.cleanup_task_clients = {
             "start": self.create_client(
                 Trigger, str(self.get_parameter("cleanup_task_start_service").value)
@@ -1560,13 +1568,23 @@ class TeachPanelNode(Node):
         self._status(f"aubo teach_off timeout before replay: {status}", warn=True)
         return False
 
-    def call_grasp_task(self, command: str) -> None:
+    def call_grasp_task(self, command: str, release_point: str | None = None) -> None:
         command = str(command).strip().lower()
         if command not in self.grasp_task_clients:
             self._status(f"grasp task ignored unknown command: {command}", warn=True)
             return
-        self._write_event("grasp_task_button", f"grasp task button requested: {command}", command=command)
-        self._start_worker(lambda: self._call_grasp_task_worker(command))
+        if release_point is not None:
+            release_point = str(release_point).strip().lower()
+            if release_point not in {"basket_a", "basket_b"}:
+                self._status(f"grasp task ignored unknown release point: {release_point}", warn=True)
+                return
+        self._write_event(
+            "grasp_task_button",
+            f"grasp task button requested: {command}",
+            command=command,
+            release_point=release_point or "",
+        )
+        self._start_worker(lambda: self._call_grasp_task_worker(command, release_point))
 
     def call_cleanup_task(self, command: str) -> None:
         command = str(command).strip().lower()
@@ -1582,10 +1600,10 @@ class TeachPanelNode(Node):
             return
         self._start_worker(lambda: self._call_step_cleanup_worker(command))
 
-    def visual_grasp_start(self) -> None:
-        self._start_worker(self._visual_grasp_start_worker)
+    def visual_grasp_start(self, release_point: str | None = None) -> None:
+        self._start_worker(lambda: self._visual_grasp_start_worker(release_point))
 
-    def _visual_grasp_start_worker(self) -> bool:
+    def _visual_grasp_start_worker(self, release_point: str | None = None) -> bool:
         self.drive_base_manual("stop")
         self.stop_arm_velocity_hold()
         if self._aubo_teach_gate_may_be_active():
@@ -1607,7 +1625,7 @@ class TeachPanelNode(Node):
 
         if bool(self.get_parameter("skip_task_preflight").value):
             self._status("visual grasp: startup preflight trusted, starting task")
-            return self._call_grasp_task_worker("start")
+            return self._call_grasp_task_worker("start", release_point)
 
         preflight = self.grasp_task_clients.get("preflight")
         if preflight is None:
@@ -1632,7 +1650,7 @@ class TeachPanelNode(Node):
             message = response.message if response is not None else "empty response"
             if success:
                 self._status("visual grasp: preflight ok, starting task")
-                return self._call_grasp_task_worker("start")
+                return self._call_grasp_task_worker("start", release_point)
 
             failures = self._required_preflight_failures(message)
             last_message = self._format_preflight_failures(failures, message)
@@ -1647,11 +1665,13 @@ class TeachPanelNode(Node):
         self._status(f"visual grasp blocked: preflight never became ready ({last_message})", warn=True)
         return False
 
-    def _call_grasp_task_worker(self, command: str) -> bool:
+    def _call_grasp_task_worker(self, command: str, release_point: str | None = None) -> bool:
         client = self.grasp_task_clients.get(command)
         if client is None:
             self._status(f"grasp task service missing: {command}", warn=True)
             return False
+        if command == "start" and release_point is None:
+            release_point = "basket_a"
         if command == "start":
             self.drive_base_manual("stop")
             self.stop_arm_velocity_hold()
@@ -1665,6 +1685,8 @@ class TeachPanelNode(Node):
                     return False
             self._stop_managed_process_worker("depth_pointcloud", quiet=True)
             self._start_managed_process_worker("depth_pointcloud")
+            if release_point is not None and not self._set_grasp_task_release_point(release_point):
+                return False
         if command in {"stop", "restore"}:
             self.drive_base_manual("stop")
             self.stop_arm_velocity_hold()
@@ -1693,6 +1715,35 @@ class TeachPanelNode(Node):
             warn=not success,
         )
         return success
+
+    def _set_grasp_task_release_point(self, release_point: str) -> bool:
+        client = self.grasp_task_parameter_client
+        service_name = getattr(client, "srv_name", "grasp release point")
+        if not client.wait_for_service(timeout_sec=1.5):
+            self._status(f"grasp release point unavailable: {service_name}", warn=True)
+            return False
+        request = SetParameters.Request()
+        request.parameters = [
+            RosParameter(
+                name="release_point",
+                value=ParameterValue(
+                    type=ParameterType.PARAMETER_STRING,
+                    string_value=release_point,
+                ),
+            )
+        ]
+        future = client.call_async(request)
+        if not self._wait_service_future(future, 2.0):
+            self._status(f"grasp release point timeout: {service_name}", warn=True)
+            return False
+        response = future.result()
+        results = response.results if response is not None else []
+        if not results or not bool(results[0].successful):
+            reason = results[0].reason if results else "empty response"
+            self._status(f"grasp release point rejected: {reason}", warn=True)
+            return False
+        self._status(f"grasp release point: {release_point}")
+        return True
 
     def _call_cleanup_task_worker(self, command: str) -> None:
         client = self.cleanup_task_clients.get(command)
@@ -2507,15 +2558,18 @@ class TeachPanelNode(Node):
         self._status(f"recorded wait {clean_label}: {wait_sec:.1f}s")
         return waypoint
 
-    def record_visual_grasp(self, label: str) -> TeachWaypoint:
+    def record_visual_grasp(self, label: str, release_point: str = "basket_a") -> TeachWaypoint:
         clean_label = label.strip() or f"visual_grasp_{datetime.now().strftime('%H%M%S')}"
+        release_point = str(release_point).strip().lower()
+        if release_point not in {"basket_a", "basket_b"}:
+            raise ValueError(f"unknown release point: {release_point}")
         waypoint = TeachWaypoint(
             label=clean_label,
             stamp=datetime.now().isoformat(timespec="seconds"),
             kind="visual_grasp",
-            task_command="start",
+            task_command=f"start:{release_point}",
         )
-        self._status(f"recorded visual grasp {clean_label}")
+        self._status(f"recorded visual grasp {clean_label}: {release_point}")
         return waypoint
 
     def replay(
@@ -2651,15 +2705,19 @@ class TeachPanelNode(Node):
             self._status(f"replay failed: {exc}", warn=True)
 
     def _replay_visual_grasp_step(self, waypoint: TeachWaypoint) -> None:
-        command = str(waypoint.task_command or "start").strip().lower()
+        command_text = str(waypoint.task_command or "start").strip().lower()
+        command, _, release_point = command_text.partition(":")
+        release_point = release_point or None
         if command != "start":
             raise RuntimeError(f"visual grasp unsupported command: {command}")
+        if release_point not in (None, "basket_a", "basket_b"):
+            raise RuntimeError(f"visual grasp unsupported release point: {release_point}")
         previous_task_id = self._grasp_task_status_task_id()
         self.set_base_velocity(0.0, 0.0)
         self.drive_base_manual("stop")
         self.stop_arm_velocity_hold()
-        self._status(f"visual grasp replay start: {waypoint.label}")
-        if not self._visual_grasp_start_worker():
+        self._status(f"visual grasp replay start: {waypoint.label} {release_point or 'basket_a'}")
+        if not self._visual_grasp_start_worker(release_point):
             raise RuntimeError("visual grasp start failed")
         ok, message = self._wait_visual_grasp_replay_done(waypoint.label, previous_task_id)
         if not ok:
@@ -3920,6 +3978,7 @@ class TeachPanelApp:
             value=f"{float(node.get_parameter('gripper_settle_sec').value):.1f}"
         )
         self.gripper_custom_var = tk.StringVar(value="12000")
+        self.visual_grasp_release_var = tk.StringVar(value="basket_a")
         self.home_joints_var = tk.StringVar(
             value=str(node.get_parameter("arm_home_joints_deg").value)
         )
@@ -4196,7 +4255,6 @@ class TeachPanelApp:
         ttk.Button(preset_group, text="Set Install", command=self._set_install_from_current).grid(
             row=1, column=1, sticky="ew", padx=5, pady=4
         )
-
         program_group = self._build_button_group(
             quick,
             "Program",
@@ -4214,7 +4272,8 @@ class TeachPanelApp:
             quick,
             "Task Actions",
             (
-                ("Grasp Start", lambda: self.node.call_grasp_task("start"), "Primary.TButton"),
+                ("Grasp A", lambda: self.node.call_grasp_task("start", "basket_a"), "Primary.TButton"),
+                ("Grasp B", lambda: self.node.call_grasp_task("start", "basket_b"), "Primary.TButton"),
                 ("Step Demo", lambda: self.node.call_step_cleanup("start"), None),
                 ("Road Start", lambda: self.node.call_cleanup_task("start"), None),
                 ("Return", lambda: self.node.call_cleanup_task("return_home"), None),
@@ -4381,8 +4440,15 @@ class TeachPanelApp:
         ttk.Button(editor, text="Visual Grasp", command=self._add_visual_grasp).grid(
             row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=(0, 5)
         )
+        ttk.Combobox(
+            editor,
+            textvariable=self.visual_grasp_release_var,
+            values=("basket_a", "basket_b"),
+            state="readonly",
+            width=10,
+        ).grid(row=1, column=2, sticky="ew", padx=5, pady=(0, 5))
         ttk.Checkbutton(editor, text="Base-only Run", variable=self.base_only_run_var).grid(
-            row=1, column=2, columnspan=4, sticky="w", padx=5, pady=(0, 5)
+            row=1, column=3, columnspan=3, sticky="w", padx=5, pady=(0, 5)
         )
 
         toolbar = ttk.Frame(tab)
@@ -4502,7 +4568,6 @@ class TeachPanelApp:
         ttk.Button(
             presets, text="Set Install From Current", command=self._set_install_from_current
         ).grid(row=0, column=3, sticky="ew", padx=6, pady=5)
-
         config = ttk.LabelFrame(tab, text="Local Config")
         config.grid(row=2, column=0, sticky="ew", pady=(10, 0))
         config.columnconfigure(1, weight=1)
@@ -5111,7 +5176,9 @@ class TeachPanelApp:
         self._refresh_waypoints()
 
     def _add_visual_grasp(self) -> None:
-        waypoint = self.node.record_visual_grasp(self.label_var.get())
+        waypoint = self.node.record_visual_grasp(
+            self.label_var.get(), self.visual_grasp_release_var.get()
+        )
         self.waypoints.append(waypoint)
         self.label_var.set(f"wp_{len(self.waypoints) + 1}")
         self._refresh_waypoints()
@@ -5344,7 +5411,11 @@ class TeachPanelApp:
                 continue
             if waypoint.kind == "visual_grasp":
                 command = waypoint.task_command or "start"
-                self.listbox.insert(tk.END, f"{index:02d} {waypoint.label} | visual_grasp={command}")
+                release_point = command.split(":", 1)[1] if ":" in command else "basket_a"
+                self.listbox.insert(
+                    tk.END,
+                    f"{index:02d} {waypoint.label} | visual_grasp={command} release={release_point}",
+                )
                 continue
             tool = waypoint.tool_position
             moves = self._base_motion_summary(waypoint.base_motion)

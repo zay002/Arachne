@@ -413,7 +413,7 @@ def _parse_args() -> argparse.Namespace:
         help=hidden,
     )
     parser.add_argument("--approach-distance", type=float, default=0.18, help=hidden)
-    parser.add_argument("--grasp-standoff", type=float, default=-0.08, help=hidden)
+    parser.add_argument("--grasp-standoff", type=float, default=0.035, help=hidden)
     parser.add_argument("--grasp-tcp-offset-m", type=float, default=0.0, help=hidden)
     parser.add_argument("--grasp-base-offset", default="0,0,0", help=hidden)
     parser.add_argument("--disable-pointcloud-grasp-shape", action="store_true", help=hidden)
@@ -427,8 +427,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--pointcloud-grasp-min-points", type=int, default=24, help=hidden)
     parser.add_argument("--pointcloud-axis-confidence-threshold", type=float, default=0.10, help=hidden)
     parser.add_argument("--visual-axis-confidence-threshold", type=float, default=0.12, help=hidden)
-    parser.add_argument("--pointcloud-visible-upper-half-z-bias-ratio", type=float, default=0.25, help=hidden)
-    parser.add_argument("--pointcloud-visible-upper-half-z-bias-max", type=float, default=0.025, help=hidden)
+    parser.add_argument("--pointcloud-visible-upper-half-z-bias-ratio", type=float, default=0.65, help=hidden)
+    parser.add_argument("--pointcloud-visible-upper-half-z-bias-max", type=float, default=0.030, help=hidden)
     parser.add_argument("--lift-distance", type=float, default=0.10, help=hidden)
     parser.add_argument("--base-frame", default="base_link", help=hidden)
     parser.add_argument("--aubo-base-frame", default="grasp_preview_aubo_base_link", help=hidden)
@@ -446,6 +446,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--rear-rack-collision-margin", type=float, default=0.005, help=hidden)
     parser.add_argument("--ground-min-z-base", type=float, default=-0.22, help=hidden)
     parser.add_argument("--grasp-max-z-base", type=float, default=999.0, help=hidden)
+    parser.add_argument("--min-grasp-z-base", type=float, default=-0.135, help=hidden)
     parser.add_argument("--grasp-final-z-offset-m", type=float, default=-0.055, help=hidden)
     parser.add_argument("--fixed-grasp-z-base", type=float, default=float("nan"), help=hidden)
     parser.add_argument("--ground-clearance", type=float, default=0.02, help=hidden)
@@ -3801,6 +3802,7 @@ class GraspPreviewNode(Node):
             },
             "constraints": {
                 "ground_min_z_base": float(self.args.ground_min_z_base),
+                "min_grasp_z_base": float(self.args.min_grasp_z_base),
                 "tool_ground_clearance": float(self.args.tool_ground_clearance),
                 "max_joint_speed_rad_s": float(self.args.preview_max_joint_speed),
                 "max_joint_accel_rad_s2": float(self.args.preview_max_joint_accel),
@@ -5348,10 +5350,11 @@ class GraspPreviewNode(Node):
         if math.isfinite(float(self.args.fixed_grasp_z_base)):
             grasp_base = (grasp_base[0], grasp_base[1], float(self.args.fixed_grasp_z_base))
         if bool(self.args.vertical_approach):
-            min_grasp_z = (
+            min_grasp_z = max(
+                float(self.args.min_grasp_z_base),
                 float(self.args.ground_min_z_base)
                 + max(float(self.args.tool_ground_clearance), 0.0)
-                + 0.015
+                + 0.015,
             )
             if grasp_base[2] < min_grasp_z:
                 grasp_base = (grasp_base[0], grasp_base[1], min_grasp_z)
@@ -5487,6 +5490,9 @@ class GraspPreviewNode(Node):
         anisotropy = float((eig_values[0] - eig_values[1]) / max(eig_values[0] + eig_values[1], 1e-9))
         density_score = min(float(base_points.shape[0]) / float(max(min_points * 2, 1)), 1.0)
         axis_confidence = float(np.clip(anisotropy * density_score, 0.0, 1.0))
+        shifted_center = self._apply_grasp_base_offset(
+            (float(center[0]), float(center[1]), float(center[2]))
+        )
         z_bias = min(
             max(float(self.args.pointcloud_visible_upper_half_z_bias_ratio), 0.0)
             * max(extent_z, 0.0),
@@ -5497,10 +5503,7 @@ class GraspPreviewNode(Node):
             + max(float(self.args.tool_ground_clearance), 0.0)
             + 0.01
         )
-        z_bias = min(z_bias, max(float(center[2]) - ground_limit, 0.0))
-        shifted_center = self._apply_grasp_base_offset(
-            (float(center[0]), float(center[1]), float(center[2]))
-        )
+        z_bias = min(z_bias, max(float(shifted_center[2]) - ground_limit, 0.0))
         return PointCloudGraspShape(
             center_base=shifted_center,
             major_axis_base=(float(major_xy[0]), float(major_xy[1]), 0.0),
@@ -6222,6 +6225,7 @@ class GraspPreviewNode(Node):
             },
             "ground_safety": {
                 "ground_min_z_base": float(self.args.ground_min_z_base),
+                "min_grasp_z_base": float(self.args.min_grasp_z_base),
                 "ground_clearance": float(self.args.ground_clearance),
                 "tool_ground_clearance": float(self.args.tool_ground_clearance),
                 "arm_collision_radius": float(self.args.arm_collision_radius),

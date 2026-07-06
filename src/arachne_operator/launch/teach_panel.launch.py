@@ -366,9 +366,9 @@ def generate_launch_description():
                 "camera_view_command": LaunchConfiguration("camera_view_command"),
                 "slam_command": LaunchConfiguration("slam_command"),
                 "grasp_server_command": LaunchConfiguration("grasp_server_command"),
-            "cleanup_server_command": LaunchConfiguration("cleanup_server_command"),
-            "step_cleanup_server_command": LaunchConfiguration("step_cleanup_server_command"),
-            "grasp_task_state_topic": LaunchConfiguration("grasp_task_state_topic"),
+                "cleanup_server_command": LaunchConfiguration("cleanup_server_command"),
+                "step_cleanup_server_command": LaunchConfiguration("step_cleanup_server_command"),
+                "grasp_task_state_topic": LaunchConfiguration("grasp_task_state_topic"),
                 "grasp_task_start_service": LaunchConfiguration("grasp_task_start_service"),
                 "grasp_task_stop_service": LaunchConfiguration("grasp_task_stop_service"),
                 "grasp_task_restore_service": LaunchConfiguration("grasp_task_restore_service"),
@@ -632,8 +632,10 @@ def generate_launch_description():
                     "ros2 launch arachne_operator grasp_task_server.launch.py "
                     "execute_real:=true confirm_execute_real:=true with_rviz:=false "
                     "confidence:=0.03 "
-                    "grasp_base_offset:=-0.31,0,0.16 "
+                    "grasp_base_offset:=-0.23,0.01,0.16 "
                     "real_fixed_post_grasp:=true "
+                    "release_point:=basket_a "
+                    "release_point_b_joints:=-1.407594293659515,0.07478614140534845,2.611345219296526,1.0028015483718502,1.6581842928233566,0.8873273897703009 "
                     "real_fixed_search_joints:=-1.611779,-0.457910,1.071527,-0.044520,1.575231,0.771459 "
                     "real_sdk_move_speed:=0.18 "
                     "real_sdk_move_accel:=0.25 "
@@ -649,8 +651,7 @@ def generate_launch_description():
                     "--local-planning-timeout-sec 4.0 --local-ik-max-iterations 120 "
                     "--lock-grasp-orientation --grasp-topdown-max-tilt-deg 20 "
                     "--grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0 "
-                    "--fixed-grasp-z-base -0.11 "
-                    "--local-position-tolerance 0.070 --local-orientation-tolerance 0.35 "
+                    "--local-position-tolerance 0.010 --local-orientation-tolerance 0.35 "
                     "--real-sdk-arrival-timeout-padding 10 "
                     "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "
                     "preview_on_start:=false warm_execute_preview:=false planning_recovery_base_enabled:=false skip_preflight:=true "

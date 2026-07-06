@@ -46,6 +46,8 @@ TERMINAL_STATES = {"succeeded", "failed", "canceled"}
 DEFAULT_AUBO_TEACH_FLAG_PATH = "/tmp/arachne_aubo_teach_mode"
 DEFAULT_REAL_FIXED_LIFT_JOINTS = "-1.392228627,-0.587456810,1.402798238,0.420158124,1.570706911,0.178573568"
 DEFAULT_REAL_FIXED_BASKET_JOINTS = "-1.0532545919568441,0.13642934952944055,2.6318805595335437,1.0042082880690795,1.5823432026398125,1.308814683852632"
+DEFAULT_RELEASE_POINT_B_JOINTS = "-1.407594293659515,0.07478614140534845,2.611345219296526,1.0028015483718502,1.6581842928233566,0.8873273897703009"
+RELEASE_POINTS = {"basket_a", "basket_b"}
 
 
 def _angle_diff(target: float, current: float) -> float:
@@ -121,6 +123,9 @@ class GraspTaskServer(Node):
         )
         self.declare_parameter("real_fixed_lift_joints", DEFAULT_REAL_FIXED_LIFT_JOINTS)
         self.declare_parameter("real_fixed_basket_joints", DEFAULT_REAL_FIXED_BASKET_JOINTS)
+        self.declare_parameter("release_point", "basket_a")
+        self.declare_parameter("release_point_a_joints", DEFAULT_REAL_FIXED_BASKET_JOINTS)
+        self.declare_parameter("release_point_b_joints", DEFAULT_RELEASE_POINT_B_JOINTS)
         self.declare_parameter("real_sdk_move_speed", 0.18)
         self.declare_parameter("real_sdk_move_accel", 0.25)
         self.declare_parameter("real_sdk_ip", os.environ.get("AUBO_ROBOT_IP", "192.168.127.128"))
@@ -133,10 +138,10 @@ class GraspTaskServer(Node):
         self.declare_parameter("prefer_aubo_move_joint_action", False)
         self.declare_parameter("aubo_move_joint_fallback_internal", False)
         self.declare_parameter("aubo_move_joint_wait_server_sec", 0.5)
-        self.declare_parameter("grasp_base_offset", "-0.31,0,0.16")
+        self.declare_parameter("grasp_base_offset", "-0.23,0.01,0.16")
         self.declare_parameter(
             "extra_args",
-            "--planner-backend local --planning-key-waypoints grasp --vertical-approach --no-lock-grasp-orientation --tool-orientation-limit-deg 45 --grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0,8,-8 --fixed-grasp-z-base -0.11 --local-position-tolerance 0.070 --local-orientation-tolerance 0.50 --local-planning-timeout-sec 2.0 --local-ik-max-iterations 90 --real-gripper-require-capture --real-sdk-semantic-targets-only --real-sdk-max-targets 6",
+            "--planner-backend local --planning-key-waypoints grasp --vertical-approach --no-lock-grasp-orientation --tool-orientation-limit-deg 45 --grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0,8,-8 --local-position-tolerance 0.010 --local-orientation-tolerance 0.50 --local-planning-timeout-sec 2.0 --local-ik-max-iterations 90 --real-gripper-require-capture --real-sdk-semantic-targets-only --real-sdk-max-targets 6",
         )
         self.declare_parameter("preview_on_start", False)
         self.declare_parameter("preview_runner_script", "")
@@ -432,7 +437,11 @@ class GraspTaskServer(Node):
         if existing is not None and existing.poll() is None:
             return
         self._clear_orphan_aubo_teach_gate()
-        command, env = self._idle_preview_command()
+        try:
+            command, env = self._idle_preview_command()
+        except ValueError as exc:
+            self._event("idle_preview_error", {"error": str(exc)})
+            return
         log_dir = self._log_root() / "idle_preview"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / (datetime.now().strftime("%Y%m%d_%H%M%S") + ".log")
@@ -521,9 +530,7 @@ class GraspTaskServer(Node):
         env["ARACHNE_GRASP_REAL_FIXED_LIFT_JOINTS"] = str(
             self.get_parameter("real_fixed_lift_joints").value
         )
-        env["ARACHNE_GRASP_REAL_FIXED_BASKET_JOINTS"] = str(
-            self.get_parameter("real_fixed_basket_joints").value
-        )
+        env["ARACHNE_GRASP_REAL_FIXED_BASKET_JOINTS"] = self._resolved_release_basket_joints()
         with self.lock:
             latest_joints = self.latest.get("aubo_joints")
         if latest_joints is not None:
@@ -1193,6 +1200,12 @@ class GraspTaskServer(Node):
             "startup preflight trusted" if skip_preflight else "checking real-hardware readiness",
         )
         self._write_json(run_dir / "task_request.json", self._task_request())
+        try:
+            self._resolved_release_basket_joints()
+        except ValueError as exc:
+            self._event("release_point_invalid", {"error": str(exc)})
+            self._finish_task("failed", str(exc), returncode=None)
+            return
 
         result = (
             PreflightResult(ok=True)
@@ -1858,9 +1871,7 @@ class GraspTaskServer(Node):
         env["ARACHNE_GRASP_REAL_FIXED_LIFT_JOINTS"] = str(
             self.get_parameter("real_fixed_lift_joints").value
         )
-        env["ARACHNE_GRASP_REAL_FIXED_BASKET_JOINTS"] = str(
-            self.get_parameter("real_fixed_basket_joints").value
-        )
+        env["ARACHNE_GRASP_REAL_FIXED_BASKET_JOINTS"] = self._resolved_release_basket_joints()
         with self.lock:
             latest_joints = self.latest.get("aubo_joints")
         if latest_joints is not None:
@@ -1909,6 +1920,21 @@ class GraspTaskServer(Node):
             execute_real=execute_real,
         )
         return command, env
+
+    def _resolved_release_basket_joints(self) -> str:
+        release_point = str(self.get_parameter("release_point").value).strip().lower()
+        if release_point not in RELEASE_POINTS:
+            raise ValueError(f"unsupported release_point: {release_point or '<empty>'}")
+        legacy = str(self.get_parameter("real_fixed_basket_joints").value).strip()
+        point_a = str(self.get_parameter("release_point_a_joints").value).strip()
+        point_b = str(self.get_parameter("release_point_b_joints").value).strip()
+        if release_point == "basket_b":
+            if not point_b:
+                raise ValueError("release_point:=basket_b requires release_point_b_joints")
+            return point_b
+        if legacy and legacy != DEFAULT_REAL_FIXED_BASKET_JOINTS:
+            return legacy
+        return point_a or legacy
 
     def _configured_or_pipeline_command(
         self,
@@ -2046,6 +2072,9 @@ class GraspTaskServer(Node):
             "real_fixed_search_joints",
             "real_fixed_lift_joints",
             "real_fixed_basket_joints",
+            "release_point",
+            "release_point_a_joints",
+            "release_point_b_joints",
             "real_sdk_move_speed",
             "real_sdk_move_accel",
             "aubo_teach_flag_path",

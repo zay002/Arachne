@@ -29,6 +29,15 @@ def generate_launch_description():
                 "real_fixed_basket_joints",
                 default_value="-1.0532545919568441,0.13642934952944055,2.6318805595335437,1.0042082880690795,1.5823432026398125,1.308814683852632",
             ),
+            DeclareLaunchArgument("release_point", default_value="basket_a"),
+            DeclareLaunchArgument(
+                "release_point_a_joints",
+                default_value="-1.0532545919568441,0.13642934952944055,2.6318805595335437,1.0042082880690795,1.5823432026398125,1.308814683852632",
+            ),
+            DeclareLaunchArgument(
+                "release_point_b_joints",
+                default_value="-1.407594293659515,0.07478614140534845,2.611345219296526,1.0028015483718502,1.6581842928233566,0.8873273897703009",
+            ),
             DeclareLaunchArgument("real_sdk_move_speed", default_value="0.18"),
             DeclareLaunchArgument("real_sdk_move_accel", default_value="0.25"),
             DeclareLaunchArgument(
@@ -44,7 +53,7 @@ def generate_launch_description():
             DeclareLaunchArgument("prefer_aubo_move_joint_action", default_value="false"),
             DeclareLaunchArgument("aubo_move_joint_fallback_internal", default_value="false"),
             DeclareLaunchArgument("aubo_move_joint_wait_server_sec", default_value="0.5"),
-            DeclareLaunchArgument("grasp_base_offset", default_value="-0.31,0,0.16"),
+            DeclareLaunchArgument("grasp_base_offset", default_value="-0.23,0.01,0.16"),
             DeclareLaunchArgument(
                 "extra_args",
                 default_value=(
@@ -54,8 +63,7 @@ def generate_launch_description():
                     "--tool-orientation-limit-deg 45 "
                     "--grasp-orientation-yaw-offsets-deg 0 "
                     "--grasp-orientation-tilt-offsets-deg 0,8,-8 "
-                    "--fixed-grasp-z-base -0.11 "
-                    "--local-position-tolerance 0.070 --local-orientation-tolerance 0.50 "
+                    "--local-position-tolerance 0.010 --local-orientation-tolerance 0.50 "
                     "--local-planning-timeout-sec 2.0 --local-ik-max-iterations 90 "
                     "--real-gripper-require-capture "
                     "--real-sdk-semantic-targets-only --real-sdk-max-targets 6"
@@ -133,6 +141,13 @@ def generate_launch_description():
                         ),
                         "real_fixed_basket_joints": LaunchConfiguration(
                             "real_fixed_basket_joints"
+                        ),
+                        "release_point": LaunchConfiguration("release_point"),
+                        "release_point_a_joints": LaunchConfiguration(
+                            "release_point_a_joints"
+                        ),
+                        "release_point_b_joints": LaunchConfiguration(
+                            "release_point_b_joints"
                         ),
                         "real_sdk_move_speed": ParameterValue(
                             LaunchConfiguration("real_sdk_move_speed"), value_type=float
