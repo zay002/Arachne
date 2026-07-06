@@ -467,9 +467,9 @@ def generate_launch_description():
             DeclareLaunchArgument("base_motion_max_segment_sec", default_value="20.0"),
             DeclareLaunchArgument("base_ignore_spurious_zero_odom", default_value="true"),
             DeclareLaunchArgument("arm_jog_step_m", default_value="0.008"),
-            DeclareLaunchArgument("arm_jog_duration_sec", default_value="0.24"),
+            DeclareLaunchArgument("arm_jog_duration_sec", default_value="0.06"),
             DeclareLaunchArgument("arm_rotate_step_rad", default_value="0.0122173"),
-            DeclareLaunchArgument("arm_rotate_duration_sec", default_value="0.24"),
+            DeclareLaunchArgument("arm_rotate_duration_sec", default_value="0.06"),
             DeclareLaunchArgument("arm_joint_step_rad", default_value="0.00698132"),
             DeclareLaunchArgument("arm_hold_period_sec", default_value="0.10"),
             DeclareLaunchArgument("arm_manual_prefer_topic", default_value="true"),
@@ -479,18 +479,18 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("arm_velocity_publish_rate", default_value="80.0"),
             DeclareLaunchArgument("arm_velocity_watchdog_sec", default_value="0.20"),
-            DeclareLaunchArgument("arm_joint_jog_speed_rad_sec", default_value="0.08"),
-            DeclareLaunchArgument("arm_cartesian_jog_speed_m_sec", default_value="0.025"),
-            DeclareLaunchArgument("arm_cartesian_rotate_speed_rad_sec", default_value="0.08"),
+            DeclareLaunchArgument("arm_joint_jog_speed_rad_sec", default_value="0.32"),
+            DeclareLaunchArgument("arm_cartesian_jog_speed_m_sec", default_value="0.10"),
+            DeclareLaunchArgument("arm_cartesian_rotate_speed_rad_sec", default_value="0.32"),
             DeclareLaunchArgument("arm_velocity_damping", default_value="0.08"),
-            DeclareLaunchArgument("arm_velocity_max_joint_speed_rad_sec", default_value="0.25"),
+            DeclareLaunchArgument("arm_velocity_max_joint_speed_rad_sec", default_value="1.00"),
             DeclareLaunchArgument("arm_velocity_max_joint_accel_rad_sec2", default_value="1.60"),
             DeclareLaunchArgument("arm_velocity_max_joint_jerk_rad_sec3", default_value="24.0"),
             DeclareLaunchArgument("arm_velocity_smoothing_tau_sec", default_value="0.08"),
             DeclareLaunchArgument("arm_velocity_keepout_predict_sec", default_value="0.35"),
             DeclareLaunchArgument("arm_velocity_keepout_check_interval_sec", default_value="0.05"),
             DeclareLaunchArgument("arm_velocity_stream_deadman_sec", default_value="0.75"),
-            DeclareLaunchArgument("arm_waypoint_duration_sec", default_value="3.75"),
+            DeclareLaunchArgument("arm_waypoint_duration_sec", default_value="0.9375"),
             DeclareLaunchArgument("arm_replay_backend", default_value="sdk_move_joint"),
             DeclareLaunchArgument(
                 "aubo_sdk_ip",
@@ -498,8 +498,8 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("aubo_sdk_rpc_port", default_value="30004"),
             DeclareLaunchArgument("aubo_sdk_rpc_timeout_sec", default_value="3.0"),
-            DeclareLaunchArgument("aubo_sdk_move_speed_rad_sec", default_value="0.25"),
-            DeclareLaunchArgument("aubo_sdk_move_accel_rad_sec2", default_value="0.45"),
+            DeclareLaunchArgument("aubo_sdk_move_speed_rad_sec", default_value="1.00"),
+            DeclareLaunchArgument("aubo_sdk_move_accel_rad_sec2", default_value="1.8"),
             DeclareLaunchArgument("aubo_sdk_blend_radius", default_value="0.0"),
             DeclareLaunchArgument("aubo_sdk_move_duration_sec", default_value="0.0"),
             DeclareLaunchArgument("aubo_sdk_goal_tolerance_rad", default_value="0.04"),
@@ -602,7 +602,10 @@ def generate_launch_description():
                 "camera_view_command",
                 default_value=(
                     "ros2 run arachne_operator raw_image_viewer "
-                    "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30"
+                    "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30 "
+                    "--yolo-model yolo_workspace/weights/trash_yolo26n_seg_best.onnx "
+                    "--yolo-task segment --yolo-imgsz 640 --yolo-conf 0.25 --yolo-every 5 "
+                    "--yolo-device cpu --yolo-venv yolo_workspace/.venv"
                 ),
             ),
             DeclareLaunchArgument(
@@ -641,7 +644,7 @@ def generate_launch_description():
                     "real_sdk_move_accel:=0.25 "
                     "prefer_aubo_move_joint_action:=false "
                     "aubo_move_joint_fallback_internal:=false "
-                    "extra_args:='--planner-backend local --imgsz 640 --min-detection-mask-area-px 0 "
+                    "extra_args:='--planner-backend local --imgsz 640 --inference-period 0.5 --min-detection-mask-area-px 0 "
                     "--reject-label-keywords=person,kite --planning-key-waypoints grasp "
                     "--detection-min-center-y-ratio 0.38 "
                     "--preferred-label-keywords bottle,carton,can,cup,container,jar,box "
@@ -654,7 +657,7 @@ def generate_launch_description():
                     "--local-position-tolerance 0.010 --local-orientation-tolerance 0.35 "
                     "--real-sdk-arrival-timeout-padding 10 "
                     "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "
-                    "preview_on_start:=false warm_execute_preview:=false planning_recovery_base_enabled:=false skip_preflight:=true "
+                    "preview_on_start:=true warm_execute_preview:=true planning_recovery_base_enabled:=false skip_preflight:=true "
                     "preflight_timeout_sec:=0.5 require_odom:=false require_joint_states:=false require_camera_topics:=false "
                     "require_aubo_status:=false require_gripper_status:=true "
                     "max_grasp_attempts:=2 retry_on_gripper_miss:=true"

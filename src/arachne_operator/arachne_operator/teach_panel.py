@@ -294,9 +294,9 @@ class TeachPanelNode(Node):
         self.declare_parameter("base_motion_max_segment_sec", 20.0)
         self.declare_parameter("base_ignore_spurious_zero_odom", True)
         self.declare_parameter("arm_jog_step_m", 0.008)
-        self.declare_parameter("arm_jog_duration_sec", 0.24)
+        self.declare_parameter("arm_jog_duration_sec", 0.06)
         self.declare_parameter("arm_rotate_step_rad", math.radians(0.7))
-        self.declare_parameter("arm_rotate_duration_sec", 0.24)
+        self.declare_parameter("arm_rotate_duration_sec", 0.06)
         self.declare_parameter("arm_joint_step_rad", math.radians(0.4))
         self.declare_parameter("arm_hold_period_sec", 0.10)
         self.declare_parameter("arm_manual_prefer_topic", True)
@@ -305,24 +305,24 @@ class TeachPanelNode(Node):
         )
         self.declare_parameter("arm_velocity_publish_rate", 80.0)
         self.declare_parameter("arm_velocity_watchdog_sec", 0.20)
-        self.declare_parameter("arm_joint_jog_speed_rad_sec", 0.08)
-        self.declare_parameter("arm_cartesian_jog_speed_m_sec", 0.025)
-        self.declare_parameter("arm_cartesian_rotate_speed_rad_sec", 0.08)
+        self.declare_parameter("arm_joint_jog_speed_rad_sec", 0.32)
+        self.declare_parameter("arm_cartesian_jog_speed_m_sec", 0.10)
+        self.declare_parameter("arm_cartesian_rotate_speed_rad_sec", 0.32)
         self.declare_parameter("arm_velocity_damping", 0.08)
-        self.declare_parameter("arm_velocity_max_joint_speed_rad_sec", 0.25)
+        self.declare_parameter("arm_velocity_max_joint_speed_rad_sec", 1.00)
         self.declare_parameter("arm_velocity_max_joint_accel_rad_sec2", 1.60)
         self.declare_parameter("arm_velocity_max_joint_jerk_rad_sec3", 24.0)
         self.declare_parameter("arm_velocity_smoothing_tau_sec", 0.08)
         self.declare_parameter("arm_velocity_keepout_predict_sec", 0.35)
         self.declare_parameter("arm_velocity_keepout_check_interval_sec", 0.05)
         self.declare_parameter("arm_velocity_stream_deadman_sec", 0.75)
-        self.declare_parameter("arm_waypoint_duration_sec", 3.75)
+        self.declare_parameter("arm_waypoint_duration_sec", 0.9375)
         self.declare_parameter("arm_replay_backend", "sdk_move_joint")
         self.declare_parameter("aubo_sdk_ip", os.environ.get("AUBO_ROBOT_IP", "192.168.127.128"))
         self.declare_parameter("aubo_sdk_rpc_port", 30004)
         self.declare_parameter("aubo_sdk_rpc_timeout_sec", 3.0)
-        self.declare_parameter("aubo_sdk_move_speed_rad_sec", 0.36)
-        self.declare_parameter("aubo_sdk_move_accel_rad_sec2", 0.45)
+        self.declare_parameter("aubo_sdk_move_speed_rad_sec", 1.44)
+        self.declare_parameter("aubo_sdk_move_accel_rad_sec2", 1.8)
         self.declare_parameter("aubo_sdk_blend_radius", 0.0)
         self.declare_parameter("aubo_sdk_move_duration_sec", 0.0)
         self.declare_parameter("aubo_sdk_goal_tolerance_rad", 0.04)
@@ -391,7 +391,10 @@ class TeachPanelNode(Node):
             "camera_view_command",
             (
                 "ros2 run arachne_operator raw_image_viewer "
-                "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30"
+                "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30 "
+                "--yolo-model yolo_workspace/weights/trash_yolo26n_seg_best.onnx "
+                "--yolo-task segment --yolo-imgsz 640 --yolo-conf 0.25 --yolo-every 5 "
+                "--yolo-device cpu --yolo-venv yolo_workspace/.venv"
             ),
         )
         self.declare_parameter(
@@ -428,7 +431,7 @@ class TeachPanelNode(Node):
                 "real_sdk_move_accel:=0.25 "
                 "prefer_aubo_move_joint_action:=false "
                 "aubo_move_joint_fallback_internal:=false "
-                "extra_args:='--planner-backend local --imgsz 640 --min-detection-mask-area-px 0 "
+                "extra_args:='--planner-backend local --imgsz 640 --inference-period 0.5 --min-detection-mask-area-px 0 "
                 "--reject-label-keywords=person,kite --planning-key-waypoints grasp "
                 "--detection-min-center-y-ratio 0.38 "
                 "--preferred-label-keywords bottle,carton,can,cup,container,jar,box "
@@ -441,7 +444,7 @@ class TeachPanelNode(Node):
                 "--local-position-tolerance 0.010 --local-orientation-tolerance 0.35 "
                 "--real-sdk-arrival-timeout-padding 10 "
                 "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "
-                "preview_on_start:=false warm_execute_preview:=false planning_recovery_base_enabled:=false skip_preflight:=true "
+                "preview_on_start:=true warm_execute_preview:=true planning_recovery_base_enabled:=false skip_preflight:=true "
                 "preflight_timeout_sec:=0.5 require_odom:=false require_joint_states:=false require_camera_topics:=false "
                 "require_aubo_status:=false require_gripper_status:=true "
                 "max_grasp_attempts:=2 retry_on_gripper_miss:=true"
@@ -1030,6 +1033,12 @@ class TeachPanelNode(Node):
                 "arm_waypoint_duration_sec": float(
                     self.get_parameter("arm_waypoint_duration_sec").value
                 ),
+                "arm_speed_rad_sec": float(
+                    self.get_parameter("aubo_sdk_move_speed_rad_sec").value
+                ),
+                "arm_accel_rad_sec2": float(
+                    self.get_parameter("aubo_sdk_move_accel_rad_sec2").value
+                ),
                 "gripper_settle_sec": float(self.get_parameter("gripper_settle_sec").value),
             },
             "poses": {
@@ -1176,6 +1185,36 @@ class TeachPanelNode(Node):
                         motion.get(
                             "arm_waypoint_duration_sec",
                             self.get_parameter("arm_waypoint_duration_sec").value,
+                        )
+                    ),
+                ),
+                Parameter(
+                    "aubo_sdk_move_speed_rad_sec",
+                    Parameter.Type.DOUBLE,
+                    float(
+                        motion.get(
+                            "arm_speed_rad_sec",
+                            self.get_parameter("aubo_sdk_move_speed_rad_sec").value,
+                        )
+                    ),
+                ),
+                Parameter(
+                    "arm_velocity_max_joint_speed_rad_sec",
+                    Parameter.Type.DOUBLE,
+                    float(
+                        motion.get(
+                            "arm_speed_rad_sec",
+                            self.get_parameter("arm_velocity_max_joint_speed_rad_sec").value,
+                        )
+                    ),
+                ),
+                Parameter(
+                    "aubo_sdk_move_accel_rad_sec2",
+                    Parameter.Type.DOUBLE,
+                    float(
+                        motion.get(
+                            "arm_accel_rad_sec2",
+                            self.get_parameter("aubo_sdk_move_accel_rad_sec2").value,
                         )
                     ),
                 ),
@@ -3849,6 +3888,8 @@ class TeachPanelNode(Node):
         arm_joint_step_deg: float,
         arm_hold_period_sec: float,
         waypoint_duration_sec: float,
+        arm_speed_rad_sec: float,
+        arm_accel_rad_sec2: float,
         gripper_settle_sec: float,
         arm_home_joints_deg: str,
         arm_install_joints_deg: str,
@@ -3863,6 +3904,10 @@ class TeachPanelNode(Node):
             raise ValueError("hold period must be positive")
         if waypoint_duration_sec <= 0.0:
             raise ValueError("waypoint duration must be positive")
+        if arm_speed_rad_sec <= 0.0:
+            raise ValueError("arm speed must be positive")
+        if arm_accel_rad_sec2 <= 0.0:
+            raise ValueError("arm accel must be positive")
         if gripper_settle_sec < 0.0:
             raise ValueError("gripper settle must be non-negative")
         home_values = _parse_joint_degrees(arm_home_joints_deg, label="home joints")
@@ -3893,6 +3938,21 @@ class TeachPanelNode(Node):
                     float(waypoint_duration_sec),
                 ),
                 Parameter(
+                    "aubo_sdk_move_speed_rad_sec",
+                    Parameter.Type.DOUBLE,
+                    float(arm_speed_rad_sec),
+                ),
+                Parameter(
+                    "arm_velocity_max_joint_speed_rad_sec",
+                    Parameter.Type.DOUBLE,
+                    float(arm_speed_rad_sec),
+                ),
+                Parameter(
+                    "aubo_sdk_move_accel_rad_sec2",
+                    Parameter.Type.DOUBLE,
+                    float(arm_accel_rad_sec2),
+                ),
+                Parameter(
                     "gripper_settle_sec",
                     Parameter.Type.DOUBLE,
                     float(gripper_settle_sec),
@@ -3913,7 +3973,8 @@ class TeachPanelNode(Node):
             "motion settings applied: "
             f"base={base_linear_speed:.3f}m/s {base_angular_speed:.3f}rad/s, "
             f"tcp={arm_jog_step_m:.3f}m, rot={arm_rotate_step_deg:.1f}deg, "
-            f"joint={arm_joint_step_deg:.1f}deg, hold={arm_hold_period_sec:.2f}s, "
+            f"joint={arm_joint_step_deg:.1f}deg, speed={arm_speed_rad_sec:.2f}rad/s, "
+            f"accel={arm_accel_rad_sec2:.2f}rad/s2, hold={arm_hold_period_sec:.2f}s, "
             f"gripper_settle={gripper_settle_sec:.1f}s"
         )
 
@@ -3973,6 +4034,12 @@ class TeachPanelApp:
         )
         self.waypoint_duration_var = tk.StringVar(
             value=f"{float(node.get_parameter('arm_waypoint_duration_sec').value):.2f}"
+        )
+        self.arm_speed_var = tk.StringVar(
+            value=f"{float(node.get_parameter('aubo_sdk_move_speed_rad_sec').value):.2f}"
+        )
+        self.arm_accel_var = tk.StringVar(
+            value=f"{float(node.get_parameter('aubo_sdk_move_accel_rad_sec2').value):.2f}"
         )
         self.gripper_settle_var = tk.StringVar(
             value=f"{float(node.get_parameter('gripper_settle_sec').value):.1f}"
@@ -4528,6 +4595,8 @@ class TeachPanelApp:
             ("Joint step deg", self.arm_joint_step_var),
             ("Hold period s", self.arm_hold_period_var),
             ("Waypoint duration s", self.waypoint_duration_var),
+            ("Arm speed rad/s", self.arm_speed_var),
+            ("Arm accel rad/s2", self.arm_accel_var),
             ("Gripper settle s", self.gripper_settle_var),
         )
         for row, (label, var) in enumerate(fields):
@@ -4893,6 +4962,8 @@ class TeachPanelApp:
                 arm_joint_step_deg=float(self.arm_joint_step_var.get()),
                 arm_hold_period_sec=float(self.arm_hold_period_var.get()),
                 waypoint_duration_sec=float(self.waypoint_duration_var.get()),
+                arm_speed_rad_sec=float(self.arm_speed_var.get()),
+                arm_accel_rad_sec2=float(self.arm_accel_var.get()),
                 gripper_settle_sec=float(self.gripper_settle_var.get()),
                 arm_home_joints_deg=self.home_joints_var.get(),
                 arm_install_joints_deg=self.install_joints_var.get(),
@@ -5009,6 +5080,12 @@ class TeachPanelApp:
         )
         self.waypoint_duration_var.set(
             f"{float(self.node.get_parameter('arm_waypoint_duration_sec').value):.2f}"
+        )
+        self.arm_speed_var.set(
+            f"{float(self.node.get_parameter('aubo_sdk_move_speed_rad_sec').value):.2f}"
+        )
+        self.arm_accel_var.set(
+            f"{float(self.node.get_parameter('aubo_sdk_move_accel_rad_sec2').value):.2f}"
         )
         self.gripper_settle_var.set(
             f"{float(self.node.get_parameter('gripper_settle_sec').value):.1f}"

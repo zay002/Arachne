@@ -1178,7 +1178,13 @@ class GraspTaskServer(Node):
         self.base_state_pub.publish(msg)
 
     def _run_task(self) -> None:
-        self._stop_idle_preview("grasp task starting")
+        use_warm_preview = (
+            bool(self.get_parameter("preview_on_start").value)
+            and bool(self.get_parameter("warm_execute_preview").value)
+            and bool(self.get_parameter("execute_real").value)
+        )
+        if not use_warm_preview:
+            self._stop_idle_preview("grasp task starting")
         ok, message = self._wait_for_aubo_control_release(4.0)
         if not ok:
             self._event("idle_preview_control_release_timeout", {"message": message})
@@ -1227,11 +1233,7 @@ class GraspTaskServer(Node):
             self._finish_task("failed", f"preflight failed: {message}", returncode=None)
             return
 
-        if (
-            bool(self.get_parameter("preview_on_start").value)
-            and bool(self.get_parameter("warm_execute_preview").value)
-            and bool(self.get_parameter("execute_real").value)
-        ):
+        if use_warm_preview:
             ok, message = self._run_warm_execute_preview(run_dir)
             self._finish_task("succeeded" if ok else "failed", message, returncode=0 if ok else None)
             return
@@ -1397,6 +1399,10 @@ class GraspTaskServer(Node):
             log_file.write("See idle_preview log for full pipeline output.\n")
             log_file.flush()
             timeout = max(float(self.get_parameter("warm_execute_timeout_sec").value), 1.0)
+            self.restart_search_pub.publish(Empty())
+            log_file.write("Restart search requested before execute trigger.\n")
+            log_file.flush()
+            time.sleep(0.1)
             self.real_execute_trigger_pub.publish(Empty())
             log_file.write("Execute trigger topic armed; repeating until motion starts.\n")
             log_file.flush()
@@ -2087,6 +2093,7 @@ class GraspTaskServer(Node):
             "grasp_base_offset",
             "extra_args",
             "preview_on_start",
+            "warm_execute_preview",
             "preview_extra_args",
             "planning_recovery_base_enabled",
             "planning_recovery_base_sequence",

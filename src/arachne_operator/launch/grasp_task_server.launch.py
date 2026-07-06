@@ -70,6 +70,7 @@ def generate_launch_description():
                 ),
             ),
             DeclareLaunchArgument("preview_on_start", default_value="false"),
+            DeclareLaunchArgument("warm_execute_preview", default_value="false"),
             DeclareLaunchArgument("preview_extra_args", default_value="--planner-backend none --imgsz 640"),
             DeclareLaunchArgument("planning_recovery_base_enabled", default_value="true"),
             DeclareLaunchArgument(
@@ -177,6 +178,9 @@ def generate_launch_description():
                         "extra_args": LaunchConfiguration("extra_args"),
                         "preview_on_start": ParameterValue(
                             LaunchConfiguration("preview_on_start"), value_type=bool
+                        ),
+                        "warm_execute_preview": ParameterValue(
+                            LaunchConfiguration("warm_execute_preview"), value_type=bool
                         ),
                         "preview_extra_args": LaunchConfiguration("preview_extra_args"),
                         "planning_recovery_base_enabled": ParameterValue(
