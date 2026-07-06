@@ -76,7 +76,7 @@ def generate_launch_description():
                     "real_sdk_move_speed:=0.36 real_sdk_move_accel:=0.60 "
                     "aubo_move_joint_fallback_internal:=false "
                     "extra_args:='--planner-backend local --imgsz 640 --min-detection-mask-area-px 0 "
-                    "--reject-label-keywords film,other,cap,lid --planning-key-waypoints approach,grasp "
+                    "--reject-label-keywords= --planning-key-waypoints approach,grasp "
                     "--detection-min-center-y-ratio 0.38 "
                     "--preferred-label-keywords bottle,carton,can,cup,container,jar,box "
                     "--arm-collision-samples-per-link 1 --arm-collision-radius 0.018 "

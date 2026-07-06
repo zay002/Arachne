@@ -5,19 +5,16 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROJECT_DIR="${ARACHNE_YOLO_PROJECT_DIR:-${ROOT_DIR}/yolo_workspace}"
 VENV_DIR="${ARACHNE_YOLO_VENV:-${PROJECT_DIR}/.venv}"
-DEFAULT_ENGINE="${PROJECT_DIR}/engines/trash_yolo26n_seg_best_fp16_640.engine"
-DEFAULT_ONNX="${PROJECT_DIR}/weights/trash_yolo26n_seg_best.onnx"
-DEFAULT_PT="${PROJECT_DIR}/weights/trash_yolo26n_seg_best.pt"
+DEFAULT_ONNX="${PROJECT_DIR}/weights/yolo26m.onnx"
+DEFAULT_PT="${PROJECT_DIR}/weights/yolo26m.pt"
 if [[ -n "${ARACHNE_YOLO_MODEL:-}" ]]; then
   MODEL="${ARACHNE_YOLO_MODEL}"
-elif [[ -f "${DEFAULT_ENGINE}" ]]; then
-  MODEL="${DEFAULT_ENGINE}"
 elif [[ -f "${DEFAULT_ONNX}" ]]; then
   MODEL="${DEFAULT_ONNX}"
 else
   MODEL="${DEFAULT_PT}"
 fi
-TASK="${ARACHNE_YOLO_TASK:-segment}"
+TASK="${ARACHNE_YOLO_TASK:-detect}"
 
 if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
   "${ROOT_DIR}/scripts/vision/setup_yolo_env.sh"

@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROJECT_DIR="${ARACHNE_YOLO_PROJECT_DIR:-${ROOT_DIR}/yolo_workspace}"
 VENV_DIR="${ARACHNE_YOLO_VENV:-${PROJECT_DIR}/.venv}"
-MODELS="${ARACHNE_YOLO_MODELS:-yolo26n.pt yolo26n-seg.pt}"
+MODELS="${ARACHNE_YOLO_MODELS:-yolo26m.pt}"
 
 if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
   "${ROOT_DIR}/scripts/vision/setup_yolo_env.sh"
@@ -31,4 +31,10 @@ for model_name in sys.argv[1:]:
         print(f"ready {path.resolve()} ({path.stat().st_size / 1024 / 1024:.1f} MiB)")
     else:
         print(f"ready {model_name}")
+    onnx_path = path.with_suffix(".onnx")
+    if not onnx_path.exists():
+        exported = Path(model.export(format="onnx", imgsz=640))
+        if exported != onnx_path:
+            exported.replace(onnx_path)
+    print(f"onnx {onnx_path.resolve()} ({onnx_path.stat().st_size / 1024 / 1024:.1f} MiB)")
 PY

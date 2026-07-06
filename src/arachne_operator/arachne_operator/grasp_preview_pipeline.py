@@ -335,24 +335,21 @@ def _parse_args() -> argparse.Namespace:
         description="Preview detect-depth-grasp path from Gemini335 RGB-D in RViz."
     )
     hidden = argparse.SUPPRESS
-    parser.add_argument("--model", default="yolo_workspace/weights/trash_yolo26n_seg_best.onnx", help=hidden)
+    parser.add_argument("--model", default="yolo_workspace/weights/yolo26m.onnx", help=hidden)
     parser.add_argument("--venv", default="yolo_workspace/.venv", help=hidden)
-    parser.add_argument("--yolo-task", default="segment", help=hidden)
+    parser.add_argument("--yolo-task", default="detect", help=hidden)
     parser.add_argument("--classes", default="")
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--min-detection-mask-area-px", type=float, default=1200.0, help=hidden)
     parser.add_argument("--detection-edge-margin-ratio", type=float, default=0.06, help=hidden)
     parser.add_argument("--detection-min-center-y-ratio", type=float, default=0.38, help=hidden)
     parser.add_argument("--detection-max-center-y-ratio", type=float, default=0.86, help=hidden)
-    parser.add_argument("--reject-label-keywords", default="film,other,cap,lid", help=hidden)
+    parser.add_argument("--reject-label-keywords", default="", help=hidden)
     parser.add_argument(
         "--preferred-label-keywords",
         default="bottle,carton,can,cup,container,jar,box",
         help=hidden,
     )
-    parser.add_argument("--green-bottle-fallback", action=argparse.BooleanOptionalAction, default=False, help=hidden)
-    parser.add_argument("--green-bottle-min-area-px", type=float, default=450.0, help=hidden)
-    parser.add_argument("--green-bottle-bbox-pad-ratio", type=float, default=0.35, help=hidden)
     parser.add_argument("--imgsz", type=int, default=640, help=hidden)
     parser.add_argument("--device-id", default="0", help=hidden)
     parser.add_argument(
@@ -362,6 +359,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--gripper-type", choices=("ms42dc", "ag95"), default="ms42dc", help=hidden)
     parser.add_argument("--inference-period", type=float, default=0.45, help=hidden)
+    parser.add_argument("--max-color-frame-age-sec", type=float, default=0.75, help=hidden)
     parser.add_argument("--snapshot-iou-threshold", type=float, default=0.35, help=hidden)
     parser.add_argument("--snapshot-center-shift", type=float, default=0.12, help=hidden)
     parser.add_argument("--lost-frame-threshold", type=int, default=5, help=hidden)
@@ -383,7 +381,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max-depth", type=float, default=2.5, help=hidden)
     parser.add_argument("--depth-percentile", type=float, default=35.0, help=hidden)
     parser.add_argument("--depth-band", type=float, default=0.08, help=hidden)
-    parser.add_argument("--yolo-depth-filter", action=argparse.BooleanOptionalAction, default=True, help=hidden)
+    parser.add_argument("--yolo-depth-filter", action=argparse.BooleanOptionalAction, default=False, help=hidden)
     parser.add_argument("--yolo-depth-min-base-z", type=float, default=-0.20, help=hidden)
     parser.add_argument("--yolo-depth-max-base-z", type=float, default=0.0, help=hidden)
     parser.add_argument("--roi-shrink", type=float, default=0.65, help=hidden)
@@ -415,7 +413,7 @@ def _parse_args() -> argparse.Namespace:
         help=hidden,
     )
     parser.add_argument("--approach-distance", type=float, default=0.18, help=hidden)
-    parser.add_argument("--grasp-standoff", type=float, default=0.035, help=hidden)
+    parser.add_argument("--grasp-standoff", type=float, default=-0.08, help=hidden)
     parser.add_argument("--grasp-tcp-offset-m", type=float, default=0.0, help=hidden)
     parser.add_argument("--grasp-base-offset", default="0,0,0", help=hidden)
     parser.add_argument("--disable-pointcloud-grasp-shape", action="store_true", help=hidden)
@@ -449,6 +447,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--ground-min-z-base", type=float, default=-0.22, help=hidden)
     parser.add_argument("--grasp-max-z-base", type=float, default=999.0, help=hidden)
     parser.add_argument("--grasp-final-z-offset-m", type=float, default=-0.055, help=hidden)
+    parser.add_argument("--fixed-grasp-z-base", type=float, default=float("nan"), help=hidden)
     parser.add_argument("--ground-clearance", type=float, default=0.02, help=hidden)
     parser.add_argument("--tool-ground-clearance", type=float, default=0.015, help=hidden)
     parser.add_argument("--allow-colliding-best-effort", action="store_true", help=hidden)
@@ -874,7 +873,6 @@ class GraspPreviewNode(Node):
         self.snapshot_time = 0.0
         self.snapshot_count = 0
         self.last_saved_detection_key: tuple[int, str] | None = None
-        self.yolo_cuda_disabled = False
         self.inference_count = 0
         self.inference_paused = False
         self.planning_thread: threading.Thread | None = None
@@ -1186,6 +1184,25 @@ class GraspPreviewNode(Node):
         self._clear_markers(header)
         self.get_logger().info(f"restart 2D search: {reason}")
 
+    def _color_frame_age_sec(self) -> float | None:
+        if self.latest_color is None:
+            return None
+        stamp = self.latest_color.header.stamp
+        stamp_ns = int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec)
+        if stamp_ns <= 0:
+            return None
+        return (self.get_clock().now().nanoseconds - stamp_ns) / 1_000_000_000.0
+
+    def _color_frame_is_stale(self) -> bool:
+        max_age = max(float(self.args.max_color_frame_age_sec), 0.0)
+        if max_age <= 0.0:
+            return False
+        age = self._color_frame_age_sec()
+        if age is None or age <= max_age:
+            return False
+        self._throttled_log(f"color frame stale: age={age:.2f}s > {max_age:.2f}s; skipping YOLO")
+        return True
+
     def _tick(self) -> None:
         if self.latest_color is None:
             self._throttled_log("waiting for color topic")
@@ -1204,6 +1221,8 @@ class GraspPreviewNode(Node):
                 self._throttled_log(str(exc))
                 return
             self._publish_locked_annotation(color, self.latest_color.header)
+            return
+        if self._color_frame_is_stale():
             return
         try:
             color = _image_to_bgr(self.latest_color)
@@ -1232,8 +1251,6 @@ class GraspPreviewNode(Node):
         detection = self._best_detection(result)
         annotated = color.copy()
         header = self.latest_color.header
-        if detection is None:
-            detection = self._green_bottle_fallback_detection(model_input)
         if detection is not None:
             self._draw_detection_overlay(annotated, detection, "Grasp_ROI")
         if detection is None:
@@ -2812,54 +2829,14 @@ class GraspPreviewNode(Node):
         }
         if self.class_ids is not None:
             kwargs["classes"] = self.class_ids
-        try:
-            return self.model.predict(frame, **kwargs)[0]
-        except RuntimeError as exc:
-            if device == "cpu" or not self._is_cuda_failure(exc):
-                raise
-            self.yolo_cuda_disabled = True
-            self.args.device_id = "cpu"
-            self.args.imgsz = min(int(self.args.imgsz), 640)
-            try:
-                import torch
-
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            try:
-                self.model.to("cpu")
-            except Exception:
-                pass
-            self.get_logger().warning(
-                f"YOLO CUDA failure; falling back to CPU imgsz={int(self.args.imgsz)}: {exc}"
-            )
-            kwargs["device"] = "cpu"
-            kwargs["imgsz"] = int(self.args.imgsz)
-            return self.model.predict(frame, **kwargs)[0]
+        return self.model.predict(frame, **kwargs)[0]
 
     def _yolo_device(self) -> str:
-        if self.yolo_cuda_disabled:
-            return "cpu"
         if self.model_path.suffix.lower() == ".onnx":
             device = str(self.args.onnx_device).strip()
             if device:
                 return device
         return str(self.args.device_id)
-
-    @staticmethod
-    def _is_cuda_failure(exc: BaseException) -> bool:
-        text = str(exc).lower()
-        return any(
-            token in text
-            for token in (
-                "cuda",
-                "cudnn",
-                "nvml",
-                "nvmap",
-                "cudacachingallocator",
-                "out of memory",
-            )
-        )
 
     def _best_detection(self, result) -> Detection | None:
         boxes = result.boxes
@@ -2888,6 +2865,8 @@ class GraspPreviewNode(Node):
             if token.strip()
         ]
 
+        reject_reasons: dict[str, int] = {}
+        reject_examples: list[str] = []
         best: tuple[float, int, tuple[tuple[float, float], ...] | None, float] | None = None
         for index in range(len(boxes)):
             xyxy = tuple(float(v) for v in xyxys[index])
@@ -2895,11 +2874,22 @@ class GraspPreviewNode(Node):
             confidence = float(confs[index])
             label = str(result.names.get(class_id, class_id))
             label_l = label.lower()
-            if any(word in label_l for word in reject_words):
+
+            def reject(reason: str, detail: str) -> None:
+                reject_reasons[reason] = reject_reasons.get(reason, 0) + 1
+                if len(reject_examples) < 2:
+                    reject_examples.append(
+                        f"{label}:{confidence:.2f} {reason} {detail}".strip()
+                    )
+
+            matched_reject_word = next((word for word in reject_words if word in label_l), "")
+            if matched_reject_word:
+                reject("label", f"matched={matched_reject_word}")
                 continue
             x1, y1, x2, y2 = xyxy
             if image_w > 0 and image_h > 0:
                 if x1 < edge_x or y1 < edge_y or x2 > float(image_w) - edge_x or y2 > float(image_h) - edge_y:
+                    reject("edge", f"bbox=({x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f})")
                     continue
             mask_xy: tuple[tuple[float, float], ...] | None = None
             mask_area_px = 0.0
@@ -2912,12 +2902,17 @@ class GraspPreviewNode(Node):
             box_area = max((x2 - x1) * (y2 - y1), 0.0)
             area_px = max(mask_area_px, box_area)
             if area_px < min_mask_area:
+                reject("area", f"{area_px:.0f}px<{min_mask_area:.0f}px")
                 continue
             cx = (x1 + x2) * 0.5
             cy = (y1 + y2) * 0.5
             if image_h > 0:
                 center_y_ratio = cy / float(image_h)
                 if center_y_ratio < min_center_y or center_y_ratio > max_center_y:
+                    reject(
+                        "center_y",
+                        f"{center_y_ratio:.2f} not {min_center_y:.2f}-{max_center_y:.2f}",
+                    )
                     continue
             center_penalty = 0.0
             if image_w > 0 and image_h > 0:
@@ -2935,6 +2930,15 @@ class GraspPreviewNode(Node):
             if best is None or score > best[0]:
                 best = (score, index, mask_xy, mask_area_px)
         if best is None:
+            rejected = sum(reject_reasons.values())
+            reasons = ",".join(f"{key}={value}" for key, value in sorted(reject_reasons.items()))
+            examples = "; ".join(reject_examples)
+            message = f"YOLO detections filtered out: total={len(boxes)} rejected={rejected}"
+            if reasons:
+                message += f" reasons={reasons}"
+            if examples:
+                message += f" examples=[{examples}]"
+            self._throttled_log(message)
             return None
         _score, best_idx, mask_xy, mask_area_px = best
         xyxy = tuple(float(v) for v in xyxys[best_idx])
@@ -2950,97 +2954,9 @@ class GraspPreviewNode(Node):
             mask_area_px=mask_area_px,
         )
 
-    def _green_bottle_fallback_detection(self, image: np.ndarray) -> Detection | None:
-        if not bool(self.args.green_bottle_fallback):
-            return None
-        image_h, image_w = image.shape[:2]
-        if image_h <= 0 or image_w <= 0:
-            return None
-
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, np.array([35, 35, 25]), np.array([95, 255, 255]))
-
-        edge = max(float(self.args.detection_edge_margin_ratio), 0.0)
-        min_y = int(np.clip(float(self.args.detection_min_center_y_ratio) * image_h, 0, image_h))
-        max_y = int(np.clip(float(self.args.detection_max_center_y_ratio) * image_h, 0, image_h))
-        edge_x = int(np.clip(edge * image_w, 0, image_w))
-        mask[:min_y, :] = 0
-        mask[max_y:, :] = 0
-        mask[:, :edge_x] = 0
-        mask[:, image_w - edge_x :] = 0
-
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_DILATE, np.ones((7, 7), dtype=np.uint8))
-        contours, _hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        min_area = max(float(self.args.green_bottle_min_area_px), 1.0)
-        candidates: list[tuple[float, int, int, int, int, float, float]] = []
-        for contour in contours:
-            area = float(cv2.contourArea(contour))
-            if area < min_area:
-                continue
-            x, y, w, h = cv2.boundingRect(contour)
-            cx = float(x) + 0.5 * float(w)
-            cy = float(y) + 0.5 * float(h)
-            if image_h > 0:
-                cy_ratio = cy / float(image_h)
-                if (
-                    cy_ratio < float(self.args.detection_min_center_y_ratio)
-                    or cy_ratio > float(self.args.detection_max_center_y_ratio)
-                ):
-                    continue
-            candidates.append((area, x, y, w, h, cx, cy))
-        if not candidates:
-            return None
-
-        def score(item: tuple[float, int, int, int, int, float, float]) -> float:
-            area, _x, _y, _w, _h, cx, cy = item
-            center_penalty = (
-                abs(cx - image_w * 0.5) / max(float(image_w), 1.0)
-                + abs(cy - image_h * 0.5) / max(float(image_h), 1.0)
-            )
-            return area - 700.0 * center_penalty
-
-        seed = max(candidates, key=score)
-        _area, sx, sy, sw, sh, scx, _scy = seed
-        x_tolerance = max(70.0, float(sw) * 2.5)
-        grouped = [item for item in candidates if abs(item[5] - scx) <= x_tolerance]
-        if not grouped:
-            grouped = [seed]
-        x1 = min(item[1] for item in grouped)
-        y1 = min(item[2] for item in grouped)
-        x2 = max(item[1] + item[3] for item in grouped)
-        y2 = max(item[2] + item[4] for item in grouped)
-        width = max(float(x2 - x1), 1.0)
-        height = max(float(y2 - y1), 1.0)
-        pad_ratio = max(float(self.args.green_bottle_bbox_pad_ratio), 0.0)
-        pad_x = max(28.0, width * (0.6 + pad_ratio))
-        pad_y = max(45.0, height * pad_ratio)
-        bx1 = float(np.clip(x1 - pad_x, 0, image_w - 1))
-        by1 = float(np.clip(y1 - pad_y, 0, image_h - 1))
-        bx2 = float(np.clip(x2 + pad_x, bx1 + 2.0, image_w))
-        by2 = float(np.clip(y2 + pad_y, by1 + 2.0, image_h))
-        mx1 = float(np.clip(x1 - 4.0, 0, image_w - 1))
-        my1 = float(np.clip(y1 - 4.0, 0, image_h - 1))
-        mx2 = float(np.clip(x2 + 4.0, mx1 + 2.0, image_w))
-        my2 = float(np.clip(y2 + 4.0, my1 + 2.0, image_h))
-        mask_xy = ((mx1, my1), (mx2, my1), (mx2, my2), (mx1, my2))
-        area_px = float((mx2 - mx1) * (my2 - my1))
-        self._throttled_log(
-            f"YOLO missed target; using green bottle fallback bbox="
-            f"({bx1:.0f},{by1:.0f},{bx2:.0f},{by2:.0f}) green_components={len(grouped)}"
-        )
-        return Detection(
-            label="Plastic bottle green fallback",
-            class_id=-1,
-            confidence=0.12,
-            xyxy=(bx1, by1, bx2, by2),
-            mask_xy=mask_xy,
-            mask_area_px=area_px,
-        )
-
     def _publish_detection_event(self, detection: Detection, header: Header) -> None:
         payload = {
-            "source": "grasp_preview_yolo_seg",
+            "source": "grasp_preview_yolo_detect",
             "has_3d": False,
             "stamp": {
                 "sec": int(header.stamp.sec),
@@ -5429,6 +5345,8 @@ class GraspPreviewNode(Node):
             grasp_base[1],
             grasp_base[2] + float(self.args.grasp_final_z_offset_m),
         )
+        if math.isfinite(float(self.args.fixed_grasp_z_base)):
+            grasp_base = (grasp_base[0], grasp_base[1], float(self.args.fixed_grasp_z_base))
         if bool(self.args.vertical_approach):
             min_grasp_z = (
                 float(self.args.ground_min_z_base)

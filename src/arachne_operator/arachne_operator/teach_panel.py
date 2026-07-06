@@ -147,6 +147,7 @@ class TeachWaypoint:
     kind: str = "pose"
     wait_sec: float = 0.0
     base_motion: list[dict] = field(default_factory=list)
+    task_command: str = ""
 
 
 @dataclass(frozen=True)
@@ -355,6 +356,8 @@ class TeachPanelNode(Node):
         self.declare_parameter("aubo_teach_command_topic", "/arachne/aubo/teach_command")
         self.declare_parameter("aubo_teach_exit_wait_sec", 8.0)
         self.declare_parameter("replay_settle_sec", 0.05)
+        self.declare_parameter("visual_grasp_replay_timeout_sec", 180.0)
+        self.declare_parameter("visual_grasp_replay_poll_sec", 0.5)
         self.declare_parameter("gripper_settle_sec", 2.0)
         self.declare_parameter("recording_dir", "recordings/teach")
         self.declare_parameter("teach_config_path", DEFAULT_TEACH_CONFIG_PATH)
@@ -414,14 +417,16 @@ class TeachPanelNode(Node):
             (
                 "ros2 launch arachne_operator grasp_task_server.launch.py "
                 "execute_real:=true confirm_execute_real:=true with_rviz:=false "
-                "confidence:=0.08 "
+                "confidence:=0.03 "
+                "grasp_base_offset:=-0.31,0,0.16 "
                 "real_fixed_post_grasp:=true "
                 "real_fixed_search_joints:=-1.611779,-0.457910,1.071527,-0.044520,1.575231,0.771459 "
-                "real_sdk_move_speed:=0.36 "
-                "real_sdk_move_accel:=0.60 "
+                "real_sdk_move_speed:=0.18 "
+                "real_sdk_move_accel:=0.25 "
+                "prefer_aubo_move_joint_action:=false "
                 "aubo_move_joint_fallback_internal:=false "
                 "extra_args:='--planner-backend local --imgsz 640 --min-detection-mask-area-px 0 "
-                "--reject-label-keywords film,other,cap,lid --planning-key-waypoints approach,grasp "
+                "--reject-label-keywords=person,kite --planning-key-waypoints grasp "
                 "--detection-min-center-y-ratio 0.38 "
                 "--preferred-label-keywords bottle,carton,can,cup,container,jar,box "
                 "--arm-collision-samples-per-link 1 --arm-collision-radius 0.018 "
@@ -430,12 +435,13 @@ class TeachPanelNode(Node):
                 "--local-planning-timeout-sec 4.0 --local-ik-max-iterations 120 "
                 "--lock-grasp-orientation --grasp-topdown-max-tilt-deg 20 "
                 "--grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0 "
-                "--local-position-tolerance 0.050 --local-orientation-tolerance 0.35 "
+                "--fixed-grasp-z-base -0.11 "
+                "--local-position-tolerance 0.070 --local-orientation-tolerance 0.35 "
                 "--real-sdk-arrival-timeout-padding 10 "
                 "--real-sdk-max-targets 4 --real-sdk-semantic-targets-only' "
                 "preview_on_start:=false warm_execute_preview:=false planning_recovery_base_enabled:=false skip_preflight:=true "
                 "preflight_timeout_sec:=0.5 require_odom:=false require_joint_states:=false require_camera_topics:=false "
-                "require_aubo_status:=false require_gripper_status:=false "
+                "require_aubo_status:=false require_gripper_status:=true "
                 "max_grasp_attempts:=2 retry_on_gripper_miss:=true"
             ),
         )
@@ -1579,7 +1585,7 @@ class TeachPanelNode(Node):
     def visual_grasp_start(self) -> None:
         self._start_worker(self._visual_grasp_start_worker)
 
-    def _visual_grasp_start_worker(self) -> None:
+    def _visual_grasp_start_worker(self) -> bool:
         self.drive_base_manual("stop")
         self.stop_arm_velocity_hold()
         if self._aubo_teach_gate_may_be_active():
@@ -1589,7 +1595,7 @@ class TeachPanelNode(Node):
             )
             if not ready or self._aubo_teach_gate_may_be_active():
                 self._status("visual grasp blocked: Aubo teach mode still active", warn=True)
-                return
+                return False
 
         self._status("visual grasp: starting camera, raw view, and grasp server")
         self._start_managed_process_worker("camera")
@@ -1601,17 +1607,16 @@ class TeachPanelNode(Node):
 
         if bool(self.get_parameter("skip_task_preflight").value):
             self._status("visual grasp: startup preflight trusted, starting task")
-            self._call_grasp_task_worker("start")
-            return
+            return self._call_grasp_task_worker("start")
 
         preflight = self.grasp_task_clients.get("preflight")
         if preflight is None:
             self._status("visual grasp blocked: missing preflight client", warn=True)
-            return
+            return False
         service_name = getattr(preflight, "srv_name", "preflight")
         if not preflight.wait_for_service(timeout_sec=15.0):
             self._status(f"visual grasp blocked: preflight unavailable: {service_name}", warn=True)
-            return
+            return False
 
         deadline = time.monotonic() + 30.0
         last_message = ""
@@ -1627,8 +1632,7 @@ class TeachPanelNode(Node):
             message = response.message if response is not None else "empty response"
             if success:
                 self._status("visual grasp: preflight ok, starting task")
-                self._call_grasp_task_worker("start")
-                return
+                return self._call_grasp_task_worker("start")
 
             failures = self._required_preflight_failures(message)
             last_message = self._format_preflight_failures(failures, message)
@@ -1638,15 +1642,16 @@ class TeachPanelNode(Node):
                 time.sleep(0.8)
                 continue
             self._status(f"visual grasp blocked: {last_message}", warn=True)
-            return
+            return False
 
         self._status(f"visual grasp blocked: preflight never became ready ({last_message})", warn=True)
+        return False
 
-    def _call_grasp_task_worker(self, command: str) -> None:
+    def _call_grasp_task_worker(self, command: str) -> bool:
         client = self.grasp_task_clients.get(command)
         if client is None:
             self._status(f"grasp task service missing: {command}", warn=True)
-            return
+            return False
         if command == "start":
             self.drive_base_manual("stop")
             self.stop_arm_velocity_hold()
@@ -1657,7 +1662,7 @@ class TeachPanelNode(Node):
                 )
                 if not ready or self._aubo_teach_gate_may_be_active():
                     self._status("grasp task start blocked: Aubo teach mode still active", warn=True)
-                    return
+                    return False
             self._stop_managed_process_worker("depth_pointcloud", quiet=True)
             self._start_managed_process_worker("depth_pointcloud")
         if command in {"stop", "restore"}:
@@ -1674,11 +1679,11 @@ class TeachPanelNode(Node):
         self._status(f"grasp task {command} requested")
         if not client.wait_for_service(timeout_sec=1.5):
             self._status(f"grasp task {command} unavailable: {service_name}", warn=True)
-            return
+            return False
         future = client.call_async(Trigger.Request())
         if not self._wait_service_future(future, 8.0):
             self._status(f"grasp task {command} timeout: {service_name}", warn=True)
-            return
+            return False
         response = future.result()
         success = bool(response.success) if response is not None else False
         message = response.message if response is not None else "empty response"
@@ -1687,6 +1692,7 @@ class TeachPanelNode(Node):
             f"{self._short_grasp_task_message(message)}",
             warn=not success,
         )
+        return success
 
     def _call_cleanup_task_worker(self, command: str) -> None:
         client = self.cleanup_task_clients.get(command)
@@ -2501,6 +2507,17 @@ class TeachPanelNode(Node):
         self._status(f"recorded wait {clean_label}: {wait_sec:.1f}s")
         return waypoint
 
+    def record_visual_grasp(self, label: str) -> TeachWaypoint:
+        clean_label = label.strip() or f"visual_grasp_{datetime.now().strftime('%H%M%S')}"
+        waypoint = TeachWaypoint(
+            label=clean_label,
+            stamp=datetime.now().isoformat(timespec="seconds"),
+            kind="visual_grasp",
+            task_command="start",
+        )
+        self._status(f"recorded visual grasp {clean_label}")
+        return waypoint
+
     def replay(
         self,
         waypoints: list[TeachWaypoint],
@@ -2575,6 +2592,12 @@ class TeachPanelNode(Node):
                     self._status(f"wait {waypoint.wait_sec:.1f}s: {waypoint.label}")
                     self._sleep(float(waypoint.wait_sec))
                     continue
+                if waypoint.kind == "visual_grasp":
+                    if not replay_arm and not replay_gripper_enabled:
+                        self._status(f"visual grasp skipped in base-only replay: {waypoint.label}")
+                        continue
+                    self._replay_visual_grasp_step(waypoint)
+                    continue
 
                 if waypoint.base_motion:
                     self._replay_base_motion(waypoint.base_motion, waypoint.label)
@@ -2622,8 +2645,93 @@ class TeachPanelNode(Node):
             self._status("replay complete" if state == "complete" else "replay stopped")
         except Exception as exc:
             self.set_base_velocity(0.0, 0.0)
+            if "visual grasp" in str(exc).lower():
+                self._call_grasp_task_worker("stop")
             self._notify_replay_progress(progress_callback, None, total, str(exc), "failed")
             self._status(f"replay failed: {exc}", warn=True)
+
+    def _replay_visual_grasp_step(self, waypoint: TeachWaypoint) -> None:
+        command = str(waypoint.task_command or "start").strip().lower()
+        if command != "start":
+            raise RuntimeError(f"visual grasp unsupported command: {command}")
+        previous_task_id = self._grasp_task_status_task_id()
+        self.set_base_velocity(0.0, 0.0)
+        self.drive_base_manual("stop")
+        self.stop_arm_velocity_hold()
+        self._status(f"visual grasp replay start: {waypoint.label}")
+        if not self._visual_grasp_start_worker():
+            raise RuntimeError("visual grasp start failed")
+        ok, message = self._wait_visual_grasp_replay_done(waypoint.label, previous_task_id)
+        if not ok:
+            raise RuntimeError(f"visual grasp failed: {message}")
+
+    def _grasp_task_status_task_id(self) -> str:
+        client = self.grasp_task_clients.get("status")
+        if client is None or not client.wait_for_service(timeout_sec=0.2):
+            return ""
+        future = client.call_async(Trigger.Request())
+        if not self._wait_service_future(future, 0.5):
+            return ""
+        response = future.result()
+        if response is None or not bool(response.success):
+            return ""
+        try:
+            payload = json.loads(str(response.message))
+        except json.JSONDecodeError:
+            return ""
+        return str(payload.get("task_id", "")).strip()
+
+    def _wait_visual_grasp_replay_done(
+        self, label: str, previous_task_id: str = ""
+    ) -> tuple[bool, str]:
+        client = self.grasp_task_clients.get("status")
+        if client is None:
+            return False, "missing grasp task status client"
+        service_name = getattr(client, "srv_name", "status")
+        if not client.wait_for_service(timeout_sec=1.5):
+            return False, f"grasp task status unavailable: {service_name}"
+        timeout = max(float(self.get_parameter("visual_grasp_replay_timeout_sec").value), 0.0)
+        poll = max(float(self.get_parameter("visual_grasp_replay_poll_sec").value), 0.1)
+        deadline = time.monotonic() + timeout
+        last_message = "no status"
+        while time.monotonic() < deadline and not self.cancel_event.is_set():
+            future = client.call_async(Trigger.Request())
+            if not self._wait_service_future(future, min(poll, 2.0)):
+                last_message = f"status timeout: {service_name}"
+                self._sleep(poll)
+                continue
+            response = future.result()
+            if response is None or not bool(response.success):
+                last_message = "empty status response" if response is None else response.message
+                self._sleep(poll)
+                continue
+            try:
+                payload = json.loads(str(response.message))
+            except json.JSONDecodeError:
+                last_message = str(response.message)
+                self._sleep(poll)
+                continue
+            state = str(payload.get("state", "")).strip().lower()
+            task_id = str(payload.get("task_id", "")).strip()
+            last_message = self._short_grasp_task_message(response.message)
+            if previous_task_id and task_id == previous_task_id and state in {
+                "succeeded",
+                "failed",
+                "canceled",
+            }:
+                self._sleep(poll)
+                continue
+            if state == "succeeded":
+                self._status(f"visual grasp replay complete: {label}")
+                return True, last_message
+            if state in {"failed", "canceled"}:
+                return False, last_message
+            self._sleep(poll)
+        if self.cancel_event.is_set():
+            self._call_grasp_task_worker("stop")
+            return False, "visual grasp canceled"
+        self._call_grasp_task_worker("stop")
+        return False, f"visual grasp timeout: {last_message}"
 
     def _replay_has_arm_targets(self, waypoints: list[TeachWaypoint]) -> bool:
         return any(
@@ -4270,8 +4378,11 @@ class TeachPanelApp:
         ttk.Label(editor, text="Wait s").grid(row=0, column=3, padx=5, pady=5)
         ttk.Entry(editor, textvariable=self.wait_var, width=8).grid(row=0, column=4, padx=5, pady=5)
         ttk.Button(editor, text="Wait", command=self._add_wait).grid(row=0, column=5, padx=5, pady=5)
+        ttk.Button(editor, text="Visual Grasp", command=self._add_visual_grasp).grid(
+            row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=(0, 5)
+        )
         ttk.Checkbutton(editor, text="Base-only Run", variable=self.base_only_run_var).grid(
-            row=1, column=0, columnspan=6, sticky="w", padx=5, pady=(0, 5)
+            row=1, column=2, columnspan=4, sticky="w", padx=5, pady=(0, 5)
         )
 
         toolbar = ttk.Frame(tab)
@@ -4999,6 +5110,12 @@ class TeachPanelApp:
         self.label_var.set(f"wp_{len(self.waypoints) + 1}")
         self._refresh_waypoints()
 
+    def _add_visual_grasp(self) -> None:
+        waypoint = self.node.record_visual_grasp(self.label_var.get())
+        self.waypoints.append(waypoint)
+        self.label_var.set(f"wp_{len(self.waypoints) + 1}")
+        self._refresh_waypoints()
+
     def _delete_selected(self) -> None:
         selected = list(self.listbox.curselection())
         for index in reversed(selected):
@@ -5224,6 +5341,10 @@ class TeachPanelApp:
         for index, waypoint in enumerate(self.waypoints, start=1):
             if waypoint.kind == "wait":
                 self.listbox.insert(tk.END, f"{index:02d} {waypoint.label} | wait={waypoint.wait_sec:.1f}s")
+                continue
+            if waypoint.kind == "visual_grasp":
+                command = waypoint.task_command or "start"
+                self.listbox.insert(tk.END, f"{index:02d} {waypoint.label} | visual_grasp={command}")
                 continue
             tool = waypoint.tool_position
             moves = self._base_motion_summary(waypoint.base_motion)

@@ -45,7 +45,7 @@ except ModuleNotFoundError:
 TERMINAL_STATES = {"succeeded", "failed", "canceled"}
 DEFAULT_AUBO_TEACH_FLAG_PATH = "/tmp/arachne_aubo_teach_mode"
 DEFAULT_REAL_FIXED_LIFT_JOINTS = "-1.392228627,-0.587456810,1.402798238,0.420158124,1.570706911,0.178573568"
-DEFAULT_REAL_FIXED_BASKET_JOINTS = "-1.187592607,0.410946348,2.275480439,0.311525006,1.571670234,0.382880501"
+DEFAULT_REAL_FIXED_BASKET_JOINTS = "-1.0532545919568441,0.13642934952944055,2.6318805595335437,1.0042082880690795,1.5823432026398125,1.308814683852632"
 
 
 def _angle_diff(target: float, current: float) -> float:
@@ -121,8 +121,8 @@ class GraspTaskServer(Node):
         )
         self.declare_parameter("real_fixed_lift_joints", DEFAULT_REAL_FIXED_LIFT_JOINTS)
         self.declare_parameter("real_fixed_basket_joints", DEFAULT_REAL_FIXED_BASKET_JOINTS)
-        self.declare_parameter("real_sdk_move_speed", 0.36)
-        self.declare_parameter("real_sdk_move_accel", 0.45)
+        self.declare_parameter("real_sdk_move_speed", 0.18)
+        self.declare_parameter("real_sdk_move_accel", 0.25)
         self.declare_parameter("real_sdk_ip", os.environ.get("AUBO_ROBOT_IP", "192.168.127.128"))
         self.declare_parameter("real_sdk_rpc_port", 30004)
         self.declare_parameter("real_sdk_rpc_timeout", 2.0)
@@ -130,13 +130,13 @@ class GraspTaskServer(Node):
         self.declare_parameter("aubo_control_owner_path", DEFAULT_AUBO_CONTROL_OWNER_PATH)
         self.declare_parameter("aubo_control_owner_name", "grasp_task_server")
         self.declare_parameter("aubo_move_joint_action_name", "/arachne/aubo/move_joint")
-        self.declare_parameter("prefer_aubo_move_joint_action", True)
+        self.declare_parameter("prefer_aubo_move_joint_action", False)
         self.declare_parameter("aubo_move_joint_fallback_internal", False)
         self.declare_parameter("aubo_move_joint_wait_server_sec", 0.5)
-        self.declare_parameter("grasp_base_offset", "0,0,0")
+        self.declare_parameter("grasp_base_offset", "-0.31,0,0.16")
         self.declare_parameter(
             "extra_args",
-            "--planner-backend local --planning-key-waypoints approach,grasp --vertical-approach --no-lock-grasp-orientation --tool-orientation-limit-deg 45 --grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0,8,-8 --local-position-tolerance 0.045 --local-orientation-tolerance 0.50 --local-planning-timeout-sec 2.0 --local-ik-max-iterations 90 --real-gripper-require-capture --real-sdk-semantic-targets-only --real-sdk-max-targets 6",
+            "--planner-backend local --planning-key-waypoints grasp --vertical-approach --no-lock-grasp-orientation --tool-orientation-limit-deg 45 --grasp-orientation-yaw-offsets-deg 0 --grasp-orientation-tilt-offsets-deg 0,8,-8 --fixed-grasp-z-base -0.11 --local-position-tolerance 0.070 --local-orientation-tolerance 0.50 --local-planning-timeout-sec 2.0 --local-ik-max-iterations 90 --real-gripper-require-capture --real-sdk-semantic-targets-only --real-sdk-max-targets 6",
         )
         self.declare_parameter("preview_on_start", False)
         self.declare_parameter("preview_runner_script", "")
@@ -161,7 +161,7 @@ class GraspTaskServer(Node):
         self.declare_parameter("set_safety_manual_on_finish", True)
         self.declare_parameter("require_aubo_status", False)
         self.declare_parameter("require_joint_states", True)
-        self.declare_parameter("require_gripper_status", False)
+        self.declare_parameter("require_gripper_status", True)
         self.declare_parameter("require_odom", False)
         self.declare_parameter("require_camera_topics", False)
         self.declare_parameter("max_grasp_attempts", 3)
@@ -1948,15 +1948,14 @@ class GraspTaskServer(Node):
             "--venv",
             os.environ.get("ARACHNE_GRASP_YOLO_VENV", str(self.root / "yolo_workspace/.venv")),
             "--yolo-task",
-            os.environ.get("ARACHNE_GRASP_YOLO_TASK", "segment"),
+            os.environ.get("ARACHNE_GRASP_YOLO_TASK", "detect"),
             "--classes",
             env["ARACHNE_GRASP_CLASSES"],
             "--conf",
             env["ARACHNE_GRASP_CONF"],
             "--device-id",
             env["ARACHNE_GRASP_DEVICE_ID"],
-            "--grasp-base-offset",
-            env["ARACHNE_GRASP_BASE_OFFSET"],
+            f"--grasp-base-offset={env['ARACHNE_GRASP_BASE_OFFSET']}",
             "--aubo-base-frame",
             "aubo_base_link",
             "--real-execute-backend",
@@ -2019,13 +2018,13 @@ class GraspTaskServer(Node):
         if configured:
             return configured
         for rel in (
-            "yolo_workspace/weights/trash_yolo26n_seg_best.onnx",
-            "yolo_workspace/weights/trash_yolo26n_seg_best.pt",
+            "yolo_workspace/weights/yolo26m.onnx",
+            "yolo_workspace/weights/yolo26m.pt",
         ):
             path = self.root / rel
             if path.exists():
                 return str(path)
-        return str(self.root / "yolo_workspace/weights/trash_yolo26n_seg_best.pt")
+        return str(self.root / "yolo_workspace/weights/yolo26m.onnx")
 
     def _log_root(self) -> Path:
         configured = Path(str(self.get_parameter("log_root").value)).expanduser()

@@ -12,7 +12,7 @@ def generate_launch_description():
             DeclareLaunchArgument("confirm_execute_real", default_value="false"),
             DeclareLaunchArgument("with_rviz", default_value="false"),
             DeclareLaunchArgument("classes", default_value=""),
-            DeclareLaunchArgument("confidence", default_value="0.08"),
+            DeclareLaunchArgument("confidence", default_value="0.03"),
             DeclareLaunchArgument("device_id", default_value="0"),
             DeclareLaunchArgument("real_execute_backend", default_value="sdk_move_joint"),
             DeclareLaunchArgument("real_return_home", default_value="true"),
@@ -27,10 +27,10 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "real_fixed_basket_joints",
-                default_value="-1.187592607,0.410946348,2.275480439,0.311525006,1.571670234,0.382880501",
+                default_value="-1.0532545919568441,0.13642934952944055,2.6318805595335437,1.0042082880690795,1.5823432026398125,1.308814683852632",
             ),
-            DeclareLaunchArgument("real_sdk_move_speed", default_value="0.36"),
-            DeclareLaunchArgument("real_sdk_move_accel", default_value="0.45"),
+            DeclareLaunchArgument("real_sdk_move_speed", default_value="0.18"),
+            DeclareLaunchArgument("real_sdk_move_accel", default_value="0.25"),
             DeclareLaunchArgument(
                 "aubo_teach_flag_path",
                 default_value="/tmp/arachne_aubo_teach_mode",
@@ -41,20 +41,21 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("aubo_control_owner_name", default_value="grasp_task_server"),
             DeclareLaunchArgument("aubo_move_joint_action_name", default_value="/arachne/aubo/move_joint"),
-            DeclareLaunchArgument("prefer_aubo_move_joint_action", default_value="true"),
+            DeclareLaunchArgument("prefer_aubo_move_joint_action", default_value="false"),
             DeclareLaunchArgument("aubo_move_joint_fallback_internal", default_value="false"),
             DeclareLaunchArgument("aubo_move_joint_wait_server_sec", default_value="0.5"),
-            DeclareLaunchArgument("grasp_base_offset", default_value="0,0,0"),
+            DeclareLaunchArgument("grasp_base_offset", default_value="-0.31,0,0.16"),
             DeclareLaunchArgument(
                 "extra_args",
                 default_value=(
                     "--planner-backend local "
-                    "--planning-key-waypoints approach,grasp "
+                    "--planning-key-waypoints grasp "
                     "--vertical-approach --no-lock-grasp-orientation "
                     "--tool-orientation-limit-deg 45 "
                     "--grasp-orientation-yaw-offsets-deg 0 "
                     "--grasp-orientation-tilt-offsets-deg 0,8,-8 "
-                    "--local-position-tolerance 0.045 --local-orientation-tolerance 0.50 "
+                    "--fixed-grasp-z-base -0.11 "
+                    "--local-position-tolerance 0.070 --local-orientation-tolerance 0.50 "
                     "--local-planning-timeout-sec 2.0 --local-ik-max-iterations 90 "
                     "--real-gripper-require-capture "
                     "--real-sdk-semantic-targets-only --real-sdk-max-targets 6"
@@ -72,7 +73,7 @@ def generate_launch_description():
             DeclareLaunchArgument("log_root", default_value="log/grasp_tasks"),
             DeclareLaunchArgument("require_safety_state_machine", default_value="false"),
             DeclareLaunchArgument("require_aubo_status", default_value="false"),
-            DeclareLaunchArgument("require_gripper_status", default_value="false"),
+            DeclareLaunchArgument("require_gripper_status", default_value="true"),
             DeclareLaunchArgument("require_odom", default_value="false"),
             DeclareLaunchArgument("require_camera_topics", default_value="false"),
             DeclareLaunchArgument("max_grasp_attempts", default_value="3"),
