@@ -364,6 +364,7 @@ def generate_launch_description():
                 "camera_command": LaunchConfiguration("camera_command"),
                 "depth_pointcloud_command": LaunchConfiguration("depth_pointcloud_command"),
                 "camera_view_command": LaunchConfiguration("camera_view_command"),
+                "yolo_view_command": LaunchConfiguration("yolo_view_command"),
                 "slam_command": LaunchConfiguration("slam_command"),
                 "grasp_server_command": LaunchConfiguration("grasp_server_command"),
                 "cleanup_server_command": LaunchConfiguration("cleanup_server_command"),
@@ -602,7 +603,14 @@ def generate_launch_description():
                 "camera_view_command",
                 default_value=(
                     "ros2 run arachne_operator raw_image_viewer "
-                    "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30 "
+                    "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "yolo_view_command",
+                default_value=(
+                    "ros2 run arachne_operator raw_image_viewer "
+                    "--topic /camera/color/image_raw --window \"智慧出行\" --max-fps 30 "
                     "--yolo-model yolo_workspace/weights/trash_yolo26n_seg_best.onnx "
                     "--yolo-task segment --yolo-imgsz 640 --yolo-conf 0.25 --yolo-every 5 "
                     "--yolo-device cpu --yolo-venv yolo_workspace/.venv"

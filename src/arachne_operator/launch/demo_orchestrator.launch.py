@@ -62,10 +62,7 @@ def generate_launch_description():
                 "camera_view_command",
                 default_value=(
                     "ros2 run arachne_operator raw_image_viewer "
-                    "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30 "
-                    "--yolo-model yolo_workspace/weights/trash_yolo26n_seg_best.onnx "
-                    "--yolo-task segment --yolo-imgsz 640 --yolo-conf 0.25 --yolo-every 5 "
-                    "--yolo-device cpu --yolo-venv yolo_workspace/.venv"
+                    "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30"
                 ),
             ),
             DeclareLaunchArgument(

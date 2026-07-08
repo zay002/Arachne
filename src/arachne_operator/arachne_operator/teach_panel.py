@@ -74,6 +74,7 @@ MANAGED_SERVICE_COMMAND_PARAMS = {
     "camera": "camera_command",
     "depth_pointcloud": "depth_pointcloud_command",
     "viewer": "camera_view_command",
+    "yolo_viewer": "yolo_view_command",
     "slam": "slam_command",
     "grasp_server": "grasp_server_command",
     "cleanup_server": "cleanup_server_command",
@@ -391,7 +392,14 @@ class TeachPanelNode(Node):
             "camera_view_command",
             (
                 "ros2 run arachne_operator raw_image_viewer "
-                "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30 "
+                "--topic /camera/color/image_raw --window \"Arachne Raw Camera\" --max-fps 30"
+            ),
+        )
+        self.declare_parameter(
+            "yolo_view_command",
+            (
+                "ros2 run arachne_operator raw_image_viewer "
+                "--topic /camera/color/image_raw --window \"智慧出行\" --max-fps 30 "
                 "--yolo-model yolo_workspace/weights/trash_yolo26n_seg_best.onnx "
                 "--yolo-task segment --yolo-imgsz 640 --yolo-conf 0.25 --yolo-every 5 "
                 "--yolo-device cpu --yolo-venv yolo_workspace/.venv"
@@ -944,6 +952,7 @@ class TeachPanelNode(Node):
                 "camera": managed["camera"],
                 "depth_pointcloud": managed["depth_pointcloud"],
                 "viewer": managed["viewer"],
+                "yolo_viewer": managed["yolo_viewer"],
                 "slam": managed["slam"],
                 "grasp_server": managed["grasp_server"],
                 "cleanup_server": managed["cleanup_server"],
@@ -4056,6 +4065,7 @@ class TeachPanelApp:
             value=str(node.get_parameter("teach_config_path").value)
         )
         self.base_only_run_var = tk.BooleanVar(value=False)
+        self.hide_program_tree_var = tk.BooleanVar(value=False)
         self.joint_target_vars = [tk.StringVar(value="") for _ in range(6)]
         self.tool_target_vars = {axis: tk.StringVar(value="") for axis in ("x", "y", "z")}
         self.move_status_vars: dict[str, tk.StringVar] = {}
@@ -4070,6 +4080,7 @@ class TeachPanelApp:
         self._scroll_widgets: dict[tk.Widget, tk.Canvas] = {}
         self.program_record_buttons: list[ttk.Button] = []
         self.listbox: tk.Listbox | None = None
+        self.program_tree_frame: ttk.LabelFrame | None = None
         self.log_text: tk.Text | None = None
         self.joint_tree: ttk.Treeview | None = None
         self._build()
@@ -4249,6 +4260,7 @@ class TeachPanelApp:
             ("camera", "camera"),
             ("depth_pointcloud", "depth_cloud"),
             ("viewer", "viewer"),
+            ("yolo_viewer", "yolo_view"),
             ("slam", "slam"),
             ("grasp_server", "grasp_server"),
             ("cleanup_server", "cleanup_server"),
@@ -4283,6 +4295,7 @@ class TeachPanelApp:
                 ("Road Preflight", lambda: self.node.call_cleanup_task("preflight"), None),
                 ("Depth Cloud", lambda: self.node.toggle_managed_process("depth_pointcloud"), None),
                 ("2D View", lambda: self.node.toggle_managed_process("viewer"), None),
+                ("YOLO Window", lambda: self.node.toggle_managed_process("yolo_viewer"), None),
                 ("Localize / Nav", lambda: self.node.toggle_managed_process("slam"), None),
                 ("Grasp Server", lambda: self.node.toggle_managed_process("grasp_server"), None),
                 ("Road Server", lambda: self.node.toggle_managed_process("cleanup_server"), None),
@@ -4389,6 +4402,7 @@ class TeachPanelApp:
                 ("camera", "Gemini Camera"),
                 ("depth_pointcloud", "Depth Debug Cloud"),
                 ("viewer", "2D Raw View"),
+                ("yolo_viewer", "YOLO View"),
                 ("slam", "Localize / Nav"),
                 ("grasp_server", "Grasp Server"),
                 ("cleanup_server", "Road Cleanup Server"),
@@ -4517,6 +4531,12 @@ class TeachPanelApp:
         ttk.Checkbutton(editor, text="Base-only Run", variable=self.base_only_run_var).grid(
             row=1, column=3, columnspan=3, sticky="w", padx=5, pady=(0, 5)
         )
+        ttk.Checkbutton(
+            editor,
+            text="Hide Program Tree",
+            variable=self.hide_program_tree_var,
+            command=self._toggle_program_tree,
+        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=5, pady=(0, 5))
 
         toolbar = ttk.Frame(tab)
         toolbar.grid(row=1, column=0, sticky="ew", pady=(0, 8))
@@ -4545,6 +4565,7 @@ class TeachPanelApp:
             )
 
         program = ttk.LabelFrame(tab, text="Program Tree")
+        self.program_tree_frame = program
         program.grid(row=2, column=0, sticky="nsew")
         program.rowconfigure(1, weight=1)
         program.columnconfigure(0, weight=1)
@@ -4557,6 +4578,14 @@ class TeachPanelApp:
         scroll.grid(row=1, column=1, sticky="ns")
         self.listbox.configure(yscrollcommand=scroll.set)
         ttk.Label(tab, textvariable=self.file_var).grid(row=3, column=0, sticky="w", pady=(6, 0))
+
+    def _toggle_program_tree(self) -> None:
+        if self.program_tree_frame is None:
+            return
+        if self.hide_program_tree_var.get():
+            self.program_tree_frame.grid_remove()
+        else:
+            self.program_tree_frame.grid()
 
     def _build_demo_tab(self) -> None:
         tab = self._add_scrollable_tab("Demo")
